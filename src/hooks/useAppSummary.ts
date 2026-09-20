@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { api } from '../api/client';
-import { useApiQuery } from './useApiQuery';
+import { useApiQueryIf } from './useApiQuery';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * ProERP Optimize Edilmiş & Hafifletilmiş Yönetici ve AI Asistan Özeti Hook'u
@@ -8,21 +9,34 @@ import { useApiQuery } from './useApiQuery';
  * bellek tüketimini ve yeniden çizim (re-render) maliyetini minimize eder.
  */
 export function useAppSummary() {
+  const { hasPermission } = useAuth();
+
+  // Pano, tüm modüllerden veri toplar; kullanıcının yetkisi olmayan modüllerin
+  // sorguları hiç çalıştırılmaz (sunucu 403 dönmez, kartlar boş kalır).
+  const canFinance = hasPermission('finance', 'view');
+  const canHr = hasPermission('hr', 'view');
+  const canInventory = hasPermission('inventory', 'view');
+  const canOrders = hasPermission('orders', 'view');
+  const canProduction = hasPermission('production', 'view');
+  const canAccounting = hasPermission('accounting', 'view');
+  const canInvoices = hasPermission('invoices', 'view');
+  const canWaybills = hasPermission('waybills', 'view');
+
   // Yalnızca özet ve pano için kritik tabloları dinle
-  const transactions = useApiQuery(() => api.transactions.list(), [], ['transactions']) || [];
-  const cashBoxes = useApiQuery(() => api.cashBoxes.list(), [], ['cashBoxes']) || [];
-  const bankAccounts = useApiQuery(() => api.bankAccounts.list(), [], ['bankAccounts']) || [];
-  const employees = useApiQuery(() => api.employees.list({ where: { status: 'active' } }), [], ['employees']) || [];
-  const payrollRecords = useApiQuery(() => api.payrollRecords.list(), [], ['payrollRecords']) || [];
-  const advanceRequests = useApiQuery(() => api.advanceRequests.list({ where: { status: 'pending' } }), [], ['advanceRequests']) || [];
-  const products = useApiQuery(() => api.products.list(), [], ['products']) || [];
-  const orders = useApiQuery(() => api.orders.list(), [], ['orders']) || [];
-  const orderItems = useApiQuery(() => api.orderItems.list(), [], ['orderItems']) || [];
-  const workOrders = useApiQuery(() => api.workOrders.list(), [], ['workOrders']) || [];
-  const journalEntries = useApiQuery(() => api.journalEntries.list(), [], ['journalEntries']) || [];
-  const checks = useApiQuery(() => api.checks.list(), [], ['checks']) || [];
-  const invoices = useApiQuery(() => api.invoices.list(), [], ['invoices']) || [];
-  const waybills = useApiQuery(() => api.waybills.list({ where: { invoicedStatus: 'not_invoiced' } }), [], ['waybills']) || [];
+  const transactions = useApiQueryIf(canFinance, () => api.transactions.list(), [], ['transactions']) || [];
+  const cashBoxes = useApiQueryIf(canFinance, () => api.cashBoxes.list(), [], ['cashBoxes']) || [];
+  const bankAccounts = useApiQueryIf(canFinance, () => api.bankAccounts.list(), [], ['bankAccounts']) || [];
+  const employees = useApiQueryIf(canHr, () => api.employees.list({ where: { status: 'active' } }), [], ['employees']) || [];
+  const payrollRecords = useApiQueryIf(canHr, () => api.payrollRecords.list(), [], ['payrollRecords']) || [];
+  const advanceRequests = useApiQueryIf(canHr, () => api.advanceRequests.list({ where: { status: 'pending' } }), [], ['advanceRequests']) || [];
+  const products = useApiQueryIf(canInventory, () => api.products.list(), [], ['products']) || [];
+  const orders = useApiQueryIf(canOrders, () => api.orders.list(), [], ['orders']) || [];
+  const orderItems = useApiQueryIf(canOrders, () => api.orderItems.list(), [], ['orderItems']) || [];
+  const workOrders = useApiQueryIf(canProduction, () => api.workOrders.list(), [], ['workOrders']) || [];
+  const journalEntries = useApiQueryIf(canAccounting, () => api.journalEntries.list(), [], ['journalEntries']) || [];
+  const checks = useApiQueryIf(canFinance, () => api.checks.list(), [], ['checks']) || [];
+  const invoices = useApiQueryIf(canInvoices, () => api.invoices.list(), [], ['invoices']) || [];
+  const waybills = useApiQueryIf(canWaybills, () => api.waybills.list({ where: { invoicedStatus: 'not_invoiced' } }), [], ['waybills']) || [];
 
   const stats = useMemo(() => {
     // 1. Finans & Likidite

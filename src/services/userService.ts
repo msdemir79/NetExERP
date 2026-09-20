@@ -1,22 +1,40 @@
-import { api } from '../api/client';
-import type { 
-  AppUser, 
-  Role, 
-  AuditLog, 
-  AppModule, 
-  PermissionAction, 
+import { api, authApi, type SessionPayload } from '../api/client';
+import type {
+  AppUser,
+  Role,
+  AuditLog,
+  AppModule,
+  PermissionAction,
   AuditActionType,
   UserStatus
 } from '../types';
 import { INITIAL_ROLES } from '../data/initialRoles';
-import { hashPassword, generateSalt, generateSessionToken, verifyPassword } from './authGuard';
 
-const ACTIVE_USER_STORAGE_KEY = 'proerp_active_user_id';
-const ACTIVE_SESSION_TOKEN_KEY = 'proerp_session_token';
-
+/**
+ * Kullanıcı, rol ve oturum servisi.
+ *
+ * Oturum sunucu tarafında yönetilir (httpOnly çerez); parola işlemleri
+ * (`login`, `changePassword`) sunucuda doğrulanır. Tarayıcıda parola
+ * hashleme/doğrulama yapılmaz.
+ */
 class UserService {
   // Listeners for active user changes
   private activeUserChangeListeners: Array<(user: AppUser | null, role: Role | null) => void> = [];
+
+  /** Sunucudan alınan son oturum bilgisi; tekrar tekrar sorgu atmamak için önbelleklenir. */
+  private session: SessionPayload = { user: null, role: null };
+
+  getCachedSession(): SessionPayload {
+    return this.session;
+  }
+
+  getCachedUserId(): number | null {
+    return this.session.user?.id ?? null;
+  }
+
+  private setSession(payload: SessionPayload | null): void {
+    this.session = payload || { user: null, role: null };
+  }
 
   // =========================================================================
   // KULLANICI İŞLEMLERİ (USERS)
@@ -34,32 +52,28 @@ class UserService {
     return await api.users.findOne({ username });
   }
 
+  /**
+   * Kullanıcı oluşturur. Parola gövdede düz metin olarak gönderilir ve
+   * sunucuda scrypt ile hashlenir; istemci hiçbir hash üretmez.
+   */
   async createUser(user: Omit<AppUser, 'id'>): Promise<number> {
-    // Check if username exists
     const existing = await api.users.findOne({ username: user.username });
     if (existing) {
       throw new Error(`"${user.username}" kullanıcı adı zaten kullanımda.`);
     }
 
-    // Lookup role name
+    if (!user.password) {
+      throw new Error('Yeni kullanıcı için parola tanımlanmalıdır.');
+    }
+
     let roleName = user.roleName;
     if (!roleName && user.roleCode) {
       const role = await api.roles.findOne({ code: user.roleCode });
       roleName = role?.name;
     }
 
-    // Parola güvenliği: pinCode veya şifre hashleme
-    let passwordHash = user.passwordHash;
-    let passwordSalt = user.passwordSalt;
-    if (!passwordHash && user.pinCode) {
-      passwordSalt = generateSalt();
-      passwordHash = await hashPassword(user.pinCode, passwordSalt);
-    }
-
     const newId = await api.users.create({
       ...user,
-      passwordHash,
-      passwordSalt,
       roleName,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -94,35 +108,44 @@ class UserService {
       roleName = role?.name;
     }
 
-    // Parola güncelleniyorsa yeniden hashle
-    let passwordHash = updates.passwordHash || existing.passwordHash;
-    let passwordSalt = updates.passwordSalt || existing.passwordSalt;
-    if (updates.pinCode && updates.pinCode !== existing.pinCode) {
-      passwordSalt = generateSalt();
-      passwordHash = await hashPassword(updates.pinCode, passwordSalt);
-    }
-
-    await api.users.update(id, {
+    // `password` alanı yalnızca dolduysa gönderilir; boşsa mevcut parola korunur.
+    const payload: Partial<AppUser> = {
       ...updates,
-      passwordHash,
-      passwordSalt,
       roleName,
-      updatedAt: new Date()
-    });
+      updatedAt: new Date(),
+    };
+    if (!payload.password) delete payload.password;
+
+    await api.users.update(id, payload);
 
     await this.logAudit(
       'update',
       'users',
       `Kullanıcı bilgileri güncellendi: ${updates.fullName || existing.fullName}`,
-      `Kullanıcı Adı: ${updates.username || existing.username}`,
+      `Kullanıcı Adı: ${updates.username || existing.username}${payload.password ? ', parola yenilendi' : ''}`,
       id
     );
 
     // Notify listeners if active user was updated
-    const activeUserId = this.getActiveUserIdSync();
-    if (activeUserId === id) {
-      this.notifyActiveUserChanged();
+    if (this.getCachedUserId() === id) {
+      await this.refreshSession();
     }
+  }
+
+  /** Kullanıcı kendi parolasını değiştirir (mevcut parola doğrulanır). */
+  async changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+    const user = this.session.user;
+    if (!user?.id) throw new Error('Aktif oturum bulunamadı.');
+
+    await authApi.changePassword({ currentPassword, newPassword });
+
+    await this.logAudit(
+      'update',
+      'users',
+      `Parola değiştirildi: ${user.fullName}`,
+      'Diğer cihazlardaki oturumlar kapatıldı.',
+      user.id
+    );
   }
 
   async deleteUser(id: number): Promise<void> {
@@ -147,13 +170,8 @@ class UserService {
       id
     );
 
-    // If deleted user was active, switch to first super_admin
-    const activeUserId = this.getActiveUserIdSync();
-    if (activeUserId === id) {
-      const firstAdmin = await api.users.findOne({ roleCode: 'super_admin' });
-      if (firstAdmin?.id) {
-        this.setActiveUserId(firstAdmin.id);
-      }
+    if (this.getCachedUserId() === id) {
+      await this.logout();
     }
   }
 
@@ -167,13 +185,12 @@ class UserService {
       'status_change',
       'users',
       `Kullanıcı durumu değiştirildi: ${user.fullName} -> ${status.toUpperCase()}`,
-      undefined,
+      status === 'active' ? undefined : 'Açık oturumlar sunucu tarafında kapatıldı.',
       id
     );
 
-    const activeUserId = this.getActiveUserIdSync();
-    if (activeUserId === id) {
-      this.notifyActiveUserChanged();
+    if (this.getCachedUserId() === id) {
+      await this.refreshSession();
     }
   }
 
@@ -220,11 +237,6 @@ class UserService {
     const role = await api.roles.get(id);
     if (!role) throw new Error('Rol bulunamadı.');
 
-    // Super admin permissions cannot be downgraded
-    if (role.code === 'super_admin' && updates.permissions) {
-      // Keep super_admin having full permissions
-    }
-
     await api.roles.update(id, {
       ...updates,
       updatedAt: new Date()
@@ -248,7 +260,7 @@ class UserService {
       id
     );
 
-    this.notifyActiveUserChanged();
+    await this.refreshSession();
   }
 
   async deleteRole(id: number): Promise<void> {
@@ -300,220 +312,76 @@ class UserService {
       '7 temel sistem rolü yeniden yapılandırıldı.'
     );
 
-    this.notifyActiveUserChanged();
+    await this.refreshSession();
   }
 
   // =========================================================================
   // AKTİF KULLANICI & OTURUM YÖNETİMİ (SESSION & SWITCH USER)
   // =========================================================================
 
-  getActiveUserIdSync(): number | null {
-    try {
-      const raw = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
-      return raw ? parseInt(raw, 10) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  getSessionTokenSync(): string | null {
-    try {
-      return localStorage.getItem(ACTIVE_SESSION_TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  }
-
   /**
-   * Gerçek Parola Doğrulaması ve Oturum Açma (Login)
+   * Sunucudaki oturumu okuyarak aktif kullanıcı ve rolü tazeler.
+   * Oturum yoksa (401) null döner; varsayılan kullanıcıya düşme yapılmaz.
    */
-  async login(
-    username: string, 
-    passwordAttempt: string
-  ): Promise<{ success: boolean; user?: AppUser; token?: string; error?: string }> {
-    const user = await api.users.findOne({ username: username.trim().toLowerCase() });
-    if (!user) {
-      return { success: false, error: 'Kullanıcı adı veya parola hatalı.' };
-    }
-
-    if (user.status !== 'active') {
-      return { 
-        success: false, 
-        error: `Hesabınız ${user.status === 'suspended' ? 'askıya alınmıştır' : 'pasif durumdadır'}. Lütfen sistem yöneticisi ile görüşünüz.` 
-      };
-    }
-
-    let isValid = false;
-
-    // 1. Hash ve Salt kontrolü
-    if (user.passwordHash && user.passwordSalt) {
-      isValid = await verifyPassword(passwordAttempt, user.passwordSalt, user.passwordHash);
-    } 
-    // 2. Geriye dönük uyumluluk: pinCode ile kontrol edip derhal hashlemeye yükseltme
-    else if (user.pinCode) {
-      isValid = (user.pinCode === passwordAttempt);
-      if (isValid && user.id) {
-        const salt = generateSalt();
-        const hash = await hashPassword(passwordAttempt, salt);
-        await api.users.update(user.id, {
-          passwordHash: hash,
-          passwordSalt: salt
-        });
-      }
-    } else if (passwordAttempt === '1234') {
-      // Varsayılan ilk giriş şifresi
-      isValid = true;
-      if (user.id) {
-        const salt = generateSalt();
-        const hash = await hashPassword('1234', salt);
-        await api.users.update(user.id, {
-          passwordHash: hash,
-          passwordSalt: salt
-        });
-      }
-    }
-
-    if (!isValid) {
-      await this.logAudit(
-        'login',
-        'auth',
-        `Başarısız giriş denemesi: "${username}" için parola hatalı girildi.`,
-        undefined,
-        user.id
-      );
-      return { success: false, error: 'Kullanıcı adı veya parola hatalı.' };
-    }
-
-    // Başarılı giriş: Oturum belirteci ve son giriş zamanı
-    const sessionToken = generateSessionToken();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 saat
-
-    if (user.id) {
-      await api.users.update(user.id, {
-        sessionToken,
-        sessionExpiresAt: expiresAt,
-        lastLoginAt: new Date()
-      });
-      localStorage.setItem(ACTIVE_USER_STORAGE_KEY, user.id.toString());
-      localStorage.setItem(ACTIVE_SESSION_TOKEN_KEY, sessionToken);
-    }
-
-    await this.logAudit(
-      'login',
-      'auth',
-      `Oturum açıldı: ${user.fullName} (${user.roleName || user.roleCode})`,
-      'Başarılı parola doğrulaması yapıldı.',
-      user.id
-    );
-
-    this.notifyActiveUserChanged();
-    return { success: true, user, token: sessionToken };
+  async refreshSession(): Promise<SessionPayload | null> {
+    const payload = await authApi.session();
+    this.setSession(payload);
+    await this.notifyActiveUserChanged();
+    return payload;
   }
 
-  /**
-   * Oturumu Güvenle Kapatma (Logout)
-   */
+  async login(username: string, password: string): Promise<{ success: boolean; user?: AppUser; error?: string }> {
+    try {
+      const payload = await authApi.login(username, password);
+      this.setSession(payload);
+      await this.notifyActiveUserChanged();
+      return { success: true, user: payload.user || undefined };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Giriş yapılamadı.' };
+    }
+  }
+
   async logout(): Promise<void> {
-    const activeUser = await this.getActiveUser();
-    if (activeUser?.id) {
-      await api.users.update(activeUser.id, {
-        sessionToken: undefined,
-        sessionExpiresAt: undefined
-      });
-      await this.logAudit(
-        'logout',
-        'auth',
-        `Oturum kapatıldı: ${activeUser.fullName} (${activeUser.roleName || activeUser.roleCode})`,
-        'Kullanıcı güvenli çıkış yaptı.',
-        activeUser.id
-      );
-    }
-
-    localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
-    localStorage.removeItem(ACTIVE_SESSION_TOKEN_KEY);
-    this.notifyActiveUserChanged();
-  }
-
-  /**
-   * Sistemdeki kullanıcıların parola hashlerini güvenceye alır
-   */
-  async ensureHashedCredentials(): Promise<void> {
-    const allUsers = await api.users.list();
-    for (const u of allUsers) {
-      if (!u.id) continue;
-      if (!u.passwordHash || !u.passwordSalt) {
-        const rawPin = u.pinCode || '1234';
-        const salt = generateSalt();
-        const hash = await hashPassword(rawPin, salt);
-        await api.users.update(u.id, {
-          passwordHash: hash,
-          passwordSalt: salt
-        });
+    const user = this.session.user;
+    try {
+      if (user) {
+        await this.logAudit('logout', 'auth', `Oturum kapatıldı: ${user.fullName}`);
       }
+      await authApi.logout();
+    } finally {
+      this.setSession(null);
+      await this.notifyActiveUserChanged();
     }
   }
 
-  async getActiveUser(): Promise<AppUser | null> {
-    const id = this.getActiveUserIdSync();
-    if (id) {
-      const user = await api.users.get(id);
-      if (user && user.status === 'active') {
-        return user;
-      }
-    }
-
-    // Default fallback: first active super_admin or any active user
-    const superAdmin = await api.users.findOne({ roleCode: 'super_admin' });
-    if (superAdmin?.id) {
-      this.setActiveUserId(superAdmin.id, false);
-      return superAdmin;
-    }
-
-    const anyUser = (await api.users.list({ limit: 1 }))[0];
-    if (anyUser?.id) {
-      this.setActiveUserId(anyUser.id, false);
-      return anyUser;
-    }
-
-    return null;
+  /** Yalnızca süper admin: başka bir kullanıcının yetkileriyle oturum açar. */
+  async setActiveUserId(id: number): Promise<void> {
+    const payload = await authApi.impersonate(id);
+    this.setSession(payload);
+    await this.notifyActiveUserChanged();
   }
 
-  async getActiveRole(): Promise<Role | null> {
-    const user = await this.getActiveUser();
-    if (!user) return null;
-
-    if (user.roleCode) {
-      const role = await api.roles.findOne({ code: user.roleCode });
-      if (role) return role;
-    }
-
-    if (user.roleId) {
-      return (await api.roles.get(user.roleId)) || null;
-    }
-
-    return null;
+  /** Yetki simülasyonunu bitirip yöneticinin kendi oturumuna döner. */
+  async stopImpersonation(): Promise<void> {
+    const payload = await authApi.stopImpersonation();
+    this.setSession(payload);
+    await this.notifyActiveUserChanged();
   }
 
-  async setActiveUserId(id: number, recordLog: boolean = true): Promise<void> {
-    const targetUser = await api.users.get(id);
-    if (!targetUser) return;
+  getImpersonatedBy(): { userId: number; userName: string } | null {
+    return this.session.impersonatedBy || null;
+  }
 
-    localStorage.setItem(ACTIVE_USER_STORAGE_KEY, id.toString());
+  getActiveUser(): AppUser | null {
+    return this.session.user;
+  }
 
-    // Update last login
-    await api.users.update(id, { lastLoginAt: new Date() });
+  getActiveRole(): Role | null {
+    return this.session.role;
+  }
 
-    if (recordLog) {
-      await this.logAudit(
-        'login',
-        'auth',
-        `Kullanıcı oturumu açıldı: ${targetUser.fullName} (${targetUser.roleName || targetUser.roleCode})`,
-        `Rol Simülatörü / Hızlı Profil Değişimi ile oturum açıldı.`,
-        id
-      );
-    }
-
-    this.notifyActiveUserChanged();
+  isAuthenticated(): boolean {
+    return Boolean(this.session.user);
   }
 
   onActiveUserChange(callback: (user: AppUser | null, role: Role | null) => void): () => void {
@@ -524,8 +392,8 @@ class UserService {
   }
 
   private async notifyActiveUserChanged() {
-    const user = await this.getActiveUser();
-    const role = await this.getActiveRole();
+    const user = this.session.user;
+    const role = this.session.role;
     for (const cb of this.activeUserChangeListeners) {
       try {
         cb(user, role);
@@ -540,9 +408,9 @@ class UserService {
   // =========================================================================
 
   hasPermission(
-    user: AppUser | null, 
-    role: Role | null, 
-    module: AppModule, 
+    user: AppUser | null,
+    role: Role | null,
+    module: AppModule,
     action: PermissionAction = 'view'
   ): boolean {
     if (!user || user.status !== 'active') return false;
@@ -570,6 +438,10 @@ class UserService {
   // İŞLEM DENETİM İZİ (AUDIT LOGS)
   // =========================================================================
 
+  /**
+   * Denetim kaydı yazar. Kullanıcı kimliği, rolü, IP ve zaman damgası
+   * sunucu tarafından eklenir; istemci yalnızca açıklama gönderir.
+   */
   async logAudit(
     action: AuditActionType,
     module: AppModule | 'auth' | 'system',
@@ -578,22 +450,7 @@ class UserService {
     entityId?: string | number
   ): Promise<void> {
     try {
-      const activeUser = await this.getActiveUser();
-      const userName = activeUser?.fullName || 'Sistem';
-      const userRole = activeUser?.roleName || activeUser?.roleCode || 'Sistem';
-
-      await api.auditLogs.create({
-        userId: activeUser?.id,
-        userName,
-        userRole,
-        action,
-        module,
-        entityId,
-        description,
-        details,
-        ipAddress: '192.168.1.100', // Yerel ağ istemcisi
-        timestamp: new Date()
-      });
+      await authApi.audit({ action, module, description, details, entityId });
     } catch (err) {
       console.warn('Denetim günlüğü kaydedilemedi:', err);
     }
@@ -622,7 +479,7 @@ class UserService {
 
     if (options?.search) {
       const q = options.search.toLowerCase();
-      logs = logs.filter(l => 
+      logs = logs.filter(l =>
         l.description.toLowerCase().includes(q) ||
         l.userName.toLowerCase().includes(q) ||
         (l.details && l.details.toLowerCase().includes(q))
@@ -636,8 +493,9 @@ class UserService {
     return logs;
   }
 
+  /** Denetim izini temizler (yalnızca Süper Admin). */
   async clearAuditLogs(): Promise<void> {
-    await api.auditLogs.clear();
+    await authApi.clearAuditLogs();
     await this.logAudit(
       'system',
       'system',

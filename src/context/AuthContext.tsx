@@ -1,22 +1,32 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { api } from '../api/client';
-import { useApiQuery } from '../hooks/useApiQuery';
+import { onUnauthorized } from '../api/client';
 import { userService } from '../services/userService';
+import { setSessionSnapshot } from '../services/authGuard';
 import type { AppUser, Role, AppModule, PermissionAction } from '../types';
+
+export interface ImpersonationInfo {
+  userId: number;
+  userName: string;
+}
 
 interface AuthContextType {
   currentUser: AppUser | null;
   currentRole: Role | null;
-  users: AppUser[];
-  roles: Role[];
   isLoading: boolean;
-  sessionToken: string | null;
-  switchUser: (userId: number) => Promise<void>;
-  login: (username: string, passwordAttempt: string) => Promise<{ success: boolean; user?: AppUser; token?: string; error?: string }>;
-  logout: () => Promise<void>;
-  hasPermission: (module: AppModule, action?: PermissionAction) => boolean;
+  /** Süper admin başka bir kullanıcı adına işlem yapıyorsa kaynağı. */
+  impersonatedBy: ImpersonationInfo | null;
+  /** Giriş sırasında tespit edilen zayıf parola uyarısı (varsa). */
+  passwordWarning: string | null;
   isSuperAdmin: boolean;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  /** Yalnızca Süper Admin: başka bir kullanıcının yetkileriyle oturum açar. */
+  switchUser: (userId: number) => Promise<void>;
+  stopImpersonation: () => Promise<void>;
+  hasPermission: (module: AppModule, action?: PermissionAction) => boolean;
   refreshAuth: () => Promise<void>;
+  /** Kişinin kendi parolasını değiştirmesi (mevcut parola doğrulanır). */
+  changeOwnPassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,82 +34,61 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [currentRole, setCurrentRole] = useState<Role | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(() => userService.getSessionTokenSync());
+  const [impersonatedBy, setImpersonatedBy] = useState<ImpersonationInfo | null>(null);
+  const [passwordWarning, setPasswordWarning] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Live queries for all users and roles
-  const users = useApiQuery(() => api.users.list(), [], ['users']) || [];
-  const roles = useApiQuery(() => api.roles.list(), [], ['roles']) || [];
-
-  const loadActiveUserAndRole = useCallback(async () => {
-    try {
-      const user = await userService.getActiveUser();
+  const applySession = useCallback(
+    (user: AppUser | null, role: Role | null, impersonation: ImpersonationInfo | null) => {
       setCurrentUser(user);
-      setSessionToken(userService.getSessionTokenSync());
+      setCurrentRole(role);
+      setImpersonatedBy(impersonation);
+      // Servis katmanındaki yetki ön denetimi aynı anlık görüntüyü kullanır.
+      setSessionSnapshot(user, role);
+    },
+    []
+  );
 
-      if (user) {
-        let role: Role | undefined;
-        if (user.roleCode) {
-          role = await api.roles.findOne({ code: user.roleCode });
-        }
-        if (!role && user.roleId) {
-          role = await api.roles.get(user.roleId);
-        }
-        setCurrentRole(role || null);
-      } else {
-        setCurrentRole(null);
-      }
+  const refreshAuth = useCallback(async () => {
+    try {
+      const payload = await userService.refreshSession();
+      applySession(payload?.user || null, payload?.role || null, payload?.impersonatedBy || null);
     } catch (err) {
-      console.error('Auth yükleme hatası:', err);
+      console.error('Oturum bilgisi alınamadı:', err);
+      applySession(null, null, null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applySession]);
 
   useEffect(() => {
-    loadActiveUserAndRole();
+    refreshAuth();
 
     const unsubscribe = userService.onActiveUserChange((user, role) => {
-      setCurrentUser(user);
-      setCurrentRole(role);
-      setSessionToken(userService.getSessionTokenSync());
+      applySession(user, role, userService.getImpersonatedBy());
+    });
+
+    // Oturum sunucuda düşerse (401) arayüz giriş ekranına döner.
+    const unsubscribeUnauthorized = onUnauthorized(() => {
+      applySession(null, null, null);
     });
 
     return () => {
       unsubscribe();
+      unsubscribeUnauthorized();
     };
-  }, [loadActiveUserAndRole]);
+  }, [refreshAuth, applySession]);
 
-  // If users or roles change in DB (e.g. initial seeding completes), re-evaluate
-  useEffect(() => {
-    if (!currentUser && users.length > 0) {
-      loadActiveUserAndRole();
-    } else if (currentUser && roles.length > 0) {
-      const updatedRole = roles.find(r => r.code === currentUser.roleCode || r.id === currentUser.roleId);
-      if (updatedRole) {
-        setCurrentRole(updatedRole);
-      }
-    }
-  }, [users, roles, currentUser, loadActiveUserAndRole]);
-
-  const switchUser = async (userId: number) => {
+  const login = async (username: string, password: string) => {
     setIsLoading(true);
     try {
-      await userService.setActiveUserId(userId, true);
-      await loadActiveUserAndRole();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const login = async (username: string, passwordAttempt: string) => {
-    setIsLoading(true);
-    try {
-      const res = await userService.login(username, passwordAttempt);
+      const res = await userService.login(username, password);
       if (res.success) {
-        await loadActiveUserAndRole();
+        const payload = userService.getCachedSession();
+        applySession(payload.user || null, payload.role || null, payload.impersonatedBy || null);
+        setPasswordWarning(payload.passwordWarning || null);
       }
-      return res;
+      return { success: res.success, error: res.error };
     } finally {
       setIsLoading(false);
     }
@@ -109,9 +98,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       await userService.logout();
-      setCurrentUser(null);
-      setCurrentRole(null);
-      setSessionToken(null);
+      applySession(null, null, null);
+      setPasswordWarning(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const changeOwnPassword = async (currentPassword: string, newPassword: string) => {
+    await userService.changeOwnPassword(currentPassword, newPassword);
+    // Parola artık politikaya uygun; uyarıyı kaldır.
+    setPasswordWarning(null);
+  };
+
+  const switchUser = async (userId: number) => {
+    setIsLoading(true);
+    try {
+      await userService.setActiveUserId(userId);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stopImpersonation = async () => {
+    setIsLoading(true);
+    try {
+      await userService.stopImpersonation();
     } finally {
       setIsLoading(false);
     }
@@ -131,16 +143,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value: AuthContextType = {
     currentUser,
     currentRole,
-    users,
-    roles,
     isLoading,
-    sessionToken,
-    switchUser,
+    impersonatedBy,
+    passwordWarning,
+    isSuperAdmin,
     login,
     logout,
+    switchUser,
+    stopImpersonation,
     hasPermission,
-    isSuperAdmin,
-    refreshAuth: loadActiveUserAndRole
+    refreshAuth,
+    changeOwnPassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

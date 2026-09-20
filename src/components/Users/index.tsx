@@ -451,15 +451,15 @@ export default function UsersManagement() {
                           {/* Actions */}
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* Switch user simulator button */}
-                              {!isCurrent && isActive && (
+                              {/* Yetki simülasyonu: yalnızca Süper Admin, denetim izine kaydedilir */}
+                              {isSuperAdmin && !isCurrent && isActive && (
                                 <button
                                   type="button"
                                   onClick={() => switchUser(u.id!)}
                                   className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-700 dark:text-slate-200 rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1"
-                                  title="Bu kullanıcıya geçiş yap ve arayüzü test et"
+                                  title="Bu kullanıcının yetkileriyle oturum aç (denetim izine kaydedilir)"
                                 >
-                                  <span>Giriş Yap</span>
+                                  <span>Yetkilerle Gir</span>
                                   <ArrowRight className="w-3 h-3" />
                                 </button>
                               )}

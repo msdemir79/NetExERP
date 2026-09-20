@@ -11,6 +11,7 @@
     "clean": "rm -rf dist",
     "db:setup": "node scripts/db-setup.mjs",
     "db:columns": "node scripts/gen-columns.mjs",
+    "user:password": "tsx scripts/set-password.ts",
     "lint": "tsc --noEmit",
     "test": "tsx src/tests/unitTests.ts"
   },

@@ -12,7 +12,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Süper Admin / Sistem Yöneticisi',
     status: 'active',
     color: '#4f46e5', // indigo
-    pinCode: '1234',
     lastLoginAt: new Date(),
     createdAt: new Date('2024-01-01'),
     notes: 'Şirket ortağı ve fabrika genel koordinatörü.'
@@ -28,7 +27,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Satış & Pazarlama Yöneticisi',
     status: 'active',
     color: '#059669', // emerald
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 2),
     createdAt: new Date('2024-02-15'),
     notes: 'Yurt içi toptan satışlar ve müşteri sipariş onay sorumlusu.'
@@ -44,7 +42,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Üretim Planlama & İmalat Şefi',
     status: 'active',
     color: '#7c3aed', // violet
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 5),
     createdAt: new Date('2024-03-01'),
     notes: 'Bant aşamaları (kesim, saya, montaj) ve iş emri yöneticisi.'
@@ -60,7 +57,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Satın Alma & Depo Görevlisi',
     status: 'active',
     color: '#d97706', // amber
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 12),
     createdAt: new Date('2024-04-10'),
     notes: 'Deri, astar, taban kabulleri ve sevk irsaliyeleri takibi.'
@@ -76,7 +72,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'İnsan Kaynakları (İK) Sorumlusu',
     status: 'active',
     color: '#e11d48', // rose
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 24),
     createdAt: new Date('2024-05-01'),
     notes: 'Personel özlük dosyaları, günlük puantaj ve bordro hazırlığı.'
@@ -92,7 +87,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Mali İşler & Muhasebe Müdürü',
     status: 'active',
     color: '#0891b2', // cyan
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 48),
     createdAt: new Date('2024-05-15'),
     notes: 'Kasa/Banka mutabakatları, yevmiye fişleri ve mizan kontrolü.'
@@ -108,7 +102,6 @@ export const INITIAL_USERS: AppUser[] = [
     roleName: 'Sadece Okuyucu (Denetçi / İzleyici)',
     status: 'active',
     color: '#475569', // slate
-    pinCode: '1234',
     lastLoginAt: new Date(Date.now() - 3600000 * 72),
     createdAt: new Date('2024-06-01'),
     notes: 'Sistem geneli izleme, denetleme ve rapor inceleme yetkisi.'

@@ -71,6 +71,23 @@ export function useApiQuery<T>(fetcher: () => Promise<T>, deps: unknown[] = [], 
   return useApiQueryFull<T>(fetcher, deps, resources).data;
 }
 
+/**
+ * Yetkiye bağlı sorgu: kullanıcının ilgili modülde görüntüleme yetkisi yoksa
+ * istek hiç yapılmaz (sunucudan 403 alınmaz) ve `undefined` döner.
+ * Sunucu tarafı RBAC zaten zorunlu; bu hook yalnızca gereksiz hataları önler.
+ */
+export function useApiQueryIf<T>(
+  allowed: boolean,
+  fetcher: () => Promise<T>,
+  deps: unknown[] = [],
+  resources?: string[]
+): T | undefined {
+  const noop = useCallback(() => Promise.resolve([] as unknown as T), []);
+  const effectiveFetcher = allowed ? fetcher : noop;
+  const result = useApiQueryFull<T>(effectiveFetcher, [allowed, ...deps], allowed ? resources : undefined);
+  return allowed ? result.data : undefined;
+}
+
 /** Tüm kaynakları dinleyip periyodik yenileyen yardımcı (panolar için). */
 export function useApiQueryRefresh(intervalMs: number): number {
   const [tick, setTick] = useState(0);

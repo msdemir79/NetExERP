@@ -17,6 +17,7 @@ import {
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { userService } from '../../services/userService';
+import { useAuth } from '../../context/AuthContext';
 import { exportToCsv } from '../../lib/exportService';
 import type { AuditLog, AppModule, AuditActionType } from '../../types';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
@@ -35,6 +36,7 @@ const ACTION_LABELS: Record<AuditActionType, { label: string; bg: string; text: 
 };
 
 export default function AuditLogTab() {
+  const { isSuperAdmin } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedModule, setSelectedModule] = useState<string>('all');
   const [selectedAction, setSelectedAction] = useState<string>('all');
@@ -145,15 +147,18 @@ export default function AuditLogTab() {
             Excel'e Aktar
           </button>
 
-          <button
-            type="button"
-            onClick={handleClearLogs}
-            className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors inline-flex items-center gap-1.5"
-            title="Geçmişi temizle"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Temizle
-          </button>
+          {/* Denetim izini temizlemek yıkıcı bir yönetici işlemidir. */}
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={handleClearLogs}
+              className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors inline-flex items-center gap-1.5"
+              title="Geçmişi temizle (Süper Admin)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Temizle
+            </button>
+          )}
         </div>
       </div>
 

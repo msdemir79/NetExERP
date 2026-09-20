@@ -33,10 +33,13 @@ const jsonColumns = {
   roles: ['permissions'],
 };
 
-let ts = '// AUTO-GENERATED from db/schema.sql — npm run db:columns ile yeniden üretilir.\n';
-ts += '// Kolon adları SQL sorgularında beyaz liste olarak kullanılır.\n\n';
-ts += 'export interface ColumnDef {\n  name: string;\n  type: string;\n}\n\n';
-ts += 'export interface ResourceDef {\n  table: string;\n  primaryKey: string;\n  columns: ColumnDef[];\n  jsonColumns: string[];\n  timestamps: string[];\n}\n\n';
+const allNames = new Set(tables.flatMap((t) => t.cols.map((c) => c.name)));
+const stampUnion = ['createdAt', 'updatedAt'].filter((n) => allNames.has(n));
+
+let ts = '// AUTO-GENERATED from db/schema.sql — kolon adları SQL enjeksiyonuna karşı beyaz liste olarak kullanılır.\n';
+ts += '// Veritabanı şeması değişirse: npm run db:columns\n\n';
+ts += 'export interface ColumnDef { name: string; type: string; }\n\n';
+ts += 'export interface ResourceDef {\n  table: string;\n  primaryKey: string;\n  columns: ColumnDef[];\n  jsonColumns: string[];\n  timestamps: (TYPE_UNION)[];\n}\n\n'.replace('TYPE_UNION', stampUnion.map((n) => JSON.stringify(n)).join(' | '));
 ts += 'export const RESOURCES: Record<string, ResourceDef> = {\n';
 
 for (const t of tables) {

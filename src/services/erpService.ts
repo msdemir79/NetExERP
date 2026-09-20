@@ -1,4 +1,4 @@
-import { api, commit, type Mutation } from '../api/client';
+import { api, authApi, commit, type Mutation } from '../api/client';
 import { accountingService } from './accountingService';
 import type { 
   Contact,
@@ -3484,7 +3484,8 @@ export const erpService = {
     try { await api.leaveRequests.clear(); } catch (e) { console.warn(e); }
     try { await api.payrollRecords.clear(); } catch (e) { console.warn(e); }
     try { await api.advanceRequests.clear(); } catch (e) { console.warn(e); }
-    try { await api.auditLogs.clear(); } catch (e) { console.warn(e); }
+    // Denetim izi yalnızca sunucu tarafından temizlenebilir (Süper Admin).
+    try { await authApi.clearAuditLogs(); } catch (e) { console.warn(e); }
 
     // 6. Reset Product Stocks to 0 (Keep product master cards!)
     try {

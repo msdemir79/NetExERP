@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, ArrowLeft, Users, Home } from 'lucide-react';
+import { ShieldAlert, ArrowLeft, Home } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
 import type { AppModule } from '../../types';
@@ -19,15 +19,12 @@ export default function AccessDenied({
   description
 }: AccessDeniedProps) {
   const navigate = useNavigate();
-  const { currentUser, currentRole, users, switchUser } = useAuth();
+  const { currentUser, currentRole } = useAuth();
 
   const moduleInfo = ALL_APP_MODULES.find(m => m.id === module);
   const moduleName = moduleInfo?.name || module || 'Bu modül';
 
-  const defaultDescription = description || `Mevcut rolünüz (${currentRole?.name || currentUser?.roleName || 'Tanımsız'}), ${moduleName} ekranı için ${action} yetkisine sahip değildir. İşlem yapmak için sistem yöneticinizle görüşebilir veya aşağıdan yetkili bir kullanıcı profiline geçiş yapabilirsiniz.`;
-
-  // Filter super admin or users that have view permission
-  const authorizedUsers = users.filter(u => u.status === 'active' && u.roleCode === 'super_admin');
+  const defaultDescription = description || `Mevcut rolünüz (${currentRole?.name || currentUser?.roleName || 'Tanımsız'}), ${moduleName} ekranı için ${action} yetkisine sahip değildir. Bu işlem için sistem yöneticinizden rolünüze yetki tanımlamasını isteyin.`;
 
   return (
     <div className="min-h-[460px] flex items-center justify-center p-4">
@@ -79,19 +76,7 @@ export default function AccessDenied({
           </button>
         </div>
 
-        {/* Quick Switch to Super Admin */}
-        {authorizedUsers.length > 0 && currentUser?.roleCode !== 'super_admin' && (
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">Demo / Test Ortamı Hızlı Yetkilendirme:</p>
-            <button
-              onClick={() => authorizedUsers[0]?.id && switchUser(authorizedUsers[0].id)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors"
-            >
-              <Users className="w-3.5 h-3.5" />
-              Süper Admin ({authorizedUsers[0].fullName}) Hesabına Geç
-            </button>
-          </div>
-        )}
+        {/* Yetkisiz erişimde hesap değiştirme yolu yoktur: yetkilendirme sunucuda yapılır. */}
       </div>
     </div>
   );

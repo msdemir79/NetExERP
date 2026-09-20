@@ -810,11 +810,10 @@ CREATE TABLE IF NOT EXISTS users (
   `status`           ENUM('active','passive','suspended') NOT NULL DEFAULT 'active',
   `avatar`           TEXT            NULL,
   `color`            VARCHAR(30)     NULL,
-  `pinCode`          VARCHAR(255)    NULL,
+  -- Parola yalnızca scrypt türevi olarak saklanır; düz metin/PIN kolonu yoktur.
+  -- Bu iki kolon API yanıtlarında hiçbir zaman istemciye gönderilmez.
   `passwordHash`     VARCHAR(255)    NULL,
   `passwordSalt`     VARCHAR(255)    NULL,
-  `sessionToken`     VARCHAR(255)    NULL,
-  `sessionExpiresAt` DATETIME        NULL,
   `lastLoginAt`      DATETIME        NULL,
   `createdAt`        DATETIME        NULL,
   `updatedAt`        DATETIME        NULL,

@@ -27,12 +27,18 @@ import {
   PanelLeftOpen,
   Sun,
   Moon,
-  Camera
+  Camera,
+  LogOut,
+  UserCog,
+  Undo2,
+  KeyRound,
+  ShieldAlert
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import UserSwitcherModal from './Users/UserSwitcherModal';
 import AccessDenied from './Common/AccessDenied';
+import ChangePasswordModal from './Common/ChangePasswordModal';
 import CameraBarcodeScannerModal from './Common/CameraBarcodeScannerModal';
 import type { AppModule } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -69,6 +75,7 @@ export default function Layout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isGlobalScannerOpen, setIsGlobalScannerOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebar_collapsed');
     return saved ? JSON.parse(saved) : false;
@@ -78,7 +85,16 @@ export default function Layout() {
     localStorage.setItem('sidebar_collapsed', JSON.stringify(isCollapsed));
   }, [isCollapsed]);
 
-  const { currentUser, currentRole, hasPermission, isSuperAdmin } = useAuth();
+  const {
+    currentUser,
+    currentRole,
+    hasPermission,
+    isSuperAdmin,
+    impersonatedBy,
+    passwordWarning,
+    stopImpersonation,
+    logout
+  } = useAuth();
 
   const appSettings = useApiQuery(() => api.settings.get('global_settings'), [], ['settings']);
   const companyLogo = appSettings?.company?.logo;
@@ -278,11 +294,15 @@ export default function Layout() {
         {/* Mobile active user switch button */}
         <div className="p-3 border-b border-slate-800">
           <button
+            type="button"
+            disabled={!isSuperAdmin}
             onClick={() => {
+              if (!isSuperAdmin) return;
               setIsMobileMenuOpen(false);
               setIsSwitcherOpen(true);
             }}
-            className="w-full flex items-center justify-between p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-left"
+            title={isSuperAdmin ? 'Yetki simülasyonu için başka bir kullanıcıya geç' : 'Aktif kullanıcı'}
+            className={`w-full flex items-center justify-between p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-left ${isSuperAdmin ? 'cursor-pointer hover:border-indigo-500/50' : 'cursor-default'}`}
           >
             <div className="flex items-center gap-2 min-w-0">
               <div 
@@ -296,7 +316,9 @@ export default function Layout() {
                 <p className="text-[10px] text-slate-400 truncate">{currentRole?.name || currentUser?.roleName}</p>
               </div>
             </div>
-            <span className="text-[10px] text-indigo-400 font-semibold underline">Değiştir</span>
+            {isSuperAdmin && (
+              <span className="text-[10px] text-indigo-400 font-semibold underline">Değiştir</span>
+            )}
           </button>
         </div>
 
@@ -376,33 +398,50 @@ export default function Layout() {
               {actualTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {/* Quick User Switcher Button in Header */}
-            <button
-              type="button"
-              onClick={() => setIsSwitcherOpen(true)}
-              className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 dark:bg-slate-900 hover:bg-white dark:bg-slate-900 dark:hover:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-all text-left shadow-2xs group cursor-pointer"
-              title="Kullanıcı / Rol Değiştir (Simülatör)"
-            >
-              <div 
+            {/* Aktif kullanıcı kimliği; yetki simülasyonu yalnızca Süper Admin'e açıktır */}
+            <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shadow-2xs">
+              <div
                 className="w-6 h-6 rounded-lg flex items-center justify-center text-white font-bold text-[11px] shadow-xs shrink-0"
                 style={{ backgroundColor: currentUser?.color || '#4f46e5' }}
               >
                 {currentUser?.fullName?.split(' ').map(n => n[0]).join('').slice(0, 2) || 'U'}
               </div>
               <div className="hidden sm:block text-left leading-tight">
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate max-w-[120px]">
-                    {currentUser?.fullName}
-                  </span>
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 dark:text-slate-400 font-mono">
-                    ({currentRole?.name || currentUser?.roleName})
-                  </span>
-                </div>
+                <span className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">
+                  {currentUser?.fullName}
+                </span>
+                <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate max-w-[120px]">
+                  {currentRole?.name || currentUser?.roleName}
+                </span>
               </div>
-              <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-[10px] font-semibold">
-                Rolü Değiştir
-              </span>
-            </button>
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setIsSwitcherOpen(true)}
+                  title="Kullanıcı / Rol Değiştir (yetki simülasyonu)"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-[10px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors"
+                >
+                  <UserCog className="w-3 h-3" />
+                  Değiştir
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsChangePasswordOpen(true)}
+                title="Parolamı değiştir"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => logout()}
+                title="Oturumu kapat"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
             <div className="text-right hidden lg:block">
               <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 font-medium">
@@ -411,6 +450,44 @@ export default function Layout() {
             </div>
           </div>
         </header>
+
+        {/* Yetki simülasyonu bildirimi: kimin adına işlem yapıldığı her zaman görünür */}
+        {impersonatedBy && (
+          <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <UserCog className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs text-amber-800 dark:text-amber-200 truncate">
+                <strong>{impersonatedBy.userName}</strong> yönetici olarak <strong>{currentUser?.fullName}</strong> hesabı adına işlem yapıyorsunuz. Tüm işlemler denetim izine kaydedilir.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => stopImpersonation()}
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-600 text-white text-[11px] font-semibold hover:bg-amber-700 transition-colors"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              Kendi hesabıma dön
+            </button>
+          </div>
+        )}
+
+        {/* Zayıf parola uyarısı: kullanıcı kendi parolasını hemen değiştirebilir */}
+        {passwordWarning && (
+          <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-2 bg-rose-50 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-900/60 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+              <span className="text-xs text-rose-800 dark:text-rose-200 truncate">{passwordWarning}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-600 text-white text-[11px] font-semibold hover:bg-rose-700 transition-colors"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Parolamı Değiştir
+            </button>
+          </div>
+        )}
 
         {/* Content Area with Permission Guard */}
         <main className="flex-1 overflow-y-auto p-4 md:p-5 custom-scrollbar">
@@ -428,6 +505,13 @@ export default function Layout() {
       <UserSwitcherModal
         isOpen={isSwitcherOpen}
         onClose={() => setIsSwitcherOpen(false)}
+      />
+
+      {/* Kişinin kendi parolasını değiştirme modalı */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        warning={passwordWarning}
       />
 
       {/* Global Live Camera Barcode Scanner Modal */}

@@ -1,7 +1,8 @@
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import { useApiQuery } from '../../hooks/useApiQuery';
+import { useApiQueryIf } from '../../hooks/useApiQuery';
+import { useAuth } from '../../context/AuthContext';
 import { 
   BarChart3, 
   Users, 
@@ -30,21 +31,30 @@ import StockReportTab from './StockReportTab';
 export default function ReportsHub() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get('tab') || 'overview';
+  const { hasPermission } = useAuth();
 
   const setTab = (tabName: string) => {
     setSearchParams({ tab: tabName });
   };
 
-  // Executive summary queries for overview tab
-  const products = useApiQuery(() => api.products.list(), [], ['products']) || [];
-  const workOrders = useApiQuery(() => api.workOrders.list(), [], ['workOrders']) || [];
-  const orders = useApiQuery(() => api.orders.list({ where: { type: 'sales' } }), [], ['orders']) || [];
-  const cashBoxes = useApiQuery(() => api.cashBoxes.list(), [], ['cashBoxes']) || [];
-  const bankAccounts = useApiQuery(() => api.bankAccounts.list(), [], ['bankAccounts']) || [];
-  const employees = useApiQuery(() => api.employees.list({ where: { status: 'active' } }), [], ['employees']) || [];
-  const payrolls = useApiQuery(() => api.payrollRecords.list(), [], ['payrollRecords']) || [];
-  const accounts = useApiQuery(() => api.accounts.list(), [], ['accounts']) || [];
-  const journalEntries = useApiQuery(() => api.journalEntries.list(), [], ['journalEntries']) || [];
+  // Her rapor sekmesi kendi modülünün görüntüleme yetkisine bağlıdır.
+  const canHr = hasPermission('hr', 'view');
+  const canProduction = hasPermission('production', 'view');
+  const canOrders = hasPermission('orders', 'view');
+  const canFinance = hasPermission('finance', 'view');
+  const canAccounting = hasPermission('accounting', 'view');
+  const canInventory = hasPermission('inventory', 'view');
+
+  // Yetkisi olmayan modüllerin sorguları hiç çalıştırılmaz.
+  const products = useApiQueryIf(canInventory, () => api.products.list(), [], ['products']) || [];
+  const workOrders = useApiQueryIf(canProduction, () => api.workOrders.list(), [], ['workOrders']) || [];
+  const orders = useApiQueryIf(canOrders, () => api.orders.list({ where: { type: 'sales' } }), [], ['orders']) || [];
+  const cashBoxes = useApiQueryIf(canFinance, () => api.cashBoxes.list(), [], ['cashBoxes']) || [];
+  const bankAccounts = useApiQueryIf(canFinance, () => api.bankAccounts.list(), [], ['bankAccounts']) || [];
+  const employees = useApiQueryIf(canHr, () => api.employees.list({ where: { status: 'active' } }), [], ['employees']) || [];
+  const payrolls = useApiQueryIf(canHr, () => api.payrollRecords.list(), [], ['payrollRecords']) || [];
+  const accounts = useApiQueryIf(canAccounting, () => api.accounts.list(), [], ['accounts']) || [];
+  const journalEntries = useApiQueryIf(canAccounting, () => api.journalEntries.list(), [], ['journalEntries']) || [];
 
   // Overview metrics
   const totalStockCount = products.reduce((s, p) => s + (p.stock || 0), 0);
@@ -78,14 +88,14 @@ export default function ReportsHub() {
   const netKdvDiff = kdv391 - kdv191;
 
   const tabs = [
-    { id: 'overview', label: 'Genel Yönetim Özeti', icon: BarChart3 },
-    { id: 'hr', label: 'İK & Bordro İcmali', icon: Users },
-    { id: 'production', label: 'Üretim & İmalat', icon: Hammer },
-    { id: 'orders', label: 'Sipariş & Sevkiyat', icon: ShoppingCart },
-    { id: 'finance', label: 'Finans & Likidite', icon: Landmark },
-    { id: 'accounting', label: 'Muhasebe (Mizan/KDV)', icon: BookOpen },
-    { id: 'stock', label: 'Stok & Malzeme', icon: Package },
-  ];
+    { id: 'overview', label: 'Genel Yönetim Özeti', icon: BarChart3, allowed: true },
+    { id: 'hr', label: 'İK & Bordro İcmali', icon: Users, allowed: canHr },
+    { id: 'production', label: 'Üretim & İmalat', icon: Hammer, allowed: canProduction },
+    { id: 'orders', label: 'Sipariş & Sevkiyat', icon: ShoppingCart, allowed: canOrders },
+    { id: 'finance', label: 'Finans & Likidite', icon: Landmark, allowed: canFinance },
+    { id: 'accounting', label: 'Muhasebe (Mizan/KDV)', icon: BookOpen, allowed: canAccounting },
+    { id: 'stock', label: 'Stok & Malzeme', icon: Package, allowed: canInventory },
+  ].filter(t => t.allowed);
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-in fade-in duration-200">
@@ -145,7 +155,7 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-                {totalEmployeesCount} <span className="text-xs font-bold text-slate-400">Aktif Çalışan</span>
+                {canHr ? totalEmployeesCount : '—'} <span className="text-xs font-bold text-slate-400">Aktif Çalışan</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Bu Ayki Toplam İşveren Maliyeti: <strong className="text-purple-800 font-mono">₺{currentMonthEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</strong>
@@ -173,7 +183,7 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-                {activePairsInProduction.toLocaleString('tr-TR')} <span className="text-xs font-bold text-slate-400">Çift Hatta</span>
+                {canProduction ? activePairsInProduction.toLocaleString('tr-TR') : '—'} <span className="text-xs font-bold text-slate-400">Çift Hatta</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {activeWorkOrders.length} Adet İş Emri 8 Kademeli Proses Hattında İşleniyor
@@ -201,7 +211,9 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-emerald-700 font-mono">
-                ₺{totalLiquidity.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                {canFinance
+                  ? `₺${totalLiquidity.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`
+                  : '—'}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Kasa ve Banka Hesaplarındaki Toplam Kullanılabilir Likidite
@@ -229,7 +241,9 @@ export default function ReportsHub() {
               </div>
 
               <div className={cn("text-2xl font-black font-mono", netKdvDiff > 0 ? "text-rose-700" : "text-emerald-700")}>
-                ₺{Math.abs(netKdvDiff).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                {canAccounting
+                  ? `₺${Math.abs(netKdvDiff).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`
+                  : '—'}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {netKdvDiff > 0 ? '360 Ödenecek Vergi Tahakkuku' : '190 Devreden KDV Bakiyesi'}
@@ -257,7 +271,7 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-                {orders.length} <span className="text-xs font-bold text-slate-400">Sipariş Kaydı</span>
+                {canOrders ? orders.length : '—'} <span className="text-xs font-bold text-slate-400">Sipariş Kaydı</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Sipariş Karşılama Oranları & 7 Günlük Açık Sevk İrsaliyeleri
@@ -285,7 +299,7 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-                {totalStockCount.toLocaleString('tr-TR')} <span className="text-xs font-bold text-slate-400">Adet/Çift Stok</span>
+                {canInventory ? totalStockCount.toLocaleString('tr-TR') : '—'} <span className="text-xs font-bold text-slate-400">Adet/Çift Stok</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {criticalStockCount > 0 ? (
@@ -306,12 +320,23 @@ export default function ReportsHub() {
         </div>
       )}
 
-      {currentTab === 'hr' && <HRReport />}
-      {currentTab === 'production' && <ProductionReport />}
-      {currentTab === 'orders' && <OrderDeliveryReport />}
-      {currentTab === 'finance' && <FinanceReport />}
-      {currentTab === 'accounting' && <AccountingReport />}
-      {currentTab === 'stock' && <StockReportTab />}
+      {currentTab === 'hr' && canHr && <HRReport />}
+      {currentTab === 'production' && canProduction && <ProductionReport />}
+      {currentTab === 'orders' && canOrders && <OrderDeliveryReport />}
+      {currentTab === 'finance' && canFinance && <FinanceReport />}
+      {currentTab === 'accounting' && canAccounting && <AccountingReport />}
+      {currentTab === 'stock' && canInventory && <StockReportTab />}
+
+      {/* Yetkisi olmayan bir sekme doğrudan bağlantı ile açılırsa */}
+      {currentTab !== 'overview' && !tabs.some(t => t.id === currentTab) && (
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+          <ShieldCheck className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Bu rapor için yetkiniz bulunmuyor</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            İlgili modülde görüntüleme yetkisi tanımlandığında rapor otomatik olarak görünür.
+          </p>
+        </div>
+      )}
 
     </div>
   );

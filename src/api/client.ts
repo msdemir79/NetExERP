@@ -103,10 +103,36 @@ export class ApiError extends Error {
 
 const BASE = '/api';
 
+/**
+ * Oturum httpOnly çerezle taşınır (JavaScript belirtece erişemez); bu nedenle
+ * isteklerde ayrıca başlık eklenmez, yalnızca aynı kaynak çerezi gönderilir.
+ */
+type UnauthorizedHandler = () => void;
+const unauthorizedHandlers = new Set<UnauthorizedHandler>();
+
+/** Oturum düşerse (401) haber verilir; arayüz giriş ekranına döner. */
+export function onUnauthorized(handler: UnauthorizedHandler): () => void {
+  unauthorizedHandlers.add(handler);
+  return () => {
+    unauthorizedHandlers.delete(handler);
+  };
+}
+
+function notifyUnauthorized(): void {
+  for (const handler of Array.from(unauthorizedHandlers)) {
+    try {
+      handler();
+    } catch (err) {
+      console.error('Oturum sonlandırma dinleyicisi hata verdi:', err);
+    }
+  }
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       ...init,
     });
@@ -129,6 +155,8 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
+    // Giriş uçları dışındaki 401 yanıtları "oturum bitti" anlamına gelir.
+    if (res.status === 401 && !path.startsWith('/auth/login')) notifyUnauthorized();
     throw new ApiError(payload?.error || `İstek başarısız (${res.status})`, res.status, payload?.code);
   }
   return payload as T;
@@ -366,3 +394,75 @@ export async function reseedDatabase(): Promise<{ created: boolean }> {
 export async function health(): Promise<{ status: string; database: { connected: boolean; version?: string; error?: string } }> {
   return http('/health');
 }
+
+/* ------------------------------------------------------------------ */
+/* Kimlik doğrulama ve oturum uçları                                    */
+/* ------------------------------------------------------------------ */
+
+export interface SessionPayload {
+  user: AppUser | null;
+  role: Role | null;
+  expiresAt?: number;
+  impersonatedBy?: { userId: number; userName: string } | null;
+  /** Girişte zayıf parola tespit edilirse doldurulur. */
+  passwordWarning?: string | null;
+}
+
+export const authApi = {
+  async login(username: string, password: string): Promise<SessionPayload> {
+    const res = await http<{ data: SessionPayload }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    return res.data;
+  },
+
+  async logout(): Promise<void> {
+    await http('/auth/logout', { method: 'POST' });
+  },
+
+  /** Oturum yoksa null döner (401 beklenen bir durumdur). */
+  async session(): Promise<SessionPayload | null> {
+    try {
+      const res = await http<{ data: SessionPayload }>('/auth/session');
+      return res.data;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return null;
+      throw err;
+    }
+  },
+
+  /** Yalnızca süper admin: başka bir kullanıcının yetkileriyle oturum açar. */
+  async impersonate(userId: number): Promise<SessionPayload> {
+    const res = await http<{ data: SessionPayload }>('/auth/impersonate', {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+    return res.data;
+  },
+
+  async stopImpersonation(): Promise<SessionPayload> {
+    const res = await http<{ data: SessionPayload }>('/auth/impersonate/stop', { method: 'POST' });
+    return res.data;
+  },
+
+  async changePassword(input: { userId?: number; currentPassword?: string; newPassword: string }): Promise<void> {
+    await http('/auth/password', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  /** Denetim kaydı: kimlik/zaman sunucu tarafından yazılır. */
+  async audit(entry: {
+    action: string;
+    module: string;
+    description: string;
+    details?: string;
+    entityId?: string | number;
+  }): Promise<void> {
+    await http('/ops/audit', { method: 'POST', body: JSON.stringify(entry) });
+  },
+
+  async clearAuditLogs(): Promise<number> {
+    const res = await http<{ data: { deleted: number } }>('/ops/audit-clear', { method: 'POST' });
+    return res.data?.deleted ?? 0;
+  },
+};

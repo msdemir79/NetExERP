@@ -2,6 +2,7 @@
 // Veritabanı şeması değişirse: npm run db:columns
 
 export interface ColumnDef { name: string; type: string; }
+
 export interface ResourceDef {
   table: string;
   primaryKey: string;
@@ -738,11 +739,8 @@ export const RESOURCES: Record<string, ResourceDef> = {
       { name: "status", type: "enum" },
       { name: "avatar", type: "text" },
       { name: "color", type: "varchar" },
-      { name: "pinCode", type: "varchar" },
       { name: "passwordHash", type: "varchar" },
       { name: "passwordSalt", type: "varchar" },
-      { name: "sessionToken", type: "varchar" },
-      { name: "sessionExpiresAt", type: "datetime" },
       { name: "lastLoginAt", type: "datetime" },
       { name: "createdAt", type: "datetime" },
       { name: "updatedAt", type: "datetime" },
@@ -774,10 +772,6 @@ export const RESOURCES: Record<string, ResourceDef> = {
 
 export function getResource(name: string): ResourceDef | undefined {
   return RESOURCES[name];
-}
-
-export function columnNames(def: ResourceDef): string[] {
-  return def.columns.map((c) => c.name);
 }
 
 export function isValidColumn(def: ResourceDef, name: string): boolean {

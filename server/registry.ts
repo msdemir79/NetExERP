@@ -1,6 +1,9 @@
 import { RESOURCES, type ResourceDef } from './columns.js';
+import type { AppModule } from '../src/types.js';
 
 export interface ResourceMeta {
+  /** Kaynağın bağlı olduğu yetki modülü (RBAC). Sunucu tarafı izin denetiminde kullanılır. */
+  module: AppModule;
   /** ?search= parametresinin aradığı kolonlar */
   searchable: string[];
   /** Varsayılan sıralama (ORDER BY) */
@@ -9,10 +12,22 @@ export interface ResourceMeta {
   guards?: { table: string; column: string; message: string }[];
   /** Sadece okunabilir (istemci yazamaz) */
   readOnly?: boolean;
+  /** Okuma için modül izni gerekmez; oturum açmış olmak yeterlidir. */
+  readAuthOnly?: boolean;
+  /** İstemci hiçbir zaman yazamaz (yalnızca sunucu tarafı işlemler yazar). */
+  protectedColumns?: string[];
+  /** Kayıtlar istemciye gönderilmeden önce çıkarılan kolonlar. */
+  hidden?: string[];
 }
 
 export const META: Record<string, ResourceMeta> = {
   contacts: {
+    module: 'contacts',
+    /**
+     * Cari kartları sipariş, irsaliye, fatura ve finans ekranlarının ortak
+     * referans verisidir; okuma için oturum yeterlidir (yazma modül iznine bağlıdır).
+     */
+    readAuthOnly: true,
     searchable: ['code', 'name', 'companyTitle', 'contactPerson', 'phone', 'mobile', 'email', 'taxNumber'],
     defaultOrder: 'name ASC',
     guards: [
@@ -22,9 +37,15 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'transactions', column: 'contactId', message: 'Bu cariye bağlı kasa/banka hareketleri var.' },
     ],
   },
-  assortmentTemplates: { searchable: ['name'], defaultOrder: 'name ASC' },
-  barcodeTemplates: { searchable: ['name', 'description'], defaultOrder: 'name ASC' },
+  assortmentTemplates: { module: 'inventory', searchable: ['name'], defaultOrder: 'name ASC' },
+  barcodeTemplates: { module: 'inventory', searchable: ['name', 'description'], defaultOrder: 'name ASC' },
   products: {
+    module: 'inventory',
+    /**
+     * Ürün kartları sipariş, irsaliye, fatura ve üretim ekranlarında seçim
+     * listesi olarak kullanılır; okuma için oturum yeterlidir.
+     */
+    readAuthOnly: true,
     searchable: ['code', 'name', 'barcode', 'moldCode', 'moldGroup', 'subType', 'brand', 'category', 'documentNo'],
     defaultOrder: 'name ASC',
     guards: [
@@ -35,18 +56,22 @@ export const META: Record<string, ResourceMeta> = {
     ],
   },
   recipes: {
+    module: 'production',
     searchable: ['name', 'targetColor'],
     defaultOrder: 'id DESC',
     guards: [{ table: 'workOrders', column: 'recipeId', message: 'Bu reçeteye bağlı iş emirleri var.' }],
   },
   workOrders: {
+    module: 'production',
     searchable: ['barcode', 'orderNumber', 'customerName', 'documentNo', 'moldCode', 'moldGroup', 'color'],
     defaultOrder: 'id DESC',
   },
-  inventoryLogs: { searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC' },
-  transactions: { searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC' },
-  settings: { searchable: [], defaultOrder: 'id ASC' },
+  inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC' },
+  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC' },
+  /** Firma künyesi/logo gibi kabuk ayarları arayüzün her yerinde okunur. */
+  settings: { module: 'settings', searchable: [], defaultOrder: 'id ASC', readAuthOnly: true },
   orders: {
+    module: 'orders',
     searchable: ['orderNumber', 'notes'],
     defaultOrder: 'id DESC',
     guards: [
@@ -54,32 +79,37 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'waybills', column: 'orderId', message: 'Bu siparişe bağlı irsaliyeler var.' },
     ],
   },
-  orderItems: { searchable: [], defaultOrder: 'id ASC' },
+  orderItems: { module: 'orders', searchable: [], defaultOrder: 'id ASC' },
   invoices: {
+    module: 'invoices',
     searchable: ['invoiceNumber', 'orderNumber', 'waybillNumber', 'ettn', 'notes'],
     defaultOrder: 'id DESC',
     guards: [{ table: 'invoiceItems', column: 'invoiceId', message: 'Fatura kalemleri silinmeden fatura silinemez.' }],
   },
-  invoiceItems: { searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
+  invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
   waybills: {
+    module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
     defaultOrder: 'id DESC',
     guards: [{ table: 'waybillItems', column: 'waybillId', message: 'İrsaliye kalemleri silinmeden irsaliye silinemez.' }],
   },
-  waybillItems: { searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
-  accounts: { searchable: ['code', 'name', 'description'], defaultOrder: 'code ASC' },
+  waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
+  accounts: { module: 'accounting', searchable: ['code', 'name', 'description'], defaultOrder: 'code ASC' },
   journalEntries: {
+    module: 'accounting',
     searchable: ['entryNumber', 'description', 'documentNumber', 'documentType'],
     defaultOrder: 'id DESC',
   },
-  cashBoxes: { searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC' },
-  bankAccounts: { searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC' },
+  cashBoxes: { module: 'finance', searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC' },
+  bankAccounts: { module: 'finance', searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC' },
   checks: {
+    module: 'finance',
     searchable: ['portfolioNumber', 'serialNumber', 'bankName', 'drawer', 'contactName'],
     defaultOrder: 'dueDate ASC',
   },
-  collectionReceipts: { searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC' },
+  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC' },
   employees: {
+    module: 'hr',
     searchable: ['employeeCode', 'name', 'tcNo', 'department', 'position', 'phone'],
     defaultOrder: 'name ASC',
     guards: [
@@ -89,21 +119,33 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'leaveRequests', column: 'employeeId', message: 'Personelin izin kayıtları var.' },
     ],
   },
-  attendanceRecords: { searchable: ['status', 'notes'], defaultOrder: 'date DESC' },
-  leaveRequests: { searchable: ['employeeName', 'leaveType', 'reason'], defaultOrder: 'id DESC' },
-  advanceRequests: { searchable: ['employeeName', 'description'], defaultOrder: 'id DESC' },
-  payrollRecords: { searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC' },
-  periodLocks: { searchable: [], defaultOrder: 'year DESC, month DESC' },
-  roles: { searchable: ['code', 'name', 'description'], defaultOrder: 'id ASC' },
+  attendanceRecords: { module: 'hr', searchable: ['status', 'notes'], defaultOrder: 'date DESC' },
+  leaveRequests: { module: 'hr', searchable: ['employeeName', 'leaveType', 'reason'], defaultOrder: 'id DESC' },
+  advanceRequests: { module: 'hr', searchable: ['employeeName', 'description'], defaultOrder: 'id DESC' },
+  payrollRecords: { module: 'hr', searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC' },
+  periodLocks: { module: 'hr', searchable: [], defaultOrder: 'year DESC, month DESC' },
+  /** Roller her oturum sahibi tarafından okunabilir; kendi rolünü çözmek için gerekir. */
+  roles: { module: 'users', searchable: ['code', 'name', 'description'], defaultOrder: 'id ASC', readAuthOnly: true },
   users: {
+    module: 'users',
     searchable: ['username', 'fullName', 'email', 'department', 'title'],
     defaultOrder: 'id ASC',
+    protectedColumns: ['passwordHash', 'passwordSalt'],
+    hidden: ['passwordHash', 'passwordSalt'],
   },
-  auditLogs: { searchable: ['userName', 'action', 'module', 'description', 'entityId'], defaultOrder: 'id DESC' },
+  /** Denetim izi yalnızca sunucu tarafından yazılır; istemci sadece okur. */
+  auditLogs: {
+    module: 'users',
+    searchable: ['userName', 'action', 'module', 'description', 'entityId'],
+    defaultOrder: 'id DESC',
+    readOnly: true,
+  },
 };
 
+const FALLBACK_META: ResourceMeta = { module: 'dashboard', searchable: [], defaultOrder: 'id ASC' };
+
 export function getMeta(resource: string): ResourceMeta {
-  return META[resource] || { searchable: [], defaultOrder: 'id ASC' };
+  return META[resource] || FALLBACK_META;
 }
 
 export function getDef(resource: string): ResourceDef | undefined {

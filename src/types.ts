@@ -967,11 +967,12 @@ export interface AppUser {
   status: UserStatus;
   avatar?: string;
   color?: string;
-  pinCode?: string;
-  passwordHash?: string;
-  passwordSalt?: string;
-  sessionToken?: string;
-  sessionExpiresAt?: Date;
+  /**
+   * Yalnızca yazma amaçlı sanal alan: kullanıcı oluştururken/güncellerken parola
+   * göndermek için kullanılır. Sunucu parolayı scrypt ile saklar ve bu alanı
+   * hiçbir zaman geri döndürmez; kalıcı bir kolonu yoktur.
+   */
+  password?: string;
   lastLoginAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;

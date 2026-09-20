@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Building2, Save, Check, Database, Download, Upload, AlertTriangle, RefreshCw, FileText, Image as ImageIcon, Trash2, UploadCloud, RotateCcw, CheckCircle2, X } from 'lucide-react';
 import { api, commit, reseedDatabase, type Mutation } from '../../api/client';
 import { erpService } from '../../services/erpService';
+import { useAuth } from '../../context/AuthContext';
 import Modal from '../Modal';
 import type { AppSettings, CompanySettings as CompanySettingsType } from '../../types';
 
@@ -11,6 +12,8 @@ interface CompanySettingsProps {
 }
 
 export default function CompanySettings({ settings, onSave }: CompanySettingsProps) {
+  // Yedekleme/geri yükleme ve sıfırlama işlemleri yıkıcıdır: yalnızca Süper Admin.
+  const { isSuperAdmin } = useAuth();
   const [comp, setComp] = useState<CompanySettingsType>(settings.company || {
     companyName: 'ProERP Ayakkabı San. ve Tic. Ltd. Şti.',
     companyTitle: 'ProERP Ayakkabı İmalat Sanayi ve Ticaret Limited Şirketi',
@@ -492,12 +495,16 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               </div>
               <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider">Hareketleri Sıfırla</h4>
               <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Bugün girilen siparişler hariç; stok, cari, finans, TDHP ve üretim hareketlerini temizler. Kartlar korunur.</p>
+              {!isSuperAdmin && (
+                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={() => setIsResetConfirmOpen(true)}
-              disabled={isClearingMovements}
+              disabled={!isSuperAdmin || isClearingMovements}
+              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
               <RotateCcw className={`w-4 h-4 ${isClearingMovements ? 'animate-spin' : ''}`} />
@@ -513,12 +520,16 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               </div>
               <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Tam Veritabanı Yedeği</h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">Stoklar, siparişler, irsaliyeler, cariler ve ayarları tek bir JSON dosyasında bilgisayarınıza indirir.</p>
+              {!isSuperAdmin && (
+                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Tüm modülleri okuma yetkisi gerektirir (Süper Admin).</p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={handleExportBackup}
-              disabled={isBackingUp}
+              disabled={!isSuperAdmin || isBackingUp}
+              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
               <Download className="w-4 h-4" />
@@ -534,15 +545,19 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               </div>
               <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Yedekten Geri Yükle</h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">Daha önce aldığınız bir ProERP JSON yedek dosyasını sisteme yükleyerek verileri yeniler.</p>
+              {!isSuperAdmin && (
+                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
+              )}
             </div>
 
-            <label className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs">
+            <label className={`w-full text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-xs ${isSuperAdmin ? 'bg-sky-600 hover:bg-sky-700 cursor-pointer' : 'bg-slate-400 cursor-not-allowed'}`}>
               <Upload className="w-4 h-4" />
               Yedek Dosyası Seç
               <input
                 type="file"
                 accept=".json"
                 onChange={handleImportBackup}
+                disabled={!isSuperAdmin}
                 className="hidden"
               />
             </label>
@@ -556,12 +571,16 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               </div>
               <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Fabrika / Demo Verisi</h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">Tüm tabloları sıfırlar ve zengin ayakkabı imalat demo verilerini (ürünler, reçeteler, cariler) tekrar yükler.</p>
+              {!isSuperAdmin && (
+                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={() => setIsDemoConfirmOpen(true)}
-              disabled={isResetting}
+              disabled={!isSuperAdmin || isResetting}
+              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
               className="w-full bg-slate-900 hover:bg-rose-600 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
               <RefreshCw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />

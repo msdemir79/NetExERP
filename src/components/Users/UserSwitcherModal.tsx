@@ -1,5 +1,7 @@
 import React from 'react';
 import { X, Users, Shield, Check, ArrowRight, Sparkles, UserCheck } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { useAuth } from '../../context/AuthContext';
 import type { AppUser } from '../../types';
 
@@ -9,9 +11,33 @@ interface UserSwitcherModalProps {
 }
 
 export default function UserSwitcherModal({ isOpen, onClose }: UserSwitcherModalProps) {
-  const { currentUser, users, switchUser } = useAuth();
+  const { currentUser, isSuperAdmin, switchUser } = useAuth();
+  // Kullanıcı listesi yalnızca yetki simülasyonu açıldığında çekilir.
+  const users = useApiQuery(() => api.users.list(), [], ['users']) || [];
 
   if (!isOpen) return null;
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 p-6 text-center">
+          <Shield className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Yetki simülasyonu kapalı</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+            Başka bir kullanıcının yetkileriyle oturum açmak yalnızca Süper Admin hesaplarına açıktır
+            ve her geçiş denetim izine kaydedilir.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-4 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors"
+          >
+            Kapat
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSelectUser = async (user: AppUser) => {
     if (!user.id) return;
@@ -36,12 +62,13 @@ export default function UserSwitcherModal({ isOpen, onClose }: UserSwitcherModal
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold tracking-tight">Kullanıcı & Rol Değiştir</h2>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
-                  Canlı Simülatör
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                  Süper Admin · Denetimli
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Farklı rollerdeki kullanıcı hesaplarına geçerek yetkileri anında test edin
+                Farklı rollerdeki hesaplara geçerek yetkileri test edin. Her geçiş denetim izine kaydedilir
+                ve üst şeritte bildirilir.
               </p>
             </div>
           </div>

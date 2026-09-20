@@ -1,6 +1,6 @@
-import crypto from 'crypto';
 import { getPool, query, queryOne, withTransaction } from './db.js';
 import { RESOURCES } from './columns.js';
+import { hashPassword } from './auth.js';
 import { INITIAL_TDHP_ACCOUNTS, INITIAL_CASH_BOXES, INITIAL_BANK_ACCOUNTS } from '../src/data/tdhpAccounts.js';
 import { INITIAL_BARCODE_TEMPLATES } from '../src/data/initialBarcodeTemplates.js';
 import { INITIAL_ROLES } from '../src/data/initialRoles.js';
@@ -11,9 +11,23 @@ import type { PoolConnection } from 'mysql2/promise';
 /* Yardımcılar                                                         */
 /* ------------------------------------------------------------------ */
 
-function hashPin(pin: string, salt: string): string {
-  return crypto.createHash('sha256').update(`${pin}:${salt}`, 'utf8').digest('hex');
+/**
+ * İlk kurulumda kullanıcılara verilecek parolalar.
+ * SEED_USER_PASSWORD tanımlıysa herkes için o kullanılır; aksi hâlde her
+ * kullanıcıya rastgele bir parola üretilip bir kez konsola yazılır.
+ */
+function initialPasswordFor(): string {
+  const fixed = process.env.SEED_USER_PASSWORD?.trim();
+  if (fixed) return fixed;
+  // Okunabilir ama tahmin edilemez: 4 harf + 4 rakam + özel karakter
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const pick = (set: string, n: number) =>
+    Array.from({ length: n }, () => set[Math.floor(Math.random() * set.length)]).join('');
+  return `${pick(letters, 4)}-${pick(digits, 4)}!`;
 }
+
+const seededCredentials: { username: string; password: string }[] = [];
 
 const columnCache = new Map<string, Set<string>>();
 
@@ -349,15 +363,26 @@ async function doSeed(): Promise<{ created: boolean }> {
     const roleMap = new Map(roleRows.map((r) => [r.code, r.id]));
 
     for (const u of INITIAL_USERS) {
-      const salt = `s_${u.username}_2026`;
+      const password = initialPasswordFor();
+      const { hash, salt } = await hashPassword(password);
       await insertRow(null, 'users', {
         ...u,
         roleId: roleMap.get(u.roleCode),
         passwordSalt: salt,
-        passwordHash: hashPin(u.pinCode || '1234', salt),
+        passwordHash: hash,
       });
+      seededCredentials.push({ username: u.username, password });
     }
     createdAnything = true;
+
+    // Parolalar yalnızca bir kez, oluşturuldukları anda görüntülenir.
+    console.log('');
+    console.log('  İlk giriş parolaları (bu satırları güvenli bir yere kaydedin):');
+    for (const c of seededCredentials) {
+      console.log(`    • ${c.username.padEnd(12)} → ${c.password}`);
+    }
+    console.log('  Parolalar veritabanında scrypt ile geri döndürülemez biçimde saklanır.');
+    console.log('');
   }
 
   // 8. Denetim kaydı

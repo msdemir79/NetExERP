@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -19,15 +20,40 @@ import StockMovementReport from './components/Reports/StockMovementReport';
 import BrokenSizeReport from './components/Reports/BrokenSizeReport';
 import SettingsHub from './components/Settings';
 import { erpService } from './services/erpService';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { FeedbackHost } from './lib/feedback';
+import LoginScreen from './components/Common/LoginScreen';
+
+/**
+ * Oturum yoksa giriş ekranını gösterir. Yetkilendirme sunucuda yapıldığı için
+ * burada varsayılan bir kullanıcıya düşülmez.
+ */
+function AuthGate({ children }: { children: ReactNode }) {
+  const { currentUser, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950">
+        <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 text-sm">
+          <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          Oturum kontrol ediliyor…
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) return <LoginScreen />;
+
+  return <>{children}</>;
+}
 
 export default function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="shoerp-theme">
       <AuthProvider>
         <FeedbackHost />
+        <AuthGate>
         <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
@@ -54,6 +80,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+        </AuthGate>
     </AuthProvider>
     </ThemeProvider>
   );

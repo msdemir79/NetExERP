@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Phone, Shield, Building2, KeyRound, AlertCircle, Check } from 'lucide-react';
+import { X, User, Mail, Phone, Shield, Building2, KeyRound, AlertCircle, Check, Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import type { AppUser, Role, UserStatus } from '../../types';
+
+const MIN_PASSWORD_LENGTH = 8;
 
 interface UserModalProps {
   isOpen: boolean;
@@ -48,11 +51,16 @@ export default function UserModal({
   const [department, setDepartment] = useState('YÖNETİM');
   const [roleCode, setRoleCode] = useState('sales_manager');
   const [status, setStatus] = useState<UserStatus>('active');
-  const [pinCode, setPinCode] = useState('1234');
+  const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [color, setColor] = useState('#4f46e5');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { currentUser } = useAuth();
+  const isEditingSelf = Boolean(user?.id && currentUser?.id === user.id);
 
   useEffect(() => {
     if (user) {
@@ -64,7 +72,6 @@ export default function UserModal({
       setDepartment(user.department || 'YÖNETİM');
       setRoleCode(user.roleCode || (roles[0]?.code || 'super_admin'));
       setStatus(user.status || 'active');
-      setPinCode(user.pinCode || '1234');
       setColor(user.color || '#4f46e5');
       setNotes(user.notes || '');
     } else {
@@ -76,10 +83,13 @@ export default function UserModal({
       setDepartment('SATIŞ & PAZARLAMA');
       setRoleCode(roles[1]?.code || roles[0]?.code || 'sales_manager');
       setStatus('active');
-      setPinCode('1234');
       setColor(AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]);
       setNotes('');
     }
+    // Parola alanları her açılışta boş başlar; kayıtlı parola gösterilmez.
+    setPassword('');
+    setCurrentPassword('');
+    setShowPassword(false);
     setError(null);
   }, [user, isOpen, roles]);
 
@@ -121,6 +131,18 @@ export default function UserModal({
       setError('Geçerli bir e-posta adresi giriniz.');
       return;
     }
+    if (!user && !password) {
+      setError('Yeni kullanıcı için parola tanımlanmalıdır.');
+      return;
+    }
+    if (password && password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Parola en az ${MIN_PASSWORD_LENGTH} karakter olmalıdır.`);
+      return;
+    }
+    if (password && isEditingSelf && !currentPassword) {
+      setError('Kendi parolanızı değiştirmek için mevcut parolanızı girmelisiniz.');
+      return;
+    }
 
     const selectedRole = roles.find(r => r.code === roleCode);
 
@@ -137,10 +159,12 @@ export default function UserModal({
         roleId: selectedRole?.id,
         roleName: selectedRole?.name,
         status,
-        pinCode: pinCode.trim() || '1234',
         color,
-        notes: notes.trim()
-      });
+        notes: notes.trim(),
+        // Parola düz metin olarak yalnızca sunucuya gönderilir; orada scrypt ile saklanır.
+        ...(password ? { password } : {}),
+        ...(password && isEditingSelf ? { currentPassword } : {})
+      } as Partial<AppUser>);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Kullanıcı kaydedilirken bir hata oluştu.');
@@ -332,21 +356,36 @@ export default function UserModal({
             </div>
           </div>
 
-          {/* Hızlı PIN & Renk */}
+          {/* Parola & Renk */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                Giriş PIN Kodu (4 Hane)
+                {user ? 'Yeni Parola (boş bırakılırsa değişmez)' : 'Giriş Parolası'}
               </label>
-              <input
-                type="text"
-                maxLength={6}
-                value={pinCode}
-                onChange={(e) => setPinCode(e.target.value)}
-                placeholder="1234"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold tracking-widest text-slate-900 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={user ? '••••••••' : `en az ${MIN_PASSWORD_LENGTH} karakter`}
+                  className="w-full pl-3 pr-9 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  title={showPassword ? 'Parolayı gizle' : 'Parolayı göster'}
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              {user && (
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">
+                  Parola sunucuda scrypt ile saklanır; kayıtlı parola görüntülenemez.
+                </span>
+              )}
             </div>
 
             <div>
@@ -368,6 +407,23 @@ export default function UserModal({
               </div>
             </div>
           </div>
+
+          {/* Kendi parolasını değiştiren kullanıcıdan mevcut parolası da istenir */}
+          {password && isEditingSelf && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                Mevcut Parolanız
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Kimliğinizi doğrulamak için gerekli"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+              />
+            </div>
+          )}
 
           {/* Notlar */}
           <div>
