@@ -6,20 +6,16 @@ import {
   Search, 
   Printer, 
   FileDown, 
-  Filter, 
-  FileText, 
   TrendingUp, 
   Percent, 
   CheckCircle2, 
-  AlertCircle,
-  Layers,
-  Calendar,
   Scale
 } from 'lucide-react';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 import { cn } from '../../lib/utils';
-import type { Account, JournalEntry } from '../../types';
+import DataGrid, { type GridColumn } from '../Common/DataGrid';
+import type { Account } from '../../types';
 
 export default function AccountingReport() {
   const [activeTab, setActiveTab] = useState<'mizan' | 'kdv' | 'journal'>('mizan');
@@ -101,6 +97,64 @@ export default function AccountingReport() {
       sales600
     };
   }, [accounts, accountTotals]);
+
+  // Mizan tablosu kolonları
+  const mizanColumns: GridColumn<Account>[] = [
+    {
+      key: 'code', title: 'Hesap Kodu', width: '110px',
+      render: (acc) => <span className="font-mono font-bold text-[11px] text-slate-700 dark:text-slate-200">{acc.code}</span>,
+      filterValue: (acc) => acc.code
+    },
+    {
+      key: 'name', title: 'Hesap Adı',
+      render: (acc) => <span className={cn('text-slate-900 dark:text-slate-100', acc.code.length <= 3 && 'font-bold')}>{acc.name}</span>,
+      filterValue: (acc) => acc.name
+    },
+    {
+      key: 'debit', title: 'Borç Toplamı', align: 'right',
+      render: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        return <span className="font-mono text-slate-800 dark:text-slate-200">₺{t.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>;
+      },
+      filterValue: (acc) => String((accountTotals.get(acc.code) || { debit: 0, credit: 0 }).debit)
+    },
+    {
+      key: 'credit', title: 'Alacak Toplamı', align: 'right',
+      render: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        return <span className="font-mono text-slate-800 dark:text-slate-200">₺{t.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>;
+      },
+      filterValue: (acc) => String((accountTotals.get(acc.code) || { debit: 0, credit: 0 }).credit)
+    },
+    {
+      key: 'debitBalance', title: 'Borç Bakiye', align: 'right',
+      render: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        const debitBal = t.debit > t.credit ? t.debit - t.credit : 0;
+        return debitBal > 0
+          ? <span className="font-mono font-bold text-indigo-700">₺{debitBal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+          : <span className="text-slate-400">-</span>;
+      },
+      filterValue: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        return String(t.debit > t.credit ? t.debit - t.credit : 0);
+      }
+    },
+    {
+      key: 'creditBalance', title: 'Alacak Bakiye', align: 'right',
+      render: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        const creditBal = t.credit > t.debit ? t.credit - t.debit : 0;
+        return creditBal > 0
+          ? <span className="font-mono font-bold text-purple-700">₺{creditBal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+          : <span className="text-slate-400">-</span>;
+      },
+      filterValue: (acc) => {
+        const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+        return String(t.credit > t.debit ? t.credit - t.debit : 0);
+      }
+    }
+  ];
 
   // Print Mizan Report
   const handlePrintMizan = () => {
@@ -318,75 +372,87 @@ export default function AccountingReport() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-3 px-3 w-28">Hesap Kodu</th>
-                  <th className="py-3 px-3">Hesap Adı</th>
-                  <th className="py-3 px-3 text-right">Borç Toplamı</th>
-                  <th className="py-3 px-3 text-right">Alacak Toplamı</th>
-                  <th className="py-3 px-3 text-right text-indigo-800 bg-indigo-50/40">Borç Bakiye</th>
-                  <th className="py-3 px-3 text-right text-purple-800 bg-purple-50/40">Alacak Bakiye</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredAccounts.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-10 text-center text-slate-400 font-bold">
-                      Kayıtlı hesap bulunamadı.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAccounts.map(acc => {
-                    const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
-                    const debit = t.debit;
-                    const credit = t.credit;
-                    const debitBal = debit > credit ? debit - credit : 0;
-                    const creditBal = credit > debit ? credit - debit : 0;
-                    const isMain = acc.code.length <= 3;
-
-                    return (
-                      <tr key={`rep-acc-${acc.code}`} className={cn("hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors", isMain && "bg-slate-50 dark:bg-slate-800/50/40 font-bold")}>
-                        <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-200 font-bold text-[11px]">
-                          {acc.code}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-900 dark:text-slate-100">
-                          {acc.name}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-800 dark:text-slate-200">
-                          ₺{debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-800 dark:text-slate-200">
-                          ₺{credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700 bg-indigo-50/20">
-                          {debitBal > 0 ? `₺${debitBal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-purple-700 bg-purple-50/20">
-                          {creditBal > 0 ? `₺${creditBal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-100 dark:bg-slate-800 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300">
-                  <td colSpan={2} className="py-3 px-3 text-right uppercase text-[10px] tracking-wider text-slate-600">
-                    Genel Toplam:
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono">
-                    ₺{totals.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono">
-                    ₺{totals.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td colSpan={2}></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <DataGrid<Account>
+            columns={[
+              {
+                key: 'code',
+                title: 'Hesap Kodu',
+                width: '8rem',
+                render: (acc) => (
+                  <span className={cn('font-mono text-[11px] font-bold text-slate-700 dark:text-slate-200', acc.code.length <= 3 && 'text-slate-900 dark:text-slate-50')}>
+                    {acc.code}
+                  </span>
+                ),
+              },
+              {
+                key: 'name',
+                title: 'Hesap Adı',
+                render: (acc) => (
+                  <span className={cn('text-slate-900 dark:text-slate-100', acc.code.length <= 3 && 'font-bold')}>{acc.name}</span>
+                ),
+              },
+              {
+                key: 'debit',
+                title: 'Borç Toplamı',
+                align: 'right',
+                render: (acc) => (
+                  <span className="font-mono text-slate-800 dark:text-slate-200">
+                    ₺{(accountTotals.get(acc.code)?.debit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                  </span>
+                ),
+                filterValue: (acc) => String(accountTotals.get(acc.code)?.debit || 0),
+              },
+              {
+                key: 'credit',
+                title: 'Alacak Toplamı',
+                align: 'right',
+                render: (acc) => (
+                  <span className="font-mono text-slate-800 dark:text-slate-200">
+                    ₺{(accountTotals.get(acc.code)?.credit || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                  </span>
+                ),
+                filterValue: (acc) => String(accountTotals.get(acc.code)?.credit || 0),
+              },
+              {
+                key: 'debitBal',
+                title: 'Borç Bakiye',
+                align: 'right',
+                render: (acc) => {
+                  const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+                  const bal = t.debit > t.credit ? t.debit - t.credit : 0;
+                  return <span className="font-mono font-bold text-indigo-700">{bal > 0 ? `₺${bal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</span>;
+                },
+                filterValue: (acc) => {
+                  const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+                  return String(t.debit > t.credit ? t.debit - t.credit : 0);
+                },
+              },
+              {
+                key: 'creditBal',
+                title: 'Alacak Bakiye',
+                align: 'right',
+                render: (acc) => {
+                  const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+                  const bal = t.credit > t.debit ? t.credit - t.debit : 0;
+                  return <span className="font-mono font-bold text-purple-700">{bal > 0 ? `₺${bal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</span>;
+                },
+                filterValue: (acc) => {
+                  const t = accountTotals.get(acc.code) || { debit: 0, credit: 0 };
+                  return String(t.credit > t.debit ? t.credit - t.debit : 0);
+                },
+              },
+            ]}
+            data={filteredAccounts}
+            rowKey="code"
+            emptyMessage="Kayıtlı hesap bulunamadı."
+            footer={
+              <div className="flex flex-wrap items-center justify-end gap-4 font-mono font-black text-slate-900 dark:text-slate-100">
+                <span className="mr-auto uppercase text-[10px] tracking-wider text-slate-600 dark:text-slate-300">Genel Toplam:</span>
+                <span>₺{totals.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                <span>₺{totals.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            }
+          />
 
         </div>
       )}

@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  DollarSign, 
-  Calendar, 
-  ChevronLeft, 
-  ChevronRight, 
-  Sparkles, 
-  Printer, 
-  BookOpen, 
-  Shield, 
-  CheckCircle2, 
+import {
+  DollarSign,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  Printer,
+  BookOpen,
+  Shield,
   Landmark,
   Banknote,
   Wallet,
@@ -18,6 +17,7 @@ import {
   FileDown,
   ChevronDown
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, PayrollRecord, HRModuleSettings } from '../../types';
 import { hrService } from '../../services/hrService';
 import { erpService } from '../../services/erpService';
@@ -165,6 +165,131 @@ export default function PayrollTab({ employees, onPayrollUpdated }: PayrollTabPr
 
   // Filtered Payrolls
   const filteredPayrolls = payrolls.filter(p => sgkFilter === 'all' || p.sgkStatus === sgkFilter);
+
+  const payrollColumns: GridColumn<PayrollRecord>[] = [
+    {
+      key: 'employee',
+      title: 'Personel',
+      render: (rec) => (
+        <div>
+          <div className="font-bold text-slate-800 dark:text-slate-200">{rec.employeeName}</div>
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">{rec.employeeCode} • {rec.department}</div>
+        </div>
+      ),
+      filterValue: (rec) => `${rec.employeeName} ${rec.employeeCode} ${rec.department}`
+    },
+    {
+      key: 'sgkStatus',
+      title: 'SGK Tipi',
+      align: 'center',
+      render: (rec) => (
+        <StatusPill tone={rec.sgkStatus === 'sgk_li' ? 'green' : 'amber'}>
+          {rec.sgkStatus === 'sgk_li' ? 'SGK\'lı' : 'SGK\'sız / Yevmiyeli'}
+        </StatusPill>
+      ),
+      filterValue: (rec) => rec.sgkStatus === 'sgk_li' ? 'SGKlı' : 'Yevmiyeli'
+    },
+    {
+      key: 'daysWorked',
+      title: 'Puantaj',
+      align: 'center',
+      render: (rec) => (
+        <div>
+          <div className="font-semibold text-slate-700 dark:text-slate-200">{rec.daysWorked} Gün</div>
+          {rec.overtimeHours > 0 && (
+            <div className="text-[10px] font-bold text-indigo-600">+{rec.overtimeHours} sa mesai</div>
+          )}
+        </div>
+      ),
+      filterValue: (rec) => String(rec.daysWorked)
+    },
+    {
+      key: 'basePay',
+      title: 'Taban / Hak Ediş',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono font-medium text-slate-700 dark:text-slate-200">
+          ₺{rec.basePay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.basePay)
+    },
+    {
+      key: 'overtimePay',
+      title: 'Fazla Mesai',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono font-medium text-indigo-600">
+          {rec.overtimePay > 0 ? `₺${rec.overtimePay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.overtimePay)
+    },
+    {
+      key: 'totalLegalDeductions',
+      title: 'Yasal Kesintiler',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono text-rose-600">
+          {rec.totalLegalDeductions > 0 ? `-₺${rec.totalLegalDeductions.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.totalLegalDeductions)
+    },
+    {
+      key: 'advanceDeduction',
+      title: 'Avans Kes.',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono text-rose-600">
+          {rec.advanceDeduction > 0 ? `-₺${rec.advanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.advanceDeduction)
+    },
+    {
+      key: 'netSalary',
+      title: 'Net Ödenecek',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono font-black text-slate-900 dark:text-slate-100">
+          ₺{rec.netSalary.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.netSalary)
+    },
+    {
+      key: 'totalEmployerCost',
+      title: 'İşveren Maliyeti',
+      align: 'right',
+      render: (rec) => (
+        <span className="font-mono font-bold text-emerald-700">
+          ₺{rec.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+      filterValue: (rec) => String(rec.totalEmployerCost)
+    },
+    {
+      key: 'isAccounted',
+      title: 'Muhasebe',
+      align: 'center',
+      filterable: false,
+      render: (rec) =>
+        rec.isAccounted ? (
+          <StatusPill tone="green">İşlendi</StatusPill>
+        ) : (
+          <button
+            onClick={() => handleAccountPayroll(rec.id!)}
+            disabled={accountingPayrollId === rec.id}
+            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold border border-slate-300 transition-colors flex items-center gap-1 mx-auto disabled:opacity-50"
+            title="Genel Muhasebe TDHP Yevmiye Fişi Oluştur"
+          >
+            <BookOpen className="w-3 h-3 text-indigo-600" />
+            {accountingPayrollId === rec.id ? 'İşleniyor...' : 'Fiş Kes'}
+          </button>
+        )
+    }
+  ];
 
   // Aggregations: SGK'lı vs SGK'sız
   const sgkLiRecords = payrolls.filter(p => p.sgkStatus === 'sgk_li');
@@ -501,153 +626,61 @@ export default function PayrollTab({ employees, onPayrollUpdated }: PayrollTabPr
       </div>
 
       {/* Detailed Payroll Records Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-indigo-600" />
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
-              Personel Bordro & Hakediş Listesi ({MONTH_NAMES[selectedMonth - 1]} {selectedYear})
-            </h3>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 dark:text-slate-200">
-              {filteredPayrolls.length} Kayıt
-            </span>
-          </div>
+      <DataGrid
+        columns={payrollColumns}
+        data={filteredPayrolls}
+        rowKey={(rec) => rec.id ?? `${rec.employeeId}-${rec.month}-${rec.year}`}
+        loading={loading}
+        maxHeight="560px"
+        emptyMessage={
+          payrolls.length === 0
+            ? 'Henüz bordro hesabı yapılmadı. Yukarıdaki "Bordroları Yeniden Hesapla" butonuna tıklayınız.'
+            : 'Seçili filtreye uygun bordro kaydı bulunamadı.'
+        }
+        toolbar={
+          <>
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-indigo-600" />
+              <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                Personel Bordro & Hakediş Listesi ({MONTH_NAMES[selectedMonth - 1]} {selectedYear})
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 dark:text-slate-200">
+                {filteredPayrolls.length} Kayıt
+              </span>
+            </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleExport('xls', 'filtered')}
-              disabled={filteredPayrolls.length === 0}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors disabled:opacity-40 cursor-pointer"
-              title="Listeyi Excel olarak indir"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Excel (.xls)</span>
-            </button>
-            <button
-              onClick={() => handleExport('csv', 'filtered')}
-              disabled={filteredPayrolls.length === 0}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors disabled:opacity-40 cursor-pointer"
-              title="Listeyi CSV olarak indir"
-            >
-              <FileDown className="w-3.5 h-3.5" />
-              <span>CSV</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
-                <th className="p-3">Personel</th>
-                <th className="p-3 text-center">SGK Tipi</th>
-                <th className="p-3 text-center">Puantaj</th>
-                <th className="p-3 text-right">Taban / Hak Ediş</th>
-                <th className="p-3 text-right">Fazla Mesai</th>
-                <th className="p-3 text-right">Yasal Kesintiler</th>
-                <th className="p-3 text-right">Avans Kes.</th>
-                <th className="p-3 text-right font-black text-slate-900 dark:text-slate-100">Net Ödenecek</th>
-                <th className="p-3 text-right text-emerald-800">İşveren Maliyeti</th>
-                <th className="p-3 text-center">Muhasebe</th>
-                <th className="p-3 text-center">İşlem</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredPayrolls.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="p-8 text-center text-slate-400">
-                    {payrolls.length === 0 
-                      ? 'Henüz bordro hesabı yapılmadı. Yukarıdaki "Bordroları Yeniden Hesapla" butonuna tıklayınız.'
-                      : 'Seçili filtreye uygun bordro kaydı bulunamadı.'}
-                  </td>
-                </tr>
-              ) : (
-                filteredPayrolls.map((rec) => {
-                  const emp = employees.find(e => e.id === rec.employeeId);
-                  const isSgk = rec.sgkStatus === 'sgk_li';
-
-                  return (
-                    <tr key={rec.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                      <td className="p-3">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">{rec.employeeName}</div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400">{rec.employeeCode} • {rec.department}</div>
-                      </td>
-
-                      <td className="p-3 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          isSgk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {isSgk ? 'SGK\'lı' : 'SGK\'sız / Yevmiyeli'}
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-center">
-                        <div className="font-semibold text-slate-700 dark:text-slate-200">{rec.daysWorked} Gün</div>
-                        {rec.overtimeHours > 0 && (
-                          <div className="text-[10px] font-bold text-indigo-600">+{rec.overtimeHours} sa mesai</div>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-right font-mono font-medium text-slate-700 dark:text-slate-200">
-                        ₺{rec.basePay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      <td className="p-3 text-right font-mono font-medium text-indigo-600">
-                        {rec.overtimePay > 0 ? `₺${rec.overtimePay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                      </td>
-
-                      <td className="p-3 text-right font-mono text-rose-600">
-                        {rec.totalLegalDeductions > 0 ? `-₺${rec.totalLegalDeductions.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                      </td>
-
-                      <td className="p-3 text-right font-mono text-rose-600">
-                        {rec.advanceDeduction > 0 ? `-₺${rec.advanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                      </td>
-
-                      <td className="p-3 text-right font-mono font-black text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-800/50/50">
-                        ₺{rec.netSalary.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      <td className="p-3 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">
-                        ₺{rec.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      <td className="p-3 text-center">
-                        {rec.isAccounted ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3" />
-                            İşlendi
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleAccountPayroll(rec.id!)}
-                            disabled={accountingPayrollId === rec.id}
-                            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold border border-slate-300 transition-colors flex items-center gap-1 mx-auto disabled:opacity-50"
-                            title="Genel Muhasebe TDHP Yevmiye Fişi Oluştur"
-                          >
-                            <BookOpen className="w-3 h-3 text-indigo-600" />
-                            {accountingPayrollId === rec.id ? 'İşleniyor...' : 'Fiş Kes'}
-                          </button>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() => setSelectedPayrollForSlip(rec)}
-                          className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold border border-slate-300 transition-colors inline-flex items-center gap-1"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          Pusula
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={() => handleExport('xls', 'filtered')}
+                disabled={filteredPayrolls.length === 0}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors disabled:opacity-40 cursor-pointer"
+                title="Listeyi Excel olarak indir"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Excel (.xls)</span>
+              </button>
+              <button
+                onClick={() => handleExport('csv', 'filtered')}
+                disabled={filteredPayrolls.length === 0}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors disabled:opacity-40 cursor-pointer"
+                title="Listeyi CSV olarak indir"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                <span>CSV</span>
+              </button>
+            </div>
+          </>
+        }
+        rowActions={(rec) => (
+          <button
+            onClick={() => setSelectedPayrollForSlip(rec)}
+            className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold border border-slate-300 transition-colors inline-flex items-center gap-1"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Pusula
+          </button>
+        )}
+      />
 
       {/* Slip Modal */}
       {selectedPayrollForSlip && (

@@ -1,53 +1,119 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Search, 
-  Filter, 
-  Download, 
-  Trash2, 
-  RefreshCw, 
-  ShieldAlert, 
-  Clock, 
-  User, 
-  Calendar,
-  Layers,
-  Sparkles,
-  Info
+import React, { useState } from 'react';
+import {
+  FileText,
+  Download,
+  Trash2
 } from 'lucide-react';
-import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { userService } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 import { exportToCsv } from '../../lib/exportService';
-import type { AuditLog, AppModule, AuditActionType } from '../../types';
+import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
+import type { AuditLog, AuditActionType } from '../../types';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
 
-const ACTION_LABELS: Record<AuditActionType, { label: string; bg: string; text: string; border: string }> = {
-  create: { label: 'Yeni Kayıt', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  update: { label: 'Güncelleme', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  delete: { label: 'Silme / İptal', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
-  login: { label: 'Oturum Açma', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-  logout: { label: 'Çıkış Yapma', bg: 'bg-slate-50 dark:bg-slate-800/50', text: 'text-slate-700 dark:text-slate-200', border: 'border-slate-200 dark:border-slate-700' },
-  export: { label: 'Dışa Aktarma', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  approve: { label: 'Özel Onay', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
-  status_change: { label: 'Durum Değişimi', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-  permission_change: { label: 'Yetki Güncellemesi', bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
-  system: { label: 'Sistem Olayı', bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-800 dark:text-slate-200', border: 'border-slate-300' }
+const ACTION_LABELS: Record<AuditActionType, { label: string; tone: PillTone }> = {
+  create: { label: 'Yeni Kayıt', tone: 'green' },
+  update: { label: 'Güncelleme', tone: 'blue' },
+  delete: { label: 'Silme / İptal', tone: 'red' },
+  login: { label: 'Oturum Açma', tone: 'cyan' },
+  logout: { label: 'Çıkış Yapma', tone: 'slate' },
+  export: { label: 'Dışa Aktarma', tone: 'amber' },
+  approve: { label: 'Özel Onay', tone: 'violet' },
+  status_change: { label: 'Durum Değişimi', tone: 'orange' },
+  permission_change: { label: 'Yetki Güncellemesi', tone: 'blue' },
+  system: { label: 'Sistem Olayı', tone: 'slate' }
 };
 
 export default function AuditLogTab() {
   const { isSuperAdmin } = useAuth();
-  const [search, setSearch] = useState('');
   const [selectedModule, setSelectedModule] = useState<string>('all');
   const [selectedAction, setSelectedAction] = useState<string>('all');
   const [selectedLogDetail, setSelectedLogDetail] = useState<AuditLog | null>(null);
 
   // Live query for audit logs sorted by reverse timestamp
   const logs = useApiQuery(() => userService.getAuditLogs({
-    search,
+    search: '',
     module: selectedModule,
     action: selectedAction
-  }), [search, selectedModule, selectedAction], ['auditLogs']) || [];
+  }), [selectedModule, selectedAction], ['auditLogs']) || [];
+
+  const logColumns: GridColumn<AuditLog>[] = [
+    {
+      key: 'timestamp',
+      title: 'Tarih & Saat',
+      render: (log) => (
+        <span className="font-mono text-[11px] text-slate-600">
+          {new Date(log.timestamp).toLocaleString('tr-TR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })}
+        </span>
+      ),
+    },
+    {
+      key: 'userName',
+      title: 'Kullanıcı & Rol',
+      render: (log) => (
+        <>
+          <div className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">
+            {log.userName}
+          </div>
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+            {log.userRole}
+          </div>
+        </>
+      ),
+      filterValue: (log) => `${log.userName} ${log.userRole}`,
+    },
+    {
+      key: 'module',
+      title: 'Modül',
+      render: (log) => (
+        <StatusPill tone="slate" className="font-mono uppercase">{log.module}</StatusPill>
+      ),
+    },
+    {
+      key: 'action',
+      title: 'İşlem Türü',
+      render: (log) => (
+        <StatusPill tone={ACTION_LABELS[log.action]?.tone ?? 'slate'}>
+          {ACTION_LABELS[log.action]?.label || log.action}
+        </StatusPill>
+      ),
+      filterValue: (log) => ACTION_LABELS[log.action]?.label || log.action,
+    },
+    {
+      key: 'description',
+      title: 'İşlem Açıklaması & Detay',
+      render: (log) => (
+        <>
+          <div className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">
+            {log.description}
+          </div>
+          {log.details && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+              {log.details}
+            </div>
+          )}
+        </>
+      ),
+      filterValue: (log) => `${log.description} ${log.details ?? ''}`,
+    },
+    {
+      key: 'ipAddress',
+      title: 'İstemci IP',
+      align: 'right',
+      render: (log) => (
+        <span className="font-mono text-[11px] text-slate-400">{log.ipAddress || '192.168.1.100'}</span>
+      ),
+      filterValue: (log) => log.ipAddress ?? '',
+    },
+  ];
 
   const handleExport = () => {
     if (logs.length === 0) {
@@ -92,18 +158,6 @@ export default function AuditLogTab() {
       {/* Filters Toolbar */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div className="flex flex-1 flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <input
-              type="text"
-              placeholder="İşlem açıklaması, kullanıcı veya detay ara..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          </div>
-
           {/* Module Filter */}
           <div className="w-full sm:w-48">
             <select
@@ -163,109 +217,26 @@ export default function AuditLogTab() {
       </div>
 
       {/* Logs Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-              Kullanıcı İşlem Hareketleri ({logs.length} Kayıt)
-            </h3>
-          </div>
-          <span className="text-[11px] text-slate-400">
-            Otomatik kaydedilen gerçek zamanlı denetim izi
-          </span>
-        </div>
-
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold">
-                <th className="py-2.5 px-4 min-w-[140px]">Tarih & Saat</th>
-                <th className="py-2.5 px-4 min-w-[150px]">Kullanıcı & Rol</th>
-                <th className="py-2.5 px-3 min-w-[100px]">Modül</th>
-                <th className="py-2.5 px-3 min-w-[110px]">İşlem Türü</th>
-                <th className="py-2.5 px-4 min-w-[280px]">İşlem Açıklaması & Detay</th>
-                <th className="py-2.5 px-3 text-right min-w-[100px]">İstemci IP</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {logs.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Clock className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    <p className="font-semibold text-xs text-slate-600">Henüz kayıtlı bir denetim hareketi bulunamadı.</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Sistemde işlem yapıldıkça hareketler burada listelenecektir.</p>
-                  </td>
-                </tr>
-              ) : (
-                logs.map((log) => {
-                  const actionStyle = ACTION_LABELS[log.action] || {
-                    label: log.action,
-                    bg: 'bg-slate-50 dark:bg-slate-800/50',
-                    text: 'text-slate-700 dark:text-slate-200',
-                    border: 'border-slate-200 dark:border-slate-700'
-                  };
-
-                  return (
-                    <tr 
-                      key={log.id} 
-                      className="hover:bg-slate-50 dark:bg-slate-800/50/70 transition-colors cursor-pointer"
-                      onClick={() => setSelectedLogDetail(log)}
-                    >
-                      <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
-                        {new Date(log.timestamp).toLocaleString('tr-TR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })}
-                      </td>
-
-                      <td className="py-2.5 px-4">
-                        <div className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">
-                          {log.userName}
-                        </div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                          {log.userRole}
-                        </div>
-                      </td>
-
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[10px] uppercase font-bold">
-                          {log.module}
-                        </span>
-                      </td>
-
-                      <td className="py-2.5 px-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${actionStyle.bg} ${actionStyle.text} ${actionStyle.border}`}>
-                          {actionStyle.label}
-                        </span>
-                      </td>
-
-                      <td className="py-2.5 px-4">
-                        <div className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">
-                          {log.description}
-                        </div>
-                        {log.details && (
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
-                            {log.details}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="py-2.5 px-3 text-right font-mono text-[11px] text-slate-400">
-                        {log.ipAddress || '192.168.1.100'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataGrid
+        columns={logColumns}
+        data={logs}
+        rowKey={(log) => log.id ?? `${new Date(log.timestamp).getTime()}-${log.userName}`}
+        onRowClick={(log) => setSelectedLogDetail(log)}
+        emptyMessage="Henüz kayıtlı bir denetim hareketi bulunamadı. Sistemde işlem yapıldıkça hareketler burada listelenecektir."
+        toolbar={
+          <>
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Kullanıcı İşlem Hareketleri ({logs.length} Kayıt)
+              </h3>
+            </div>
+            <span className="ml-auto text-[11px] text-slate-400">
+              Otomatik kaydedilen gerçek zamanlı denetim izi
+            </span>
+          </>
+        }
+      />
 
       {/* Log Detail Modal */}
       {selectedLogDetail && (

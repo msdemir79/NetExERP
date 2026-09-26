@@ -1,9 +1,8 @@
 import React from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { AlertTriangle, Search, Package, Hash, Ruler, Printer, FileDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../../lib/utils';
+import { Search, Printer, FileDown } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 
@@ -77,6 +76,69 @@ export default function BrokenSizeReport() {
     exportToCsv('Kirik_Beden_Raporu.csv', headers, rows);
   };
 
+  type BrokenRow = (typeof brokenSizeProducts)[number];
+
+  const columns: GridColumn<BrokenRow>[] = [
+    {
+      key: 'code',
+      title: 'Kod',
+      render: (row) => (
+        <span className="font-mono text-[11px] font-bold text-slate-600">{row.code}</span>
+      ),
+    },
+    {
+      key: 'name',
+      title: 'Ürün/Model',
+      render: (row) => (
+        <div>
+          <div className="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px]">{row.name}</div>
+          <div className="text-[9px] text-slate-400 font-bold uppercase">{row.brand}</div>
+        </div>
+      ),
+      filterValue: (row) => `${row.name || ''} ${row.brand || ''}`,
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'center',
+      render: (row) => row.stock < 12 ? (
+        <StatusPill tone="red">Kırık Beden</StatusPill>
+      ) : (
+        <StatusPill tone="green">Takım Tam</StatusPill>
+      ),
+      filterValue: (row) => row.stock < 12 ? 'Kırık Beden' : 'Takım Tam',
+    },
+    {
+      key: 'missingSizes',
+      title: 'Eksik Bedenler',
+      align: 'center',
+      render: (row) => row.missingSizes.length > 0 ? (
+        <div className="flex flex-wrap gap-1 justify-center">
+          {row.missingSizes.map((s: string, idx: number) => (
+            <span key={idx} className="bg-rose-50 text-rose-500 text-[8px] font-bold px-1.5 py-0.5 rounded border border-rose-100 uppercase">{s}</span>
+          ))}
+          {row.variantBarcodes && row.variantBarcodes.length > row.missingSizes.length && (
+            <span className="text-[8px] text-slate-400 font-bold">...</span>
+          )}
+        </div>
+      ) : (
+        <span className="text-[9px] text-slate-300 uppercase font-bold">-</span>
+      ),
+      filterValue: (row) => row.missingSizes.join(' '),
+    },
+    {
+      key: 'stock',
+      title: 'Toplam Stok',
+      align: 'right',
+      render: (row) => (
+        <span>
+          <span className="font-bold font-mono text-slate-900 dark:text-slate-100">{row.stock}</span>
+          <span className="text-slate-400 text-[9px] uppercase font-bold ml-1">{row.unit}</span>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -100,85 +162,25 @@ export default function BrokenSizeReport() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-          <div className="relative max-w-md">
+      <DataGrid<BrokenRow>
+        columns={columns}
+        data={brokenSizeProducts}
+        rowKey="id"
+        loading={!products}
+        emptyMessage="Kayıt bulunamadı."
+        toolbar={
+          <div className="relative max-w-md w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input 
-              type="text" 
-              placeholder="MODEL ARA..." 
+            <input
+              type="text"
+              placeholder="MODEL ARA..."
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 text-[10px] font-bold uppercase tracking-widest transition-all"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 text-[10px] text-slate-400 uppercase font-bold tracking-widest">
-                <th className="px-6 py-3">Kod</th>
-                <th className="px-6 py-3">Ürün/Model</th>
-                <th className="px-6 py-3 text-center">Durum</th>
-                <th className="px-6 py-3 text-center">Eksik Bedenler</th>
-                <th className="px-6 py-3 text-right">Toplam Stok</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm text-slate-600 divide-y divide-slate-50">
-              {brokenSizeProducts.length === 0 && (
-                <tr key="empty-broken">
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                    Kayıt bulunamadı.
-                  </td>
-                </tr>
-              )}
-              {brokenSizeProducts.map((p) => (
-                <tr 
-                  key={p.id}
-                  className="hover:bg-slate-50 dark:bg-slate-800/50 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">
-                      {p.code}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px]">{p.name}</div>
-                    <div className="text-[9px] text-slate-400 font-bold uppercase">{p.brand}</div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={cn(
-                      "text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded",
-                      p.stock < 12 ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
-                    )}>
-                      {p.stock < 12 ? 'Kırık Beden' : 'Takım Tam'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                     {p.missingSizes.length > 0 ? (
-                       <div className="flex flex-wrap gap-1 justify-center">
-                          {p.missingSizes.map((s: string, idx: number) => (
-                            <span key={idx} className="bg-rose-50 text-rose-500 text-[8px] font-bold px-1.5 py-0.5 rounded border border-rose-100 uppercase">{s}</span>
-                          ))}
-                          {p.variantBarcodes && p.variantBarcodes.length > p.missingSizes.length && (
-                            <span className="text-[8px] text-slate-400 font-bold">...</span>
-                          )}
-                       </div>
-                     ) : (
-                       <span className="text-[9px] text-slate-300 uppercase font-bold">-</span>
-                     )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <span className="font-bold font-mono text-slate-900 dark:text-slate-100">{p.stock}</span>
-                    <span className="text-slate-400 text-[9px] uppercase font-bold ml-1">{p.unit}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Templates from './components/Inventory/Templates';
+import BarcodeCenter from './components/Inventory/BarcodeCenter';
 import Production from './components/Production';
 import Orders from './components/Orders';
 import Invoices from './components/Invoices';
@@ -60,6 +61,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="inventory/templates" element={<Templates />} />
+            <Route path="inventory/barcode" element={<BarcodeCenter />} />
             
             <Route path="reports" element={<ReportsHub />} />
             <Route path="reports/summary" element={<StockSummaryReport />} />

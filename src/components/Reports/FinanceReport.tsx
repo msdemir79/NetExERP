@@ -1,28 +1,25 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { 
-  Landmark, 
-  Wallet, 
-  CreditCard, 
-  Search, 
-  Printer, 
-  FileDown, 
-  Filter, 
-  Calendar, 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  Clock, 
-  CheckCircle2, 
+import {
+  Landmark,
+  Wallet,
+  CreditCard,
+  Search,
+  Printer,
+  FileDown,
+  Calendar,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Clock,
+  CheckCircle2,
   AlertTriangle,
-  Building2,
   TrendingUp,
-  AlertCircle,
   FileText,
   DollarSign,
-  ChevronRight,
   Eye
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 import { financeService } from '../../services/financeService';
@@ -32,6 +29,36 @@ import BankStatementModal from '../Finance/BankStatementModal';
 import CheckHistoryModal from '../Finance/CheckHistoryModal';
 import { cn } from '../../lib/utils';
 import type { CheckNote, CashBox, BankAccount, AccountStatement } from '../../types';
+
+type StatementRow = {
+  id?: string | number;
+  isDevir?: boolean;
+  date: string;
+  documentNo: string;
+  type: string;
+  typeLabel?: string;
+  description?: string;
+  contactName?: string;
+  debit: number;
+  credit: number;
+  balance: number;
+};
+
+const CHECK_STATUS_LABELS: Record<string, string> = {
+  portfolio: 'Portföyde',
+  bank_collection: 'Tahsilde',
+  collected: 'Tahsil Edildi',
+  endorsed: 'Ciro Edildi',
+  bounced: 'Karşılıksız'
+};
+
+const CHECK_STATUS_TONES: Record<string, PillTone> = {
+  portfolio: 'amber',
+  bank_collection: 'blue',
+  collected: 'green',
+  endorsed: 'violet',
+  bounced: 'red'
+};
 
 export default function FinanceReport() {
   const [activeTab, setActiveTab] = useState<'liquidity' | 'cash' | 'bank' | 'checks'>('liquidity');
@@ -342,22 +369,217 @@ export default function FinanceReport() {
     exportToCsv(`Cek_Senet_Portfoy_Raporu_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
 
-  const getCheckStatusBadge = (status: string) => {
-    switch (status) {
-      case 'portfolio':
-        return <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">Portföyde</span>;
-      case 'bank_collection':
-        return <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-300">Tahsilde</span>;
-      case 'collected':
-        return <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">Tahsil Edildi</span>;
-      case 'endorsed':
-        return <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-300">Ciro Edildi</span>;
-      case 'bounced':
-        return <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">Karşılıksız</span>;
-      default:
-        return <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-800">{status}</span>;
-    }
+  const checkTypeLabel = (type: string) =>
+    type === 'received_note' ? 'Alınan Senet' : type === 'received_check' ? 'Müşteri Çeki' : type === 'given_note' ? 'Verilen Senet' : 'Firma Çeki';
+
+  const checkStatusLabel = (status: string) => CHECK_STATUS_LABELS[status] || status;
+
+  const getCheckDueInfo = (c: CheckNote) => {
+    const due = new Date(c.dueDate);
+    due.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const isOverdue = diffDays < 0 && (c.status === 'portfolio' || c.status === 'bank_collection');
+    const isUpcoming = diffDays >= 0 && diffDays <= 7 && (c.status === 'portfolio' || c.status === 'bank_collection');
+    return { due, diffDays, isOverdue, isUpcoming };
   };
+
+  const cashStatementRows = useMemo<StatementRow[]>(() => {
+    if (!cashStatementData) return [];
+    const initialBalance = cashStatementData.initialBalance || 0;
+    const devirRow: StatementRow = {
+      id: '__devir__',
+      isDevir: true,
+      date: cashStartDate ? new Date(cashStartDate).toLocaleDateString('tr-TR') : '-',
+      documentNo: '-',
+      type: 'DEVİR',
+      typeLabel: 'DEVİR',
+      description: 'Dönem Başı Devir Bakiyesi',
+      contactName: '',
+      debit: initialBalance > 0 ? initialBalance : 0,
+      credit: initialBalance < 0 ? Math.abs(initialBalance) : 0,
+      balance: initialBalance
+    };
+    return [devirRow, ...(cashStatementData.items || [])];
+  }, [cashStatementData, cashStartDate]);
+
+  const bankStatementRows = useMemo<StatementRow[]>(() => {
+    if (!bankStatementData) return [];
+    const initialBalance = bankStatementData.initialBalance || 0;
+    const devirRow: StatementRow = {
+      id: '__devir__',
+      isDevir: true,
+      date: bankStartDate ? new Date(bankStartDate).toLocaleDateString('tr-TR') : '-',
+      documentNo: '-',
+      type: 'DEVİR',
+      typeLabel: 'DEVİR',
+      description: 'Dönem Başı Devir Bakiyesi',
+      contactName: '',
+      debit: initialBalance > 0 ? initialBalance : 0,
+      credit: initialBalance < 0 ? Math.abs(initialBalance) : 0,
+      balance: initialBalance
+    };
+    return [devirRow, ...(bankStatementData.items || [])];
+  }, [bankStatementData, bankStartDate]);
+
+  const cashColumns: GridColumn<CashBox>[] = [
+    { key: 'name', title: 'Kasa Adı', render: (c) => <span className="font-bold text-slate-900 dark:text-slate-100">{c.name}</span> },
+    { key: 'code', title: 'Kod / TDHP', render: (c) => <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">{c.code || c.accountCode || '-'}</span>, filterValue: (c) => c.code || c.accountCode || '' },
+    { key: 'balance', title: 'Bakiye', align: 'right', render: (c) => <span className="font-mono font-black text-slate-900 dark:text-slate-100">₺{c.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (c) => String(c.balance) },
+    {
+      key: 'actions', title: 'İşlem', align: 'center', sortable: false, filterable: false, render: (c) => (
+        <button
+          type="button"
+          onClick={() => setSelectedCashBoxModal(c)}
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+        >
+          <FileText className="w-3 h-3 text-emerald-600" />
+          Ekstre Aç
+        </button>
+      )
+    }
+  ];
+
+  const bankColumns: GridColumn<BankAccount>[] = [
+    {
+      key: 'bankName', title: 'Banka & Şube', render: (b) => (
+        <div>
+          <div className="font-bold text-slate-900 dark:text-slate-100">{b.bankName}</div>
+          <div className="text-[10px] text-slate-400">{b.branchName || 'Merkez'}</div>
+        </div>
+      ), filterValue: (b) => `${b.bankName || ''} ${b.branchName || ''}`
+    },
+    { key: 'iban', title: 'IBAN', render: (b) => <span className="font-mono text-[10px] text-slate-600">{b.iban || '-'}</span>, filterValue: (b) => b.iban || '' },
+    { key: 'balance', title: 'Bakiye', align: 'right', render: (b) => <span className="font-mono font-black text-slate-900 dark:text-slate-100">₺{b.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (b) => String(b.balance) },
+    {
+      key: 'actions', title: 'İşlem', align: 'center', sortable: false, filterable: false, render: (b) => (
+        <button
+          type="button"
+          onClick={() => setSelectedBankAccountModal(b)}
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+        >
+          <FileText className="w-3 h-3 text-blue-600" />
+          Ekstre Aç
+        </button>
+      )
+    }
+  ];
+
+  const cashStatementColumns: GridColumn<StatementRow>[] = [
+    {
+      key: 'date', title: 'Tarih', render: (item) => <span className="font-mono text-gray-700">{item.isDevir ? item.date : new Date(item.date).toLocaleDateString('tr-TR')}</span>,
+      filterValue: (item) => item.isDevir ? item.date : new Date(item.date).toLocaleDateString('tr-TR')
+    },
+    { key: 'documentNo', title: 'Belge No', render: (item) => item.isDevir ? <span className="font-mono text-gray-400">-</span> : <span className="font-mono text-indigo-600 font-bold">{item.documentNo || '-'}</span>, filterValue: (item) => item.documentNo || '' },
+    {
+      key: 'typeLabel', title: 'İşlem Türü', render: (item) => item.isDevir ? <span className="text-[10px] uppercase font-bold text-gray-500">DEVİR</span> : <span className="font-sans text-[11px] font-semibold text-gray-700">{item.typeLabel || item.type}</span>,
+      filterValue: (item) => item.typeLabel || item.type
+    },
+    { key: 'description', title: 'Açıklama', render: (item) => <span className={`font-sans text-gray-700 max-w-xs truncate inline-block align-middle ${item.isDevir ? 'italic text-gray-500' : ''}`} title={item.description}>{item.description || '-'}</span>, filterValue: (item) => item.description || '' },
+    { key: 'contactName', title: 'Muhatap / Cari', render: (item) => <span className="font-sans text-gray-800 font-medium">{item.contactName || '-'}</span>, filterValue: (item) => item.contactName || '' },
+    {
+      key: 'debit', title: 'Giriş (Borç ₺)', align: 'right', render: (item) => item.debit > 0 ? <span className="font-mono text-emerald-700 font-bold">₺{item.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : <span className="font-mono text-gray-300">-</span>,
+      filterValue: (item) => item.debit > 0 ? String(item.debit) : ''
+    },
+    {
+      key: 'credit', title: 'Çıkış (Alacak ₺)', align: 'right', render: (item) => item.credit > 0 ? <span className="font-mono text-rose-700 font-bold">₺{item.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : <span className="font-mono text-gray-300">-</span>,
+      filterValue: (item) => item.credit > 0 ? String(item.credit) : ''
+    },
+    { key: 'balance', title: 'Bakiye (₺)', align: 'right', render: (item) => <span className="font-mono font-black text-gray-900">₺{item.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (item) => String(item.balance) }
+  ];
+
+  const bankStatementColumns: GridColumn<StatementRow>[] = [
+    {
+      key: 'date', title: 'Tarih', render: (item) => <span className="font-mono text-gray-700">{item.isDevir ? item.date : new Date(item.date).toLocaleDateString('tr-TR')}</span>,
+      filterValue: (item) => item.isDevir ? item.date : new Date(item.date).toLocaleDateString('tr-TR')
+    },
+    { key: 'documentNo', title: 'Belge / Dekont No', render: (item) => item.isDevir ? <span className="font-mono text-gray-400">-</span> : <span className="font-mono text-blue-600 font-bold">{item.documentNo || '-'}</span>, filterValue: (item) => item.documentNo || '' },
+    {
+      key: 'typeLabel', title: 'İşlem Türü', render: (item) => item.isDevir ? <span className="text-[10px] uppercase font-bold text-gray-500">DEVİR</span> : <span className="font-sans text-[11px] font-semibold text-gray-700">{item.typeLabel || item.type}</span>,
+      filterValue: (item) => item.typeLabel || item.type
+    },
+    { key: 'description', title: 'Açıklama', render: (item) => <span className={`font-sans text-gray-700 max-w-xs truncate inline-block align-middle ${item.isDevir ? 'italic text-gray-500' : ''}`} title={item.description}>{item.description || '-'}</span>, filterValue: (item) => item.description || '' },
+    { key: 'contactName', title: 'Muhatap / Cari', render: (item) => <span className="font-sans text-gray-800 font-medium">{item.contactName || '-'}</span>, filterValue: (item) => item.contactName || '' },
+    {
+      key: 'debit', title: 'Giriş (Borç ₺)', align: 'right', render: (item) => item.debit > 0 ? <span className="font-mono text-emerald-700 font-bold">₺{item.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : <span className="font-mono text-gray-300">-</span>,
+      filterValue: (item) => item.debit > 0 ? String(item.debit) : ''
+    },
+    {
+      key: 'credit', title: 'Çıkış (Alacak ₺)', align: 'right', render: (item) => item.credit > 0 ? <span className="font-mono text-rose-700 font-bold">₺{item.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : <span className="font-mono text-gray-300">-</span>,
+      filterValue: (item) => item.credit > 0 ? String(item.credit) : ''
+    },
+    { key: 'balance', title: 'Bakiye (₺)', align: 'right', render: (item) => <span className="font-mono font-black text-gray-900">₺{item.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (item) => String(item.balance) }
+  ];
+
+  const checkColumns: GridColumn<CheckNote>[] = [
+    { key: 'portfolioNumber', title: 'Portföy No', render: (c) => <span className="font-mono font-bold text-indigo-700">{c.portfolioNumber || '-'}</span>, filterValue: (c) => c.portfolioNumber || '' },
+    {
+      key: 'type', title: 'Tür', render: (c) => {
+        const isReceived = c.type.startsWith('received');
+        return (
+          <StatusPill tone={isReceived ? 'blue' : 'red'}>
+            {isReceived ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+            {checkTypeLabel(c.type)}
+          </StatusPill>
+        );
+      },
+      filterValue: (c) => checkTypeLabel(c.type)
+    },
+    { key: 'serialNumber', title: 'Seri No', render: (c) => <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{c.serialNumber || '-'}</span>, filterValue: (c) => c.serialNumber || '' },
+    {
+      key: 'bankName', title: 'Banka & Şube', render: (c) => (
+        <div>
+          <div className="font-bold text-slate-800 dark:text-slate-200">{c.bankName || '-'}</div>
+          <div className="text-[10px] text-slate-400">{c.branchName || ''}</div>
+        </div>
+      ),
+      filterValue: (c) => `${c.bankName || ''} ${c.branchName || ''}`
+    },
+    {
+      key: 'drawer', title: 'Keşideci / Cari', render: (c) => (
+        <div>
+          <div className="font-medium text-slate-900 dark:text-slate-100">{contactMap.get(c.contactId) || c.contactName || '-'}</div>
+          <div className="text-[10px] text-slate-400">Keşideci: {c.drawer}</div>
+        </div>
+      ),
+      filterValue: (c) => `${contactMap.get(c.contactId) || c.contactName || ''} ${c.drawer || ''}`
+    },
+    {
+      key: 'dueDate', title: 'Vade Tarihi', render: (c) => {
+        const { due } = getCheckDueInfo(c);
+        return <span className="font-mono font-medium text-slate-700 dark:text-slate-200">{due.toLocaleDateString('tr-TR')}</span>;
+      },
+      filterValue: (c) => new Date(c.dueDate).toLocaleDateString('tr-TR')
+    },
+    {
+      key: 'diffDays', title: 'Kalan Gün', render: (c) => {
+        const { diffDays, isOverdue, isUpcoming } = getCheckDueInfo(c);
+        if (isOverdue) return <StatusPill tone="red">{Math.abs(diffDays)} gün geçti</StatusPill>;
+        if (isUpcoming) return <StatusPill tone="amber">{diffDays} gün kaldı</StatusPill>;
+        return <StatusPill tone="slate">{diffDays} gün</StatusPill>;
+      },
+      filterValue: (c) => {
+        const { diffDays, isOverdue, isUpcoming } = getCheckDueInfo(c);
+        return isOverdue ? `${Math.abs(diffDays)} gün geçti` : isUpcoming ? `${diffDays} gün kaldı` : `${diffDays} gün`;
+      }
+    },
+    { key: 'amount', title: 'Tutar', align: 'right', render: (c) => <span className="font-mono font-black text-slate-900 dark:text-slate-100">₺{c.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (c) => String(c.amount) },
+    { key: 'status', title: 'Durum', align: 'center', render: (c) => <StatusPill tone={CHECK_STATUS_TONES[c.status] || 'slate'}>{checkStatusLabel(c.status)}</StatusPill>, filterValue: (c) => checkStatusLabel(c.status) },
+    {
+      key: 'actions', title: 'İşlem', align: 'center', sortable: false, filterable: false, render: (c) => (
+        <button
+          type="button"
+          onClick={() => setSelectedCheckModal(c)}
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+          title="Çek bordro ve hareket detayını incele"
+        >
+          <FileText className="w-3 h-3 text-indigo-600" />
+          Kart
+        </button>
+      )
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -509,103 +731,48 @@ export default function FinanceReport() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* Kasa Bakiyeleri */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50/50">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-                  <Wallet className="w-4 h-4" />
+          <DataGrid<CashBox>
+            columns={cashColumns}
+            data={cashBoxes}
+            rowKey="id"
+            toolbar={
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                    Nakit Kasalar ({cashBoxes.length})
+                  </h3>
                 </div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                  Nakit Kasalar ({cashBoxes.length})
-                </h3>
-              </div>
-              <span className="text-xs font-black text-emerald-700 font-mono">
-                ₺{stats.totalCash.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50/80 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-2.5 px-4">Kasa Adı</th>
-                  <th className="py-2.5 px-4">Kod / TDHP</th>
-                  <th className="py-2.5 px-4 text-right">Bakiye</th>
-                  <th className="py-2.5 px-4 text-center">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {cashBoxes.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:bg-slate-800/50">
-                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">{c.name}</td>
-                    <td className="py-3 px-4 text-slate-500 dark:text-slate-400 font-mono text-[11px]">{c.code || c.accountCode || '-'}</td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-slate-900 dark:text-slate-100">
-                      ₺{c.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCashBoxModal(c)}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <FileText className="w-3 h-3 text-emerald-600" />
-                        Ekstre Aç
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                <span className="text-xs font-black text-emerald-700 font-mono ml-auto">
+                  ₺{stats.totalCash.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                </span>
+              </>
+            }
+          />
 
           {/* Banka Hesap Bakiyeleri */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50/50">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                  <Landmark className="w-4 h-4" />
+          <DataGrid<BankAccount>
+            columns={bankColumns}
+            data={bankAccounts}
+            rowKey="id"
+            toolbar={
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <Landmark className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                    Banka Mevduat Hesapları ({bankAccounts.length})
+                  </h3>
                 </div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                  Banka Mevduat Hesapları ({bankAccounts.length})
-                </h3>
-              </div>
-              <span className="text-xs font-black text-blue-700 font-mono">
-                ₺{stats.totalBank.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50/80 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-2.5 px-4">Banka & Şube</th>
-                  <th className="py-2.5 px-4">IBAN</th>
-                  <th className="py-2.5 px-4 text-right">Bakiye</th>
-                  <th className="py-2.5 px-4 text-center">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {bankAccounts.map(b => (
-                  <tr key={b.id} className="hover:bg-slate-50 dark:bg-slate-800/50">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900 dark:text-slate-100">{b.bankName}</div>
-                      <div className="text-[10px] text-slate-400">{b.branchName || 'Merkez'}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[10px] text-slate-600">{b.iban || '-'}</td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-slate-900 dark:text-slate-100">
-                      ₺{b.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedBankAccountModal(b)}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <FileText className="w-3 h-3 text-blue-600" />
-                        Ekstre Aç
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                <span className="text-xs font-black text-blue-700 font-mono ml-auto">
+                  ₺{stats.totalBank.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                </span>
+              </>
+            }
+          />
 
         </div>
       )}
@@ -709,59 +876,13 @@ export default function FinanceReport() {
           )}
 
           {/* KASA HAREKET TABLOSU */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-2.5 px-3">Tarih</th>
-                  <th className="py-2.5 px-3">Belge No</th>
-                  <th className="py-2.5 px-3">İşlem Türü</th>
-                  <th className="py-2.5 px-3">Açıklama</th>
-                  <th className="py-2.5 px-3">Muhatap / Cari</th>
-                  <th className="py-2.5 px-3 text-right">Giriş (Borç ₺)</th>
-                  <th className="py-2.5 px-3 text-right">Çıkış (Alacak ₺)</th>
-                  <th className="py-2.5 px-3 text-right">Bakiye (₺)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-mono">
-                {isLoadingCash ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-gray-400 font-medium">Yükleniyor...</td>
-                  </tr>
-                ) : !cashStatementData || cashStatementData.items.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-gray-400">
-                      Bu tarih aralığında kasa hareketi bulunmamaktadır.
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    <tr className="bg-slate-50 dark:bg-slate-800/50/60 font-semibold text-gray-600">
-                      <td className="py-2 px-3">{cashStartDate ? new Date(cashStartDate).toLocaleDateString('tr-TR') : '-'}</td>
-                      <td className="py-2 px-3">-</td>
-                      <td className="py-2 px-3 text-[10px] uppercase font-bold text-gray-500">DEVİR</td>
-                      <td className="py-2 px-3 italic text-gray-500" colSpan={2}>Dönem Başı Devir Bakiyesi</td>
-                      <td className="py-2 px-3 text-right">{cashStatementData.initialBalance > 0 ? `₺${cashStatementData.initialBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                      <td className="py-2 px-3 text-right">{cashStatementData.initialBalance < 0 ? `₺${Math.abs(cashStatementData.initialBalance).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                      <td className="py-2 px-3 text-right font-bold text-gray-900">₺{cashStatementData.initialBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                    {cashStatementData.items.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 dark:bg-slate-800/50/80">
-                        <td className="py-2.5 px-3 text-gray-700">{new Date(item.date).toLocaleDateString('tr-TR')}</td>
-                        <td className="py-2.5 px-3 text-indigo-600 font-bold">{item.documentNo || '-'}</td>
-                        <td className="py-2.5 px-3 font-sans text-[11px] font-semibold text-gray-700">{item.typeLabel || item.type}</td>
-                        <td className="py-2.5 px-3 font-sans text-gray-700 max-w-xs truncate" title={item.description}>{item.description || '-'}</td>
-                        <td className="py-2.5 px-3 font-sans text-gray-800 font-medium">{item.contactName || '-'}</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-700 font-bold">{item.debit > 0 ? `₺${item.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                        <td className="py-2.5 px-3 text-right text-rose-700 font-bold">{item.credit > 0 ? `₺${item.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                        <td className="py-2.5 px-3 text-right font-black text-gray-900">₺{item.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid<StatementRow>
+            columns={cashStatementColumns}
+            data={cashStatementRows}
+            rowKey={(item) => item.id ?? item.documentNo ?? item.description ?? 'row'}
+            loading={isLoadingCash}
+            emptyMessage="Bu tarih aralığında kasa hareketi bulunmamaktadır."
+          />
 
         </div>
       )}
@@ -865,59 +986,13 @@ export default function FinanceReport() {
           )}
 
           {/* BANKA HAREKET TABLOSU */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-2.5 px-3">Tarih</th>
-                  <th className="py-2.5 px-3">Belge / Dekont No</th>
-                  <th className="py-2.5 px-3">İşlem Türü</th>
-                  <th className="py-2.5 px-3">Açıklama</th>
-                  <th className="py-2.5 px-3">Muhatap / Cari</th>
-                  <th className="py-2.5 px-3 text-right">Giriş (Borç ₺)</th>
-                  <th className="py-2.5 px-3 text-right">Çıkış (Alacak ₺)</th>
-                  <th className="py-2.5 px-3 text-right">Bakiye (₺)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-mono">
-                {isLoadingBank ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-gray-400 font-medium">Yükleniyor...</td>
-                  </tr>
-                ) : !bankStatementData || bankStatementData.items.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-gray-400">
-                      Bu tarih aralığında banka hareketi bulunmamaktadır.
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    <tr className="bg-slate-50 dark:bg-slate-800/50/60 font-semibold text-gray-600">
-                      <td className="py-2 px-3">{bankStartDate ? new Date(bankStartDate).toLocaleDateString('tr-TR') : '-'}</td>
-                      <td className="py-2 px-3">-</td>
-                      <td className="py-2 px-3 text-[10px] uppercase font-bold text-gray-500">DEVİR</td>
-                      <td className="py-2 px-3 italic text-gray-500" colSpan={2}>Dönem Başı Devir Bakiyesi</td>
-                      <td className="py-2 px-3 text-right">{bankStatementData.initialBalance > 0 ? `₺${bankStatementData.initialBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                      <td className="py-2 px-3 text-right">{bankStatementData.initialBalance < 0 ? `₺${Math.abs(bankStatementData.initialBalance).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                      <td className="py-2 px-3 text-right font-bold text-gray-900">₺{bankStatementData.initialBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                    {bankStatementData.items.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 dark:bg-slate-800/50/80">
-                        <td className="py-2.5 px-3 text-gray-700">{new Date(item.date).toLocaleDateString('tr-TR')}</td>
-                        <td className="py-2.5 px-3 text-blue-600 font-bold">{item.documentNo || '-'}</td>
-                        <td className="py-2.5 px-3 font-sans text-[11px] font-semibold text-gray-700">{item.typeLabel || item.type}</td>
-                        <td className="py-2.5 px-3 font-sans text-gray-700 max-w-xs truncate" title={item.description}>{item.description || '-'}</td>
-                        <td className="py-2.5 px-3 font-sans text-gray-800 font-medium">{item.contactName || '-'}</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-700 font-bold">{item.debit > 0 ? `₺${item.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                        <td className="py-2.5 px-3 text-right text-rose-700 font-bold">{item.credit > 0 ? `₺${item.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</td>
-                        <td className="py-2.5 px-3 text-right font-black text-gray-900">₺{item.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid<StatementRow>
+            columns={bankStatementColumns}
+            data={bankStatementRows}
+            rowKey={(item) => item.id ?? item.documentNo ?? item.description ?? 'row'}
+            loading={isLoadingBank}
+            emptyMessage="Bu tarih aralığında banka hareketi bulunmamaktadır."
+          />
 
         </div>
       )}
@@ -1022,12 +1097,16 @@ export default function FinanceReport() {
           </div>
 
           {/* FİLTRE VE TABLO */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
+          <DataGrid<CheckNote>
+            columns={checkColumns}
+            data={filteredChecks}
+            rowKey="id"
+            emptyMessage="Kriterlere uygun kayıtlı çek veya senet bulunamadı."
+            toolbar={
+              <>
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input 
+                  <input
                     type="text"
                     placeholder="Çek no, portföy no, keşideci, banka ara..."
                     value={checkSearchTerm}
@@ -1078,128 +1157,23 @@ export default function FinanceReport() {
                   <option value="endorsed">Ciro Edildi</option>
                   <option value="bounced">Karşılıksız</option>
                 </select>
-              </div>
 
-              <div className="flex items-center gap-2">
-                {checkAgingFilter !== 'all' && (
-                  <button
-                    onClick={() => setCheckAgingFilter('all')}
-                    className="text-xs font-semibold text-rose-600 hover:text-rose-800"
-                  >
-                    Vade Filtresini Sıfırla
-                  </button>
-                )}
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                  {filteredChecks.length} Çek Kaydı
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                    <th className="py-3 px-3">Portföy No</th>
-                    <th className="py-3 px-3">Tür</th>
-                    <th className="py-3 px-3">Seri No</th>
-                    <th className="py-3 px-3">Banka & Şube</th>
-                    <th className="py-3 px-3">Keşideci / Cari</th>
-                    <th className="py-3 px-3">Vade Tarihi</th>
-                    <th className="py-3 px-3">Kalan Gün</th>
-                    <th className="py-3 px-3 text-right">Tutar</th>
-                    <th className="py-3 px-3 text-center">Durum</th>
-                    <th className="py-3 px-3 text-center">İşlem</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredChecks.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="py-10 text-center text-slate-400 font-bold">
-                        Kriterlere uygun kayıtlı çek veya senet bulunamadı.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredChecks.map(c => {
-                      const due = new Date(c.dueDate);
-                      due.setHours(0, 0, 0, 0);
-                      const now = new Date();
-                      now.setHours(0, 0, 0, 0);
-                      const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                      const isOverdue = diffDays < 0 && (c.status === 'portfolio' || c.status === 'bank_collection');
-                      const isUpcoming = diffDays >= 0 && diffDays <= 7 && (c.status === 'portfolio' || c.status === 'bank_collection');
-                      const isReceived = c.type.startsWith('received');
-
-                      return (
-                        <tr key={c.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                          <td className="py-3 px-3 font-mono font-bold text-indigo-700">
-                            {c.portfolioNumber || '-'}
-                          </td>
-                          <td className="py-3 px-3">
-                            {isReceived ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                                <ArrowDownLeft className="w-3 h-3" /> {c.type === 'received_note' ? 'Alınan Senet' : 'Müşteri Çeki'}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                                <ArrowUpRight className="w-3 h-3" /> {c.type === 'given_note' ? 'Verilen Senet' : 'Firma Çeki'}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {c.serialNumber || '-'}
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="font-bold text-slate-800 dark:text-slate-200">{c.bankName || '-'}</div>
-                            <div className="text-[10px] text-slate-400">{c.branchName || ''}</div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="font-medium text-slate-900 dark:text-slate-100">{contactMap.get(c.contactId) || c.contactName || '-'}</div>
-                            <div className="text-[10px] text-slate-400">Keşideci: {c.drawer}</div>
-                          </td>
-                          <td className="py-3 px-3 font-mono font-medium text-slate-700 dark:text-slate-200">
-                            {due.toLocaleDateString('tr-TR')}
-                          </td>
-                          <td className="py-3 px-3">
-                            {isOverdue ? (
-                              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                                {Math.abs(diffDays)} gün geçti
-                              </span>
-                            ) : isUpcoming ? (
-                              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                {diffDays} gün kaldı
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-medium text-slate-600">
-                                {diffDays} gün
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-black text-slate-900 dark:text-slate-100">
-                            ₺{c.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            {getCheckStatusBadge(c.status)}
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedCheckModal(c)}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                              title="Çek bordro ve hareket detayını incele"
-                            >
-                              <FileText className="w-3 h-3 text-indigo-600" />
-                              Kart
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
+                <div className="flex items-center gap-2 ml-auto">
+                  {checkAgingFilter !== 'all' && (
+                    <button
+                      onClick={() => setCheckAgingFilter('all')}
+                      className="text-xs font-semibold text-rose-600 hover:text-rose-800"
+                    >
+                      Vade Filtresini Sıfırla
+                    </button>
                   )}
-                </tbody>
-              </table>
-            </div>
-
-          </div>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    {filteredChecks.length} Çek Kaydı
+                  </span>
+                </div>
+              </>
+            }
+          />
         </div>
       )}
 

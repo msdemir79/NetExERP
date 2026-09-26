@@ -4,25 +4,26 @@ import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
 import type { Contact, EntityType } from '../types';
 import PageHeader from './PageHeader';
-import { 
-  Users, 
-  UserPlus, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Search, 
-  Filter, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Building2, 
-  CreditCard, 
-  FileText, 
-  ShoppingBag, 
-  Edit, 
-  Trash2, 
-  Printer, 
-  Download, 
-  LayoutGrid, 
+import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
+import {
+  Users,
+  UserPlus,
+  Phone,
+  Mail,
+  MapPin,
+  Search,
+  Filter,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Building2,
+  CreditCard,
+  FileText,
+  ShoppingBag,
+  Edit,
+  Trash2,
+  Printer,
+  Download,
+  LayoutGrid,
   Table as TableIcon,
   TrendingUp,
   TrendingDown,
@@ -33,10 +34,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Receipt,
-  DollarSign,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown
+  DollarSign
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -266,6 +264,120 @@ export default function Contacts() {
     link.click();
     document.body.removeChild(link);
   };
+
+  const contactColumns = useMemo<GridColumn<Contact>[]>(() => [
+    {
+      key: 'code', title: 'Kod', width: 'w-28',
+      render: (c) => (
+        <span className="font-mono font-bold text-indigo-600 whitespace-nowrap">
+          {c.code || `CAR-${c.id?.toString().padStart(4, '0')}`}
+        </span>
+      ),
+      filterValue: (c) => c.code || '',
+    },
+    {
+      key: 'name', title: 'Cari / Firma Ünvanı',
+      render: (c) => (
+        <div className="max-w-xs">
+          <div
+            onClick={() => handleOpenStatement(c)}
+            className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight hover:text-indigo-600 cursor-pointer transition-colors"
+          >
+            {c.name}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-0.5">
+            {c.accountCode && (
+              <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold" title="TDHP Muhasebe Muavin Kodu">
+                TDHP: {c.accountCode}
+              </span>
+            )}
+            {c.category && (
+              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
+                {c.category}
+              </span>
+            )}
+            {c.discountRate && c.discountRate > 0 ? (
+              <span className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.2 rounded font-bold">
+                %{c.discountRate} İskonto
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ),
+      filterValue: (c) => `${c.name} ${c.accountCode || ''} ${c.category || ''}`,
+    },
+    {
+      key: 'type', title: 'Tür', width: 'w-36',
+      render: (c) => {
+        if (c.type === 'customer') return <StatusPill tone="blue">Müşteri</StatusPill>;
+        if (c.type === 'supplier') return <StatusPill tone="amber">Tedarikçi</StatusPill>;
+        return <StatusPill tone="green">Müşteri + Tedarikçi</StatusPill>;
+      },
+      filterValue: (c) => c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri Tedarikçi',
+    },
+    {
+      key: 'contactPerson', title: 'Yetkili & İletişim',
+      render: (c) => (
+        <div>
+          {c.contactPerson ? (
+            <div className="font-bold text-slate-800 dark:text-slate-200">{c.contactPerson}</div>
+          ) : (
+            <div className="text-slate-400 font-medium">-</div>
+          )}
+          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+            {c.phone || c.mobile || c.email || '-'}
+          </div>
+        </div>
+      ),
+      filterValue: (c) => `${c.contactPerson || ''} ${c.phone || ''} ${c.mobile || ''} ${c.email || ''}`,
+    },
+    {
+      key: 'city', title: 'Şehir / VKN',
+      render: (c) => (
+        <div>
+          <div className="font-semibold text-slate-800 dark:text-slate-200">
+            {c.city ? `${c.city}${c.district ? ` / ${c.district}` : ''}` : '-'}
+          </div>
+          {c.taxNumber && (
+            <div className="text-[10px] font-mono text-slate-400">
+              VKN: {c.taxNumber}
+            </div>
+          )}
+        </div>
+      ),
+      filterValue: (c) => `${c.city || ''} ${c.taxNumber || ''}`,
+    },
+    {
+      key: 'paymentTermDays', title: 'Vade', align: 'right', width: 'w-24',
+      render: (c) => (
+        <span className="font-mono font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+          {c.paymentTermDays ? `${c.paymentTermDays} Gün` : 'Peşin'}
+        </span>
+      ),
+    },
+    {
+      key: 'balance', title: 'Cari Bakiye (₺)', align: 'right',
+      render: (c) => {
+        const isRiskExceeded = c.creditLimit && c.balance > c.creditLimit;
+        return (
+          <div className="text-right whitespace-nowrap">
+            <div className={`font-mono font-black text-sm ${c.balance > 0 ? 'text-emerald-700' : c.balance < 0 ? 'text-rose-700' : 'text-slate-500 dark:text-slate-400'}`}>
+              ₺{Math.abs(c.balance).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <span className="text-[10px] ml-1 opacity-75">
+                {c.balance > 0 ? '(A)' : c.balance < 0 ? '(B)' : ''}
+              </span>
+            </div>
+            {isRiskExceeded && (
+              <div className="text-[9px] font-bold text-rose-600 flex items-center justify-end gap-1 mt-0.5">
+                <AlertTriangle className="w-2.5 h-2.5" /> Risk Aşıldı
+              </div>
+            )}
+          </div>
+        );
+      },
+      filterValue: (c) => `${c.balance || 0}`,
+    },
+  ], []);
 
   return (
     <div className="space-y-6 pb-12">
@@ -516,207 +628,46 @@ export default function Contacts() {
           </button>
         </div>
       ) : viewMode === 'table' ? (
-        /* TABLE VIEW (KOMPAKT ERP TABLOSU) */
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                <tr>
-                  <th 
-                    onClick={() => setSortOption(prev => prev === 'code_asc' ? 'code_desc' : 'code_asc')}
-                    className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider w-28 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                    title="Cari koduna göre sırala (Tıklayarak yönünü değiştirin)"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Kod</span>
-                      {sortOption === 'code_asc' && <ArrowUp className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption === 'code_desc' && <ArrowDown className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption !== 'code_asc' && sortOption !== 'code_desc' && <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 shrink-0" />}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => setSortOption(prev => prev === 'name_asc' ? 'name_desc' : 'name_asc')}
-                    className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                    title="Cari / Firma ünvanına göre sırala"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Cari / Firma Ünvanı</span>
-                      {sortOption === 'name_asc' && <ArrowUp className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption === 'name_desc' && <ArrowDown className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption !== 'name_asc' && sortOption !== 'name_desc' && <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 shrink-0" />}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => setSortOption(prev => prev === 'type_asc' ? 'type_desc' : 'type_asc')}
-                    className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider w-28 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                    title="Cari türüne göre sırala"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Tür</span>
-                      {sortOption === 'type_asc' && <ArrowUp className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption === 'type_desc' && <ArrowDown className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption !== 'type_asc' && sortOption !== 'type_desc' && <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 shrink-0" />}
-                    </div>
-                  </th>
-                  <th className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Yetkili & İletişim</th>
-                  <th className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Şehir / VKN</th>
-                  <th className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider text-right w-24">Vade</th>
-                  <th 
-                    onClick={() => setSortOption(prev => prev === 'balance_desc' ? 'balance_asc' : 'balance_desc')}
-                    className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider text-right w-36 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                    title="Cari bakiyeye göre sırala"
-                  >
-                    <div className="flex items-center justify-end gap-1.5">
-                      {sortOption === 'balance_desc' && <ArrowDown className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption === 'balance_asc' && <ArrowUp className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      {sortOption !== 'balance_desc' && sortOption !== 'balance_asc' && <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 shrink-0" />}
-                      <span>Cari Bakiye (₺)</span>
-                    </div>
-                  </th>
-                  <th className="px-4 py-3.5 font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider text-center w-48">Hızlı İşlemler</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredContacts.map((c) => {
-                  const isRiskExceeded = c.creditLimit && c.balance > c.creditLimit;
-                  return (
-                    <tr key={c.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors group">
-                      {/* Code */}
-                      <td className="px-4 py-3 font-mono font-bold text-indigo-600 whitespace-nowrap">
-                        {c.code || `CAR-${c.id?.toString().padStart(4, '0')}`}
-                      </td>
+        <DataGrid<Contact>
+          columns={contactColumns}
+          data={filteredContacts}
+          rowKey="id"
+          rowActions={(c) => (
+            <>
+              <button
+                onClick={() => handleOpenStatement(c)}
+                title="Cari Hesap Ekstresi"
+                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
+              >
+                <FileText className="w-4 h-4" />
+              </button>
 
-                      {/* Name & Title */}
-                      <td className="px-4 py-3">
-                        <div 
-                          onClick={() => handleOpenStatement(c)}
-                          className="font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight hover:text-indigo-600 cursor-pointer transition-colors"
-                        >
-                          {c.name}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {c.accountCode && (
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold" title="TDHP Muhasebe Muavin Kodu">
-                              TDHP: {c.accountCode}
-                            </span>
-                          )}
-                          {c.category && (
-                            <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 px-1.5 py-0.2 rounded font-semibold">
-                              {c.category}
-                            </span>
-                          )}
-                          {c.discountRate && c.discountRate > 0 ? (
-                            <span className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.2 rounded font-bold">
-                              %{c.discountRate} İskonto
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
+              <button
+                onClick={() => handleOpenPayment(c, c.type === 'supplier' ? 'expense' : 'income')}
+                title={c.type === 'supplier' ? 'Ödeme Yap' : 'Tahsilat Al'}
+                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
+              >
+                <DollarSign className="w-4 h-4" />
+              </button>
 
-                      {/* Type Badge */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={cn(
-                          "px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md",
-                          c.type === 'customer' 
-                            ? "bg-indigo-50 text-indigo-700 border border-indigo-200" 
-                            : c.type === 'supplier'
-                            ? "bg-amber-50 text-amber-800 border border-amber-200"
-                            : "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                        )}>
-                          {c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri+Tedarikçi'}
-                        </span>
-                      </td>
+              <button
+                onClick={() => handleOpenEditModal(c)}
+                title="Cari Kartını Düzenle"
+                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
 
-                      {/* Contact Person & Phone */}
-                      <td className="px-4 py-3">
-                        {c.contactPerson ? (
-                          <div className="font-bold text-slate-800 dark:text-slate-200">{c.contactPerson}</div>
-                        ) : (
-                          <div className="text-slate-400 font-medium">-</div>
-                        )}
-                        <div className="flex items-center gap-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
-                          {c.phone || c.mobile || c.email || '-'}
-                        </div>
-                      </td>
-
-                      {/* Location & Tax */}
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">
-                          {c.city ? `${c.city}${c.district ? ` / ${c.district}` : ''}` : '-'}
-                        </div>
-                        {c.taxNumber && (
-                          <div className="text-[10px] font-mono text-slate-400">
-                            VKN: {c.taxNumber}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Payment Term */}
-                      <td className="px-4 py-3 text-right font-mono font-bold text-slate-700 dark:text-slate-200">
-                        {c.paymentTermDays ? `${c.paymentTermDays} Gün` : 'Peşin'}
-                      </td>
-
-                      {/* Balance */}
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className={cn(
-                          "font-mono font-black text-sm",
-                          c.balance > 0 ? "text-emerald-700" : c.balance < 0 ? "text-rose-700" : "text-slate-500 dark:text-slate-400"
-                        )}>
-                          ₺{Math.abs(c.balance).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          <span className="text-[10px] ml-1 opacity-75">
-                            {c.balance > 0 ? '(A)' : c.balance < 0 ? '(B)' : ''}
-                          </span>
-                        </div>
-                        {isRiskExceeded && (
-                          <div className="text-[9px] font-bold text-rose-600 flex items-center justify-end gap-1 mt-0.5">
-                            <AlertTriangle className="w-2.5 h-2.5" /> Risk Aşıldı
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleOpenStatement(c)}
-                            title="Cari Hesap Ekstresi"
-                            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenPayment(c, c.type === 'supplier' ? 'expense' : 'income')}
-                            title={c.type === 'supplier' ? 'Ödeme Yap' : 'Tahsilat Al'}
-                            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-                          >
-                            <DollarSign className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenEditModal(c)}
-                            title="Cari Kartını Düzenle"
-                            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            onClick={() => setDeleteConfirmContact(c)}
-                            title="Cari Kartını Sil"
-                            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition-colors rounded-lg"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              <button
+                onClick={() => setDeleteConfirmContact(c)}
+                title="Cari Kartını Sil"
+                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition-colors rounded-lg"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </>
+          )}
+        />
       ) : (
         /* GRID VIEW (KART GÖRÜNÜMÜ) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

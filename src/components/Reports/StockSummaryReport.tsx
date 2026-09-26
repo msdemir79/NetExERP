@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { erpService } from '../../services/erpService';
 import { Search, AlertTriangle, Printer, FileDown, Palette } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { cn } from '../../lib/utils';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
@@ -215,6 +216,76 @@ export default function StockSummaryReport() {
     );
   };
 
+  const columns: GridColumn<SummaryRow>[] = [
+    {
+      key: 'code',
+      title: 'Kod',
+      render: (row) => (
+        <span className="font-mono text-[11px] font-bold text-slate-600">{row.code}</span>
+      ),
+    },
+    {
+      key: 'name',
+      title: 'Ürün/Model',
+      render: (row) => (
+        <div>
+          <div className="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px]">{row.name}</div>
+          <div className="text-[9px] text-slate-400 font-bold uppercase">{row.brand}</div>
+        </div>
+      ),
+      filterValue: (row) => `${row.name || ''} ${row.brand || ''}`,
+    },
+    {
+      key: 'category',
+      title: 'Kategori',
+      render: (row) => (
+        <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600">
+          {row.category || 'Genel'}
+        </span>
+      ),
+      filterValue: (row) => row.category || 'Genel',
+    },
+    {
+      key: 'colorEntries',
+      title: 'Renk Dağılımı',
+      width: '280px',
+      render: (row) => renderColorCell(row),
+      filterValue: (row) => colorCellText(row),
+    },
+    {
+      key: 'stock',
+      title: 'Miktar',
+      align: 'right',
+      render: (row) => (
+        <span className={cn(
+          "font-bold font-mono",
+          row.stock <= row.minStock ? "text-rose-600" : "text-slate-900 dark:text-slate-100"
+        )}>
+          {row.stock}
+        </span>
+      ),
+    },
+    {
+      key: 'unitLabel',
+      title: 'Birim',
+      align: 'right',
+      render: (row) => (
+        <span className="text-slate-400 text-[10px] uppercase font-bold">{row.unitLabel}</span>
+      ),
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'right',
+      render: (row) => row.stock <= row.minStock ? (
+        <StatusPill tone="amber"><AlertTriangle className="w-3 h-3" /> Kritik</StatusPill>
+      ) : (
+        <StatusPill tone="green">Normal</StatusPill>
+      ),
+      filterValue: (row) => row.stock <= row.minStock ? 'Kritik' : 'Normal',
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -238,100 +309,31 @@ export default function StockSummaryReport() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="relative max-w-md w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input 
-              type="text" 
-              placeholder="ARAMA YAP..." 
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 text-[10px] font-bold uppercase tracking-widest transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            <Palette className="w-3.5 h-3.5 text-indigo-500" />
-            Renk dağılımı varyant stok kayıtlarından hesaplanır
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 text-[10px] text-slate-400 uppercase font-bold tracking-widest">
-                <th className="px-6 py-3">Kod</th>
-                <th className="px-6 py-3">Ürün/Model</th>
-                <th className="px-6 py-3">Kategori</th>
-                <th className="px-6 py-3 min-w-[280px]">Renk Dağılımı</th>
-                <th className="px-6 py-3 text-right">Miktar</th>
-                <th className="px-6 py-3 text-right">Birim</th>
-                <th className="px-6 py-3 text-right">Durum</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm text-slate-600 divide-y divide-slate-50">
-              {(!products || products.length === 0) && (
-                <tr key="empty-summary">
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                    Gösterilecek veri bulunamadı.
-                  </td>
-                </tr>
-              )}
-              {products && products.length > 0 && rows.length === 0 && (
-                <tr key="empty-filter">
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                    Aramanızla eşleşen ürün bulunamadı.
-                  </td>
-                </tr>
-              )}
-              {rows.map((p) => (
-                <tr 
-                  key={p.id}
-                  className="hover:bg-slate-50 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">
-                      {p.code}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-800 dark:text-slate-200 uppercase text-[11px]">{p.name}</div>
-                    <div className="text-[9px] text-slate-400 font-bold uppercase">{p.brand}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600">
-                      {p.category || 'Genel'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {renderColorCell(p)}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <span className={cn(
-                      "font-bold font-mono",
-                      p.stock <= p.minStock ? "text-rose-600" : "text-slate-900 dark:text-slate-100"
-                    )}>
-                      {p.stock}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                     <span className="text-slate-400 text-[10px] uppercase font-bold">{p.unitLabel}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {p.stock <= p.minStock ? (
-                      <span className="flex items-center justify-end gap-1 text-[10px] font-bold text-amber-600 uppercase">
-                        <AlertTriangle className="w-3 h-3" /> Kritik
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase">Normal</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataGrid<SummaryRow>
+        columns={columns}
+        data={rows}
+        rowKey="id"
+        loading={!products}
+        emptyMessage={!products || products.length === 0 ? 'Gösterilecek veri bulunamadı.' : 'Aramanızla eşleşen ürün bulunamadı.'}
+        toolbar={
+          <>
+            <div className="relative max-w-md w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="ARAMA YAP..."
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 text-[10px] font-bold uppercase tracking-widest transition-all"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              <Palette className="w-3.5 h-3.5 text-indigo-500" />
+              Renk dağılımı varyant stok kayıtlarından hesaplanır
+            </div>
+          </>
+        }
+      />
     </div>
   );
 }

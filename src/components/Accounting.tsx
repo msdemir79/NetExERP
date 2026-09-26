@@ -1,26 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  BookOpen, 
-  FileText, 
-  Plus, 
-  Search, 
-  Filter, 
-  Printer, 
-  CheckCircle2, 
-  AlertCircle, 
-  Layers, 
-  TrendingUp, 
-  TrendingDown, 
-  RefreshCw, 
-  ArrowRight, 
-  BarChart3, 
-  ChevronRight, 
-  Eye, 
+import {
+  BookOpen,
+  FileText,
+  Plus,
+  Printer,
+  CheckCircle2,
+  AlertCircle,
+  Layers,
+  TrendingUp,
+  RefreshCw,
+  BarChart3,
   Trash2,
-  Calendar,
   Building2,
   DollarSign,
-  Edit3,
   ExternalLink
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -30,6 +22,8 @@ import { accountingService, compareAccountCodes, type MizanRow } from '../servic
 import type { Account, JournalEntry, Contact, Invoice, CollectionReceipt } from '../types';
 import { Calculator } from 'lucide-react';
 import PageHeader from './PageHeader';
+import DataGrid, { StatusPill } from './Common/DataGrid';
+import { showToast } from '../lib/feedback';
 import JournalEntryModal from './Accounting/JournalEntryModal';
 import JournalEntryPrintModal from './Accounting/JournalEntryPrintModal';
 import AddAccountModal from './Accounting/AddAccountModal';
@@ -73,7 +67,6 @@ export default function Accounting() {
   const [isKebirPrintModalOpen, setIsKebirPrintModalOpen] = useState(false);
 
   // Search & Filters
-  const [searchTerm, setSearchTerm] = useState('');
   const [entryTypeFilter, setEntryTypeFilter] = useState<string>('all');
   const [mizanRows, setMizanRows] = useState<MizanRow[]>([]);
   const [mizanLoading, setMizanLoading] = useState(false);
@@ -138,14 +131,16 @@ export default function Accounting() {
   // Filtered Journal Entries
   const filteredEntries = journalEntries.filter(e => {
     if (entryTypeFilter !== 'all' && e.entryType !== entryTypeFilter) return false;
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
-      const matchHeader = `${e.entryNumber} ${e.description} ${e.documentNumber || ''}`.toLowerCase().includes(q);
-      const matchLines = e.lines.some(l => `${l.accountCode} ${l.accountName} ${l.description}`.toLowerCase().includes(q));
-      if (!matchHeader && !matchLines) return false;
-    }
     return true;
   });
+
+  const entryTypeMeta: Record<JournalEntry['entryType'], { tone: 'green' | 'red' | 'violet' | 'blue' | 'slate'; label: string }> = {
+    tahsil: { tone: 'green', label: 'Tahsil' },
+    tediye: { tone: 'red', label: 'Tediye' },
+    acilis: { tone: 'violet', label: 'Açılış' },
+    mahsup: { tone: 'blue', label: 'Mahsup' },
+    kapanis: { tone: 'slate', label: 'Kapanış' },
+  };
 
   // KPI Calculations
   const totalEntriesCount = journalEntries.length;
@@ -366,19 +361,38 @@ export default function Accounting() {
 
       {/* TAB 1: Yevmiye Defteri (Journal Entries) */}
       {activeTab === 'entries' && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <Search className="w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Fiş no, açıklama, hesap kodu veya hesap adı ile ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full text-sm border-none focus:ring-0 placeholder-gray-400 p-0"
-              />
-            </div>
-
+        <DataGrid<JournalEntry>
+          columns={[
+            { key: 'entryNumber', title: 'Yevmiye Fiş No', render: (entry) => <span className="font-mono font-bold text-indigo-600">{entry.entryNumber}</span> },
+            { key: 'date', title: 'Tarih', render: (entry) => <span className="text-gray-500 whitespace-nowrap">{new Date(entry.date).toLocaleDateString('tr-TR')}</span>, filterValue: (entry) => new Date(entry.date).toISOString().slice(0, 10) },
+            {
+              key: 'entryType', title: 'Fiş Tipi',
+              render: (entry) => <StatusPill tone={entryTypeMeta[entry.entryType].tone}>{entryTypeMeta[entry.entryType].label}</StatusPill>,
+              filterValue: (entry) => entryTypeMeta[entry.entryType].label,
+            },
+            {
+              key: 'description', title: 'Açıklama',
+              render: (entry) => (
+                <div className="font-medium text-gray-900 max-w-sm truncate">
+                  {entry.description}
+                  <span className="text-xs text-gray-400 block font-normal">{entry.lines.length} satır kayıt</span>
+                </div>
+              ),
+              filterValue: (entry) => `${entry.entryNumber} ${entry.description} ${entry.documentNumber || ''} ${entry.lines.map(l => `${l.accountCode} ${l.accountName} ${l.description || ''}`).join(' ')}`,
+            },
+            { key: 'documentNumber', title: 'Belge No', filterable: false, render: (entry) => <span className="font-mono text-xs text-gray-600">{entry.documentNumber || '-'}</span> },
+            { key: 'totalDebit', title: 'Borç Toplamı', align: 'right', render: (entry) => <span className="font-bold text-gray-900">₺{entry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            { key: 'totalCredit', title: 'Alacak Toplamı', align: 'right', render: (entry) => <span className="font-bold text-gray-900">₺{entry.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            {
+              key: 'isBalanced', title: 'Denge', align: 'center', filterable: false,
+              render: (entry) => entry.isBalanced
+                ? <StatusPill tone="green"><span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />Denk</span></StatusPill>
+                : <StatusPill tone="red"><span className="inline-flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />Farklı</span></StatusPill>,
+            },
+          ]}
+          data={filteredEntries}
+          rowKey={(entry) => entry.id ?? entry.entryNumber}
+          toolbar={
             <div className="flex items-center gap-2">
               <select
                 value={entryTypeFilter}
@@ -392,102 +406,27 @@ export default function Accounting() {
                 <option value="acilis">Açılış Fişleri</option>
               </select>
             </div>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50 text-gray-600 font-semibold">
-                  <tr>
-                    <th className="py-3 px-4 text-left">Yevmiye Fiş No</th>
-                    <th className="py-3 px-4 text-left">Tarih</th>
-                    <th className="py-3 px-4 text-left">Fiş Tipi</th>
-                    <th className="py-3 px-4 text-left">Açıklama</th>
-                    <th className="py-3 px-4 text-left">Belge No</th>
-                    <th className="py-3 px-4 text-right">Borç Toplamı</th>
-                    <th className="py-3 px-4 text-right">Alacak Toplamı</th>
-                    <th className="py-3 px-4 text-center">Denge</th>
-                    <th className="py-3 px-4 text-right">İşlem</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-gray-700">
-                  {filteredEntries.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-400">
-                        Kayıtlı yevmiye fişi bulunmamaktadır.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredEntries.map((entry) => (
-                      <tr key={`entry-${entry.id || entry.entryNumber}`} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-indigo-600">
-                          {entry.entryNumber}
-                        </td>
-                        <td className="py-3 px-4 text-gray-500 whitespace-nowrap">
-                          {new Date(entry.date).toLocaleDateString('tr-TR')}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold uppercase ${
-                            entry.entryType === 'tahsil' ? 'bg-emerald-100 text-emerald-800' :
-                            entry.entryType === 'tediye' ? 'bg-rose-100 text-rose-800' :
-                            entry.entryType === 'acilis' ? 'bg-purple-100 text-purple-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {entry.entryType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-medium text-gray-900 max-w-sm truncate">
-                          {entry.description}
-                          <span className="text-xs text-gray-400 block font-normal">
-                            {entry.lines.length} satır kayıt
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-xs text-gray-600">
-                          {entry.documentNumber || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-gray-900">
-                          ₺{entry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3 px-4 text-right font-bold text-gray-900">
-                          ₺{entry.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          {entry.isBalanced ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-medium">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Denk
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded font-medium">
-                              <AlertCircle className="w-3.5 h-3.5" /> Farklı
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              onClick={() => setSelectedEntryForPrint(entry)}
-                              className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded"
-                              title="Resmi Fişi Görüntüle / Yazdır"
-                            >
-                              <Printer className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteEntry(entry.id!)}
-                              className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-gray-100 rounded"
-                              title="Fişi Sil"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+          }
+          rowActions={(entry) => (
+            <div className="inline-flex items-center gap-1">
+              <button
+                onClick={() => setSelectedEntryForPrint(entry)}
+                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded"
+                title="Resmi Fişi Görüntüle / Yazdır"
+              >
+                <Printer className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleDeleteEntry(entry.id!)}
+                className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-gray-100 rounded"
+                title="Fişi Sil"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
-          </div>
-        </div>
+          )}
+          emptyMessage="Kayıtlı yevmiye fişi bulunmamaktadır."
+        />
       )}
 
       {/* TAB 2: Tek Düzen Hesap Planı (TDHP) */}
@@ -546,62 +485,51 @@ export default function Accounting() {
             </button>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-xs">
-                <thead className="bg-gray-100 text-gray-700 font-bold border-b border-gray-300">
-                  <tr>
-                    <th className="py-2.5 px-3 text-left w-28">Hesap Kodu</th>
-                    <th className="py-2.5 px-3 text-left">Hesap Adı</th>
-                    <th className="py-2.5 px-3 text-right w-32">Toplam Borç (₺)</th>
-                    <th className="py-2.5 px-3 text-right w-32">Toplam Alacak (₺)</th>
-                    <th className="py-2.5 px-3 text-right w-32">Borç Bakiyesi (₺)</th>
-                    <th className="py-2.5 px-3 text-right w-32">Alacak Bakiyesi (₺)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-gray-800">
-                  {mizanLoading ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400">
-                        Mizan hesaplanıyor...
-                      </td>
-                    </tr>
-                  ) : mizanRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400">
-                        Kriterlere uygun mizan kaydı bulunamadı.
-                      </td>
-                    </tr>
-                  ) : (
-                    mizanRows.map((r, idx) => {
-                      const isBold = r.level <= 2;
-                      return (
-                        <tr 
-                          key={`mizan-${r.code}-${idx}`} 
-                          className={`hover:bg-gray-50 ${isBold ? 'bg-gray-50/70 font-bold text-gray-900' : ''}`}
-                        >
-                          <td className="py-2 px-3 font-mono font-medium">{r.code}</td>
-                          <td className="py-2 px-3">{r.name}</td>
-                          <td className="py-2 px-3 text-right font-mono">
-                            {r.totalDebit > 0 ? r.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono">
-                            {r.totalCredit > 0 ? r.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                            {r.debitBalance > 0 ? r.debitBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono font-bold text-blue-700">
-                            {r.creditBalance > 0 ? r.creditBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataGrid<MizanRow>
+            columns={[
+              {
+                key: 'code',
+                title: 'Hesap Kodu',
+                width: '8rem',
+                render: (r) => (
+                  <span className={`font-mono font-medium ${r.level <= 2 ? 'font-bold text-gray-900 dark:text-gray-100' : ''}`}>{r.code}</span>
+                ),
+              },
+              {
+                key: 'name',
+                title: 'Hesap Adı',
+                render: (r) => <span className={r.level <= 2 ? 'font-bold text-gray-900 dark:text-gray-100' : ''}>{r.name}</span>,
+              },
+              {
+                key: 'totalDebit',
+                title: 'Toplam Borç (₺)',
+                align: 'right',
+                render: (r) => <span className="font-mono">{r.totalDebit > 0 ? r.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+              {
+                key: 'totalCredit',
+                title: 'Toplam Alacak (₺)',
+                align: 'right',
+                render: (r) => <span className="font-mono">{r.totalCredit > 0 ? r.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+              {
+                key: 'debitBalance',
+                title: 'Borç Bakiyesi (₺)',
+                align: 'right',
+                render: (r) => <span className="font-mono font-bold text-emerald-700">{r.debitBalance > 0 ? r.debitBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+              {
+                key: 'creditBalance',
+                title: 'Alacak Bakiyesi (₺)',
+                align: 'right',
+                render: (r) => <span className="font-mono font-bold text-blue-700">{r.creditBalance > 0 ? r.creditBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+            ]}
+            data={mizanRows}
+            rowKey={(r) => `${r.code}-${r.level}`}
+            loading={mizanLoading}
+            emptyMessage="Kriterlere uygun mizan kaydı bulunamadı."
+          />
         </div>
       )}
 
@@ -636,54 +564,50 @@ export default function Accounting() {
             </button>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-xs">
-                <thead className="bg-gray-100 text-gray-700 font-bold border-b border-gray-300">
-                  <tr>
-                    <th className="py-2.5 px-3 text-left w-36">Yevmiye Fiş No</th>
-                    <th className="py-2.5 px-3 text-left w-24">Tarih</th>
-                    <th className="py-2.5 px-3 text-left">Açıklama</th>
-                    <th className="py-2.5 px-3 text-right w-28">Borç (₺)</th>
-                    <th className="py-2.5 px-3 text-right w-28">Alacak (₺)</th>
-                    <th className="py-2.5 px-3 text-right w-32">Bakiye (₺)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-gray-800">
-                  {kebirLoading ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400">
-                        Defter-i Kebir yükleniyor...
-                      </td>
-                    </tr>
-                  ) : kebirLines.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400">
-                        Bu hesap için henüz yevmiye hareketi bulunmuyor.
-                      </td>
-                    </tr>
-                  ) : (
-                    kebirLines.map((row, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
-                        <td className="py-2 px-3 font-mono font-bold text-indigo-600">{row.entryNumber}</td>
-                        <td className="py-2 px-3 whitespace-nowrap">{new Date(row.date).toLocaleDateString('tr-TR')}</td>
-                        <td className="py-2 px-3">{row.description}</td>
-                        <td className="py-2 px-3 text-right font-mono font-bold">
-                          {row.debit > 0 ? row.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold">
-                          {row.credit > 0 ? row.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}
-                        </td>
-                        <td className={`py-2 px-3 text-right font-mono font-bold ${row.balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          ₺{Math.abs(row.balance).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {row.balance >= 0 ? '(B)' : '(A)'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataGrid<(typeof kebirLines)[number]>
+            columns={[
+              {
+                key: 'entryNumber',
+                title: 'Yevmiye Fiş No',
+                width: '9rem',
+                render: (row) => <span className="font-mono font-bold text-indigo-600">{row.entryNumber}</span>,
+              },
+              {
+                key: 'date',
+                title: 'Tarih',
+                width: '7rem',
+                render: (row) => <span className="whitespace-nowrap">{new Date(row.date).toLocaleDateString('tr-TR')}</span>,
+                filterValue: (row) => new Date(row.date).toLocaleDateString('tr-TR'),
+              },
+              { key: 'description', title: 'Açıklama' },
+              {
+                key: 'debit',
+                title: 'Borç (₺)',
+                align: 'right',
+                render: (row) => <span className="font-mono font-bold">{row.debit > 0 ? row.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+              {
+                key: 'credit',
+                title: 'Alacak (₺)',
+                align: 'right',
+                render: (row) => <span className="font-mono font-bold">{row.credit > 0 ? row.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 }) : '-'}</span>,
+              },
+              {
+                key: 'balance',
+                title: 'Bakiye (₺)',
+                align: 'right',
+                render: (row) => (
+                  <span className={`font-mono font-bold ${row.balance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    ₺{Math.abs(row.balance).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {row.balance >= 0 ? '(B)' : '(A)'}
+                  </span>
+                ),
+              },
+            ]}
+            data={kebirLines}
+            rowKey={(row) => `${row.entryNumber}-${row.debit}-${row.credit}-${row.balance}`}
+            loading={kebirLoading}
+            emptyMessage="Bu hesap için henüz yevmiye hareketi bulunmuyor."
+          />
         </div>
       )}
 
@@ -815,78 +739,72 @@ export default function Accounting() {
           </div>
 
           {/* Invoices accounting status list */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
-              <h3 className="text-sm font-bold text-gray-900">Faturaların Muhasebe Durumu</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50 text-gray-600 font-semibold">
-                  <tr>
-                    <th className="py-3 px-4 text-left">Fatura No</th>
-                    <th className="py-3 px-4 text-left">Tarih</th>
-                    <th className="py-3 px-4 text-left">Tür</th>
-                    <th className="py-3 px-4 text-left">Cari</th>
-                    <th className="py-3 px-4 text-right">Tutar</th>
-                    <th className="py-3 px-4 text-center">TDHP Durumu</th>
-                    <th className="py-3 px-4 text-right">İşlem</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-gray-700">
-                  {invoices.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-6 text-center text-gray-400">
-                        Henüz kayıtlı fatura bulunmuyor.
-                      </td>
-                    </tr>
+          <DataGrid<Invoice>
+            columns={[
+              {
+                key: 'invoiceNumber',
+                title: 'Fatura No',
+                render: (inv) => <span className="font-mono font-medium text-indigo-600">{inv.invoiceNumber}</span>,
+              },
+              {
+                key: 'date',
+                title: 'Tarih',
+                render: (inv) => <span className="text-gray-500 dark:text-gray-400">{new Date(inv.date).toLocaleDateString('tr-TR')}</span>,
+                filterValue: (inv) => new Date(inv.date).toLocaleDateString('tr-TR'),
+              },
+              {
+                key: 'type',
+                title: 'Tür',
+                render: (inv) => <span className="text-xs font-semibold">{inv.type === 'sales' ? 'Satış Faturası' : 'Alış Faturası'}</span>,
+                filterValue: (inv) => (inv.type === 'sales' ? 'Satış Faturası' : 'Alış Faturası'),
+              },
+              {
+                key: 'contact',
+                title: 'Cari',
+                render: (inv) => (
+                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                    {contacts.find(c => c.id === inv.contactId)?.name || `Cari #${inv.contactId}`}
+                  </span>
+                ),
+                filterValue: (inv) => contacts.find(c => c.id === inv.contactId)?.name || '',
+              },
+              {
+                key: 'grandTotal',
+                title: 'Tutar',
+                align: 'right',
+                render: (inv) => <span className="font-bold">₺{inv.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>,
+              },
+              {
+                key: 'tdhp',
+                title: 'TDHP Durumu',
+                align: 'center',
+                render: (inv) =>
+                  accountedDocIds.has(inv.id) ? (
+                    <StatusPill tone="green"><CheckCircle2 className="w-3.5 h-3.5" /> Muhasebeleşti</StatusPill>
                   ) : (
-                    invoices.map((inv) => {
-                      const isAccounted = accountedDocIds.has(inv.id);
-                      return (
-                        <tr key={inv.id} className="hover:bg-gray-50">
-                          <td className="py-3 px-4 font-mono font-medium text-indigo-600">{inv.invoiceNumber}</td>
-                          <td className="py-3 px-4 text-gray-500">{new Date(inv.date).toLocaleDateString('tr-TR')}</td>
-                          <td className="py-3 px-4 text-xs font-semibold">
-                            {inv.type === 'sales' ? 'Satış Faturası' : 'Alış Faturası'}
-                          </td>
-                          <td className="py-3 px-4 font-medium text-gray-900">
-                            {contacts.find(c => c.id === inv.contactId)?.name || `Cari #${inv.contactId}`}
-                          </td>
-                          <td className="py-3 px-4 text-right font-bold">
-                            ₺{inv.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {isAccounted ? (
-                              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-semibold">
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Muhasebeleşti
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-semibold">
-                                <AlertCircle className="w-3.5 h-3.5" /> Bekliyor
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            {!isAccounted && (
-                              <button
-                                onClick={async () => {
-                                  await accountingService.createInvoiceJournalEntry(inv.id!);
-                                  alert(`${inv.invoiceNumber} faturası başarıyla muhasebeleştirildi.`);
-                                }}
-                                className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
-                              >
-                                Şimdi Muhasebeleştir
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    <StatusPill tone="amber"><AlertCircle className="w-3.5 h-3.5" /> Bekliyor</StatusPill>
+                  ),
+                filterValue: (inv) => (accountedDocIds.has(inv.id) ? 'Muhasebeleşti' : 'Bekliyor'),
+              },
+            ]}
+            data={invoices}
+            rowKey="id"
+            emptyMessage="Henüz kayıtlı fatura bulunmuyor."
+            toolbar={<h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">Faturaların Muhasebe Durumu</h3>}
+            rowActions={(inv) =>
+              accountedDocIds.has(inv.id) ? null : (
+                <button
+                  onClick={async () => {
+                    await accountingService.createInvoiceJournalEntry(inv.id!);
+                    showToast(`${inv.invoiceNumber} faturası başarıyla muhasebeleştirildi.`, 'success');
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap"
+                >
+                  Şimdi Muhasebeleştir
+                </button>
+              )
+            }
+          />
         </div>
       )}
 

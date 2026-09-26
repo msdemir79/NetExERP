@@ -1,31 +1,40 @@
 import React, { useState } from 'react';
-import { 
-  Barcode, 
-  Plus, 
-  Search, 
-  Sliders, 
-  Printer, 
-  Copy, 
-  Trash2, 
-  Edit3, 
-  CheckCircle2, 
-  Layers, 
-  Sparkles, 
-  Package, 
-  Box, 
-  Tag, 
-  RefreshCw,
-  Eye,
-  Info
+import {
+  Barcode,
+  Plus,
+  Search,
+  Printer,
+  Copy,
+  Trash2,
+  Edit3,
+  RefreshCw
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { BarcodeTemplate, LabelPresetSize } from '../../types';
+import { BarcodeTemplate } from '../../types';
 import { barcodeTemplateService } from '../../services/barcodeTemplateService';
 import { LabelTemplateDesignerModal } from './LabelTemplateDesignerModal';
+import DataGrid, { GridColumn, StatusPill } from '../Common/DataGrid';
 import { turkishIncludes } from '../../lib/turkishUtils';
 import { cn } from '../../lib/utils';
+
+const getEffectiveSize = (t: BarcodeTemplate) => {
+  const isLandscape = t.orientation === 'landscape';
+  return {
+    w: isLandscape ? Math.max(t.widthMm, t.heightMm) : Math.min(t.widthMm, t.heightMm),
+    h: isLandscape ? Math.min(t.widthMm, t.heightMm) : Math.max(t.widthMm, t.heightMm),
+  };
+};
+
+const getTypeLabel = (type: string): string => {
+  switch (type) {
+    case 'shipping': return 'Lojistik Koli';
+    case 'box': return 'Asorti Koli';
+    case 'shoe_box': return 'Tekil Kutu';
+    case 'shelf': return 'Raf / Stok';
+    default: return 'Özel Şablon';
+  }
+};
 
 export const BarcodeTemplatesManager: React.FC = () => {
   const templates = useApiQuery(() => api.barcodeTemplates.list(), [], ['barcodeTemplates']) || [];
@@ -116,17 +125,91 @@ export const BarcodeTemplatesManager: React.FC = () => {
   const getTypeBadge = (type: string) => {
     switch (type) {
       case 'shipping':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">📦 Lojistik Koli</span>;
+        return <StatusPill tone="blue">Lojistik Koli</StatusPill>;
       case 'box':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">🏷️ Asorti Koli</span>;
+        return <StatusPill tone="violet">Asorti Koli</StatusPill>;
       case 'shoe_box':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">👟 Tekil Kutu</span>;
+        return <StatusPill tone="amber">Tekil Kutu</StatusPill>;
       case 'shelf':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">🗄️ Raf / Stok</span>;
+        return <StatusPill tone="green">Raf / Stok</StatusPill>;
       default:
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">🔖 Özel Şablon</span>;
+        return <StatusPill tone="slate">Özel Şablon</StatusPill>;
     }
   };
+
+  const templateColumns = React.useMemo<GridColumn<BarcodeTemplate>[]>(() => [
+    {
+      key: 'type',
+      title: 'Tür',
+      render: (t) => getTypeBadge(t.type),
+      filterValue: (t) => getTypeLabel(t.type),
+    },
+    {
+      key: 'size',
+      title: 'Boyut',
+      align: 'center',
+      render: (t) => {
+        const { w, h } = getEffectiveSize(t);
+        const is100x150 = (t.widthMm === 100 && t.heightMm === 150) || t.presetSize === '100x150';
+        const is60x40 = (t.widthMm === 60 && t.heightMm === 40) || t.presetSize === '60x40';
+        return (
+          <span className="inline-flex items-center gap-1.5 font-mono text-xs font-black px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-md">
+            <span className={cn(
+              "w-1.5 h-1.5 rounded-full",
+              is100x150 ? "bg-blue-500" : is60x40 ? "bg-amber-500" : "bg-slate-300 dark:bg-slate-600"
+            )} />
+            {w} × {h} mm
+          </span>
+        );
+      },
+      filterValue: (t) => {
+        const { w, h } = getEffectiveSize(t);
+        return `${w}x${h}`;
+      },
+    },
+    {
+      key: 'orientation',
+      title: 'Yön',
+      align: 'center',
+      render: (t) => (
+        <span className="text-[10px] text-slate-400 font-bold uppercase">
+          {t.orientation === 'portrait' ? 'Dikey' : 'Yatay'}
+        </span>
+      ),
+      filterValue: (t) => t.orientation === 'portrait' ? 'Dikey' : 'Yatay',
+    },
+    {
+      key: 'name',
+      title: 'Şablon',
+      render: (t) => {
+        const { w, h } = getEffectiveSize(t);
+        return (
+          <div>
+            <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">{t.name}</h3>
+            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+              {t.description || `${w}x${h} mm termal etiket şablonu.`}
+            </p>
+          </div>
+        );
+      },
+      filterValue: (t) => `${t.name} ${t.description || ''}`,
+    },
+    {
+      key: 'layers',
+      title: 'Katmanlar',
+      filterable: false,
+      render: (t) => (
+        <div className="flex flex-wrap gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+          {t.config?.showCompanyHeader && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Firma Ünvanı</span>}
+          {t.config?.showAssortmentTable && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Asorti Matrisi</span>}
+          {t.config?.showBarcode && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Barkod ({t.config?.barcodeType || 'CODE-128'})</span>}
+          {t.config?.showLogisticsIcons && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Taşıma Piktogramı</span>}
+          {t.config?.showPrice && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Fiyat</span>}
+          {t.config?.showBoxSerial && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Koli No</span>}
+        </div>
+      ),
+    },
+  ], []);
 
   return (
     <div className="space-y-6">
@@ -276,143 +359,8 @@ export const BarcodeTemplatesManager: React.FC = () => {
         </button>
       </div>
 
-      {/* 3. ARAMA VE FİLTRE ÇUBUĞU */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Şablon adı, boyut veya açıklama ara..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <select
-            value={filterType}
-            onChange={e => setFilterType(e.target.value)}
-            className="w-full sm:w-auto px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200"
-          >
-            <option value="all">Tüm Kullanım Amaçları</option>
-            <option value="shipping">Lojistik Koli</option>
-            <option value="box">Asortili Koli</option>
-            <option value="shoe_box">Tekil Kutu</option>
-            <option value="shelf">Raf & Depo</option>
-            <option value="custom">Özel Boyut</option>
-          </select>
-        </div>
-      </div>
-
-      {/* 4. ŞABLON KARTLARI LİSTESİ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <AnimatePresence>
-          {filteredTemplates.map((template) => {
-            const isLandscape = template.orientation === 'landscape';
-            const effW = isLandscape ? Math.max(template.widthMm, template.heightMm) : Math.min(template.widthMm, template.heightMm);
-            const effH = isLandscape ? Math.min(template.widthMm, template.heightMm) : Math.max(template.widthMm, template.heightMm);
-            const is100x150 = (template.widthMm === 100 && template.heightMm === 150) || template.presetSize === '100x150';
-            const is60x40 = (template.widthMm === 60 && template.heightMm === 40) || template.presetSize === '60x40';
-
-            return (
-              <motion.div
-                key={template.id}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className={cn(
-                  "bg-white dark:bg-slate-900 rounded-2xl border p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group",
-                  is100x150 
-                    ? "border-blue-200 dark:border-blue-900/60 ring-1 ring-blue-500/20" 
-                    : is60x40
-                      ? "border-amber-200 dark:border-amber-900/60 ring-1 ring-amber-500/20"
-                      : "border-slate-200 dark:border-slate-800"
-                )}
-              >
-                <div>
-                  {/* Kart Üst Bilgi */}
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      {getTypeBadge(template.type)}
-                      <span className="font-mono text-xs font-black px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-md">
-                        {effW} × {effH} mm
-                      </span>
-                    </div>
-
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">
-                      {template.orientation === 'portrait' ? 'Dikey' : 'Yatay'}
-                    </span>
-                  </div>
-
-                  {/* Başlık & Açıklama */}
-                  <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm mb-1 group-hover:text-indigo-600 transition-colors">
-                    {template.name}
-                  </h3>
-                  <p className="text-xs text-slate-500 line-clamp-2 mb-4 leading-relaxed">
-                    {template.description || `${effW}x${effH} mm termal etiket şablonu.`}
-                  </p>
-
-                  {/* Katman Özeti / Mini İkonlar */}
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 mb-4 flex flex-wrap gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                    {template.config?.showCompanyHeader && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Firma Ünvanı</span>}
-                    {template.config?.showAssortmentTable && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Asorti Matrisi</span>}
-                    {template.config?.showBarcode && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Barkod ({template.config?.barcodeType || 'CODE-128'})</span>}
-                    {template.config?.showLogisticsIcons && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Taşıma Piktogramı</span>}
-                    {template.config?.showPrice && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Fiyat</span>}
-                    {template.config?.showBoxSerial && <span className="bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">Koli No</span>}
-                  </div>
-                </div>
-
-                {/* Butonlar */}
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickTestPrint(template)}
-                      disabled={printingTemplateId === template.id}
-                      className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                      title="Hızlı Test Baskısı Al"
-                    >
-                      <Printer className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => template.id && handleDuplicate(template.id)}
-                      className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      title="Şablonu Kopyala"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => template.id && handleDelete(template.id, template.name)}
-                      className="p-2 text-rose-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Şablonu Sil"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleEdit(template)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Tasarla / Düzenle</span>
-                  </button>
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
-
-      {filteredTemplates.length === 0 && (
+      {/* 3. ŞABLON LİSTESİ (DataGrid) */}
+      {filteredTemplates.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
           <Barcode className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Arama Kriterine Uygun Şablon Bulunamadı</h3>
@@ -425,6 +373,79 @@ export const BarcodeTemplatesManager: React.FC = () => {
             Varsayılan Şablonları Yükle
           </button>
         </div>
+      ) : (
+        <DataGrid
+          columns={templateColumns}
+          data={filteredTemplates}
+          rowKey={(t) => t.id ?? t.name}
+          toolbar={(
+            <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Şablon adı, boyut veya açıklama ara..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <select
+                value={filterType}
+                onChange={e => setFilterType(e.target.value)}
+                className="w-full sm:w-auto px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200"
+              >
+                <option value="all">Tüm Kullanım Amaçları</option>
+                <option value="shipping">Lojistik Koli</option>
+                <option value="box">Asortili Koli</option>
+                <option value="shoe_box">Tekil Kutu</option>
+                <option value="shelf">Raf & Depo</option>
+                <option value="custom">Özel Boyut</option>
+              </select>
+            </div>
+          )}
+          rowActions={(t) => (
+            <>
+              <button
+                type="button"
+                onClick={() => handleQuickTestPrint(t)}
+                disabled={printingTemplateId === t.id}
+                className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                title="Hızlı Test Baskısı Al"
+              >
+                <Printer className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => t.id && handleDuplicate(t.id)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Şablonu Kopyala"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => t.id && handleDelete(t.id, t.name)}
+                className="p-2 text-rose-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                title="Şablonu Sil"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleEdit(t)}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Tasarla / Düzenle</span>
+              </button>
+            </>
+          )}
+        />
       )}
 
       {/* TASARIMCI / DÜZENLEME MODALI */}

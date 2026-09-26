@@ -1,32 +1,21 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { 
-  Search, 
-  Plus, 
-  Edit3, 
-  ArrowRight, 
+import React, { useState, useMemo, useCallback } from 'react';
+import {
+  Search,
+  Plus,
+  Edit3,
+  ArrowRight,
   FileSpreadsheet,
   PlusSquare,
   MinusSquare,
-  RotateCcw,
-  Printer,
-  RefreshCw,
-  SlidersHorizontal,
   X,
-  Layers,
-  ChevronDown,
-  ChevronRight,
-  Maximize2,
-  Minus,
-  Check,
-  Filter,
-  Eye,
-  Scale,
   CheckCircle2,
   AlertCircle,
   Trash2
 } from 'lucide-react';
 import type { Account, JournalEntry } from '../../types';
 import { exportToCsv } from '../../lib/exportService';
+import { cn } from '../../lib/utils';
+import DataGrid, { StatusPill, type PillTone } from '../Common/DataGrid';
 
 interface ChartOfAccountsProps {
   accounts: Account[];
@@ -103,34 +92,13 @@ const MAIN_GROUPS: Record<string, string> = {
   '99': '99 DİĞER NAZIM HESAPLAR'
 };
 
-export interface ColumnDef {
-  id: string;
-  label: string;
-  defaultWidth: number;
-  minWidth: number;
-  align?: 'left' | 'center' | 'right';
-  isBalance?: boolean;
-}
-
-const ALL_COLUMN_DEFINITIONS: ColumnDef[] = [
-  { id: 'code', label: 'HESAP KODU', defaultWidth: 170, minWidth: 100, align: 'left' },
-  { id: 'name', label: 'HESAP ADI', defaultWidth: 280, minWidth: 140, align: 'left' },
-  { id: 'debit', label: 'BORÇ', defaultWidth: 140, minWidth: 90, align: 'right', isBalance: true },
-  { id: 'credit', label: 'ALACAK', defaultWidth: 140, minWidth: 90, align: 'right', isBalance: true },
-  { id: 'debitBalance', label: 'BORÇ BAKİYE', defaultWidth: 140, minWidth: 90, align: 'right', isBalance: true },
-  { id: 'creditBalance', label: 'ALACAK BAKİYE', defaultWidth: 140, minWidth: 90, align: 'right', isBalance: true },
-  { id: 'group', label: 'HESAP GRUBU', defaultWidth: 180, minWidth: 100, align: 'left' },
-  { id: 'mainGroup', label: 'ANA GRUP', defaultWidth: 120, minWidth: 70, align: 'left' },
-  { id: 'level', label: 'SEVİYE', defaultWidth: 70, minWidth: 50, align: 'center' },
-  { id: 'currency', label: 'PB', defaultWidth: 55, minWidth: 45, align: 'center' },
-  { id: 'actions', label: 'İŞLEMLER', defaultWidth: 155, minWidth: 95, align: 'right' },
-];
-
-const PRESET_MIZAN_COLS = ['code', 'name', 'debit', 'credit', 'debitBalance', 'creditBalance', 'actions'];
-const PRESET_EXTENDED_COLS = ['code', 'name', 'debit', 'credit', 'debitBalance', 'creditBalance', 'group', 'level', 'currency', 'actions'];
-
-const STORAGE_WIDTHS_KEY = 'proerp_tdhp_col_widths_v2';
-const STORAGE_VISIBLE_COLS_KEY = 'proerp_tdhp_col_visible_v2';
+const LEVEL_META: Record<number, { tone: PillTone; label: string }> = {
+  1: { tone: 'slate', label: '1: Sınıf' },
+  2: { tone: 'cyan', label: '2: Grup' },
+  3: { tone: 'green', label: '3: Ana' },
+  4: { tone: 'violet', label: '4: Alt' },
+  5: { tone: 'amber', label: '5: Muavin' },
+};
 
 export default function ChartOfAccounts({
   accounts,
@@ -145,150 +113,12 @@ export default function ChartOfAccounts({
   const [selectedAccountCode, setSelectedAccountCode] = useState<string | null>(null);
   const [onlyWithBalance, setOnlyWithBalance] = useState<boolean>(false);
   const [showDecimals, setShowDecimals] = useState<boolean>(true);
-  const [viewPreset, setViewPreset] = useState<'mizan' | 'extended'>('mizan');
-  const [isColumnDropdownOpen, setIsColumnDropdownOpen] = useState(false);
-
-  // Visible columns state
-  const [visibleColIds, setVisibleColIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_VISIBLE_COLS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return PRESET_MIZAN_COLS;
-  });
-
-  const toggleColumnVisibility = (colId: string) => {
-    if (colId === 'code' || colId === 'name') return; // Cannot hide code or name
-    setVisibleColIds(prev => {
-      const next = prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId];
-      try {
-        localStorage.setItem(STORAGE_VISIBLE_COLS_KEY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
-
-  const applyPreset = (preset: 'mizan' | 'extended') => {
-    setViewPreset(preset);
-    const cols = preset === 'mizan' ? PRESET_MIZAN_COLS : PRESET_EXTENDED_COLS;
-    setVisibleColIds(cols);
-    try {
-      localStorage.setItem(STORAGE_VISIBLE_COLS_KEY, JSON.stringify(cols));
-    } catch {
-      // ignore
-    }
-  };
-
-  // Active visible column definitions in order
-  const activeColumns = useMemo(() => {
-    return ALL_COLUMN_DEFINITIONS.filter(c => visibleColIds.includes(c.id));
-  }, [visibleColIds]);
-
-  // Column widths state with localStorage persistence
-  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_WIDTHS_KEY);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {
-      // ignore
-    }
-    const initial: Record<string, number> = {};
-    for (const c of ALL_COLUMN_DEFINITIONS) {
-      initial[c.id] = c.defaultWidth;
-    }
-    return initial;
-  });
-
-  const saveWidths = (widths: Record<string, number>) => {
-    try {
-      localStorage.setItem(STORAGE_WIDTHS_KEY, JSON.stringify(widths));
-    } catch {
-      // ignore
-    }
-  };
-
-  // Column resizing state and ref
-  const resizingRef = useRef<{
-    colId: string;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
-  const [isResizing, setIsResizing] = useState(false);
-
-  const handleMouseDownResize = (e: React.MouseEvent, colId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const currentWidth = colWidths[colId] || ALL_COLUMN_DEFINITIONS.find(c => c.id === colId)?.defaultWidth || 140;
-    resizingRef.current = {
-      colId,
-      startX: e.clientX,
-      startWidth: currentWidth
-    };
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const { colId, startX, startWidth } = resizingRef.current;
-      const colDef = ALL_COLUMN_DEFINITIONS.find(c => c.id === colId);
-      const minW = colDef?.minWidth || 50;
-      const delta = e.clientX - startX;
-      const newWidth = Math.max(minW, startWidth + delta);
-
-      setColWidths(prev => ({ ...prev, [colId]: newWidth }));
-    };
-
-    const handleMouseUp = () => {
-      if (resizingRef.current) {
-        resizingRef.current = null;
-        setIsResizing(false);
-        setColWidths(prev => {
-          saveWidths(prev);
-          return prev;
-        });
-      }
-    };
-
-    if (isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing]);
-
-  // Reset all column widths to defaults
-  const handleResetWidths = () => {
-    const resetWidths: Record<string, number> = {};
-    for (const c of ALL_COLUMN_DEFINITIONS) {
-      resetWidths[c.id] = c.defaultWidth;
-    }
-    setColWidths(resetWidths);
-    saveWidths(resetWidths);
-  };
-
   // Build parent-child relationships and find which accounts have children
-  const { childrenMap, parentMap, allParentCodes, level1Codes } = useMemo(() => {
-    const cMap = new Map<string, string[]>();
+  const { parentMap, allParentCodes } = useMemo(() => {
     const pMap = new Map<string, string>();
     const parents = new Set<string>();
-    const l1 = new Set<string>();
 
     for (const acc of accounts) {
-      if (acc.level === 1) l1.add(acc.code);
-
       let pCode = acc.parentCode;
       if (!pCode) {
         if (acc.level === 2) pCode = acc.code.slice(0, 1);
@@ -303,17 +133,12 @@ export default function ChartOfAccounts({
       if (pCode) {
         pMap.set(acc.code, pCode);
         parents.add(pCode);
-        const existing = cMap.get(pCode) || [];
-        existing.push(acc.code);
-        cMap.set(pCode, existing);
       }
     }
 
-    return { 
-      childrenMap: cMap, 
-      parentMap: pMap, 
-      allParentCodes: parents,
-      level1Codes: l1
+    return {
+      parentMap: pMap,
+      allParentCodes: parents
     };
   }, [accounts]);
 
@@ -613,6 +438,14 @@ export default function ChartOfAccounts({
     }).format(val);
   }, [showDecimals]);
 
+  const getBal = (acc: Account) => balancesMap.get(acc.code) || {
+    totalDebit: 0,
+    totalCredit: 0,
+    debitBalance: 0,
+    creditBalance: 0,
+    hasActivity: false
+  };
+
   // Helper: Get Account Group name
   const getAccountGroup = useCallback((acc: Account): string => {
     const firstChar = acc.code.charAt(0);
@@ -678,7 +511,7 @@ export default function ChartOfAccounts({
   }, [accounts, selectedAccountCode]);
 
   return (
-    <div className={`space-y-0 font-sans border border-slate-400/80 rounded-md shadow-md overflow-hidden bg-slate-100 dark:bg-slate-800 ${isResizing ? 'select-none cursor-col-resize' : ''}`}>
+    <div className="space-y-0 font-sans border border-slate-400/80 rounded-md shadow-md overflow-hidden bg-slate-100 dark:bg-slate-800">
       
       {/* 1. CLASSIC ERP WINDOW TITLE BAR */}
       <div className="bg-gradient-to-r from-sky-800 via-blue-800 to-indigo-900 text-white px-3 py-1 flex items-center justify-between select-none shadow-xs">
@@ -692,128 +525,6 @@ export default function ChartOfAccounts({
           <span className="text-[10px] bg-white dark:bg-slate-900/15 px-1.5 py-0.2 rounded text-sky-100 font-mono">
             TDHP Konsolide
           </span>
-        </div>
-
-        <div className="flex items-center gap-1 text-xs">
-          <button 
-            type="button"
-            onClick={() => applyPreset(viewPreset === 'mizan' ? 'extended' : 'mizan')}
-            className="text-[11px] bg-white dark:bg-slate-900/10 hover:bg-white dark:bg-slate-900/20 px-2 py-0.5 rounded text-white font-medium flex items-center gap-1 transition-colors"
-            title="Görünüm modunu değiştir"
-          >
-            <Eye className="w-3 h-3 text-sky-300" />
-            <span>{viewPreset === 'mizan' ? 'Bakiye Görünümü (Mizan)' : 'Genişletilmiş ERP'}</span>
-          </button>
-          <div className="h-3 w-px bg-white dark:bg-slate-900/30 mx-1" />
-          <button 
-            type="button"
-            onClick={handleResetWidths}
-            className="text-[11px] bg-white dark:bg-slate-900/10 hover:bg-white dark:bg-slate-900/20 px-1.5 py-0.5 rounded text-white/90 hover:text-white flex items-center gap-1 transition-colors"
-            title="Sütun genişliklerini orijinal ayarlarına sıfırla"
-          >
-            <RotateCcw className="w-3 h-3 text-amber-300" />
-            <span>Sütunları Sıfırla</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 2. ERP MENU BAR */}
-      <div className="bg-slate-200 border-b border-slate-300 px-3 py-1 flex flex-wrap items-center justify-between text-xs text-slate-700 dark:text-slate-200 select-none">
-        <div className="flex items-center gap-4 text-xs font-medium">
-          <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-semibold">
-            <Scale className="w-3.5 h-3.5 text-blue-700" />
-            <span>Görünüm:</span>
-            <button
-              type="button"
-              onClick={() => applyPreset('mizan')}
-              className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
-                viewPreset === 'mizan' ? 'bg-blue-700 text-white shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-300/70'
-              }`}
-            >
-              Mizan / Bakiyeler (Birebir)
-            </button>
-            <button
-              type="button"
-              onClick={() => applyPreset('extended')}
-              className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
-                viewPreset === 'extended' ? 'bg-blue-700 text-white shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-300/70'
-              }`}
-            >
-              Tüm Sütunlar
-            </button>
-          </div>
-
-          <div className="h-3 w-px bg-slate-400" />
-
-          {/* Sütunlar dropdown */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setIsColumnDropdownOpen(!isColumnDropdownOpen)}
-              className="hover:text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3 h-3 text-slate-500 dark:text-slate-400" />
-              <span>Sütun Seçimi ({activeColumns.length}/{ALL_COLUMN_DEFINITIONS.length})</span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
-            </button>
-
-            {isColumnDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-300 rounded shadow-lg py-1 z-30 text-xs">
-                <div className="px-3 py-1 font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 text-[11px] flex items-center justify-between">
-                  <span>Görünür Sütunlar</span>
-                  <button 
-                    type="button"
-                    onClick={() => setIsColumnDropdownOpen(false)}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                <div className="max-h-60 overflow-y-auto p-1 space-y-0.5">
-                  {ALL_COLUMN_DEFINITIONS.map(c => {
-                    const isChecked = visibleColIds.includes(c.id);
-                    const isRequired = c.id === 'code' || c.id === 'name';
-                    return (
-                      <label 
-                        key={c.id} 
-                        className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-100 dark:bg-slate-800 cursor-pointer ${
-                          isRequired ? 'opacity-60 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isRequired}
-                          onChange={() => toggleColumnVisibility(c.id)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className={`text-[11px] ${isChecked ? 'font-semibold text-slate-900 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'}`}>
-                          {c.label} {c.isBalance && <span className="text-[9px] text-blue-600 font-bold">(Bakiye)</span>}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Balance Status Indicator */}
-        <div className="flex items-center gap-3 text-xs">
-          <div className="flex items-center gap-1.5 font-mono text-[11px]">
-            {grandTotals.isBalanced ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                MİZAN DENK (Borç = Alacak)
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100 text-rose-900 font-bold border border-rose-300">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-700" />
-                BAKİYE FARKI: ₺ {grandTotals.diff.toLocaleString('tr-TR')}
-              </span>
-            )}
-          </div>
         </div>
       </div>
 
@@ -968,43 +679,8 @@ export default function ChartOfAccounts({
           </button>
         </div>
 
-        {/* Right Toolbar Tools: Search, Filter, Export */}
+        {/* Right Toolbar Tools: Export */}
         <div className="flex items-center gap-1.5">
-          {/* Quick Search input */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Hesap kodu veya adı ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-44 sm:w-56 pl-6 pr-6 py-0.5 bg-white dark:bg-slate-900 border border-slate-300 rounded text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
-            />
-            <Search className="w-3 h-3 text-slate-400 absolute left-2 top-1.5" />
-            {searchTerm && (
-              <button 
-                type="button"
-                onClick={() => setSearchTerm('')} 
-                className="absolute right-1.5 top-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Account Type Filter */}
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="py-0.5 px-1.5 bg-white dark:bg-slate-900 border border-slate-300 rounded text-xs text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="all">Tüm Tipler</option>
-            <option value="asset">1-2: Aktif</option>
-            <option value="liability">3-4: Pasif</option>
-            <option value="equity">5: Özkaynak</option>
-            <option value="revenue">6: Gelir</option>
-            <option value="cost">7: Maliyet</option>
-          </select>
-
           {/* Export to Excel */}
           <button
             type="button"
@@ -1018,467 +694,334 @@ export default function ChartOfAccounts({
         </div>
       </div>
 
-      {/* 4. CLASSIC ERP DATA GRID TABLE WITH RESIZABLE COLUMNS */}
-      <div className="bg-white dark:bg-slate-900 overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-295px)] custom-scrollbar">
-          <table className="w-full text-left border-collapse border-spacing-0 select-text table-fixed">
-            
-            {/* Table Column Width Definitions */}
-            <colgroup>
-              {/* Left Indicator Column (28px) */}
-              <col style={{ width: '28px' }} />
-              {activeColumns.map(col => (
-                <col 
-                  key={col.id} 
-                  style={{ width: `${colWidths[col.id] || col.defaultWidth}px` }} 
+      {/* 4. DATA GRID */}
+      <div className="bg-white dark:bg-slate-900">
+        <DataGrid<Account>
+          data={visibleAccounts}
+          rowKey={(acc) => acc.code}
+          onRowClick={(acc) => setSelectedAccountCode(acc.code)}
+          maxHeight="calc(100vh - 320px)"
+          emptyMessage="Görüntülenecek hesap kaydı bulunamadı."
+          toolbar={
+            <>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Hesap kodu veya adı ara..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-44 sm:w-56 pl-6 pr-6 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
                 />
-              ))}
-            </colgroup>
+                <Search className="w-3 h-3 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
 
-            {/* Desktop ERP Grid Headers */}
-            <thead className="sticky top-0 z-10 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-800 dark:text-slate-200 text-[11px] font-bold tracking-tight border-b border-slate-300 shadow-2xs">
-              <tr className="h-6">
-                
-                {/* Leftmost row pointer header column with '*' */}
-                <th className="w-7 p-0 text-center font-mono text-[11px] text-slate-500 dark:text-slate-400 bg-slate-200/90 border-r border-slate-300 select-none">
-                  *
-                </th>
-
-                {/* Dynamic Resizable Column Headers */}
-                {activeColumns.map(col => {
-                  const width = colWidths[col.id] || col.defaultWidth;
-                  return (
-                    <th 
-                      key={col.id}
-                      className={`relative py-1 px-2 border-r border-slate-300 uppercase tracking-tight select-none ${
-                        col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right pr-3' : 'text-left'
-                      } ${col.isBalance ? 'bg-slate-200/60 font-black' : ''}`}
-                      style={{ width: `${width}px` }}
-                    >
-                      <div className="truncate pr-2">
-                        {col.label}
-                      </div>
-
-                      {/* RESIZER DRAG HANDLE */}
-                      <div
-                        onMouseDown={(e) => handleMouseDownResize(e, col.id)}
-                        onDoubleClick={(e) => {
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="py-1 px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="all">Tüm Tipler</option>
+                <option value="asset">1-2: Aktif</option>
+                <option value="liability">3-4: Pasif</option>
+                <option value="equity">5: Özkaynak</option>
+                <option value="revenue">6: Gelir</option>
+                <option value="cost">7: Maliyet</option>
+              </select>
+            </>
+          }
+          columns={[
+            {
+              key: 'code',
+              title: 'HESAP KODU',
+              width: '240px',
+              sortable: false,
+              render: (acc) => {
+                const hasChildren = allParentCodes.has(acc.code);
+                const isExpanded = expandedNodes.has(acc.code);
+                const isSelected = selectedAccountCode === acc.code;
+                return (
+                  <div
+                    className="flex items-center gap-1.5"
+                    style={{ paddingLeft: `${(acc.level - 1) * 14}px` }}
+                  >
+                    {isSelected && <span className="text-[9px] font-black text-blue-700 shrink-0">▶</span>}
+                    {hasChildren ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
                           e.stopPropagation();
-                          setColWidths(prev => {
-                            const next = { ...prev, [col.id]: col.defaultWidth };
-                            saveWidths(next);
-                            return next;
-                          });
+                          toggleNode(acc.code);
                         }}
-                        className="absolute top-0 right-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-600 transition-colors z-20 flex items-center justify-center group"
-                        title={`${col.label} genişliğini ayarla (Çift tık: Varsayılana dön)`}
+                        className="w-3.5 h-3.5 rounded-xs border flex items-center justify-center bg-white dark:bg-slate-900 border-slate-300 hover:border-blue-500 hover:bg-blue-50 text-slate-700 dark:text-slate-200 shrink-0 cursor-pointer shadow-2xs"
+                        title={isExpanded ? 'Düğümü Kapat' : 'Düğümü Aç'}
                       >
-                        <div className="w-[1px] h-full bg-slate-300 group-hover:bg-blue-500 group-hover:w-[2px]" />
-                      </div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-
-            {/* ERP Grid Data Rows */}
-            <tbody className="divide-y divide-slate-200 text-xs font-normal">
-              {visibleAccounts.length === 0 ? (
-                <tr>
-                  <td colSpan={activeColumns.length + 1} className="py-12 text-center text-slate-400 bg-slate-50 dark:bg-slate-800/50">
-                    <Layers className="w-8 h-8 mx-auto mb-2 opacity-40 text-slate-400" />
-                    <p className="font-semibold text-xs text-slate-600">Görüntülenecek hesap kaydı bulunamadı.</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Arama filtresini veya 'Sadece Bakiyesi Olanlar' seçeneğini kontrol edin.</p>
-                  </td>
-                </tr>
-              ) : (
-                visibleAccounts.map((acc) => {
-                  const hasChildren = allParentCodes.has(acc.code);
-                  const isExpanded = expandedNodes.has(acc.code);
-                  const isSelected = selectedAccountCode === acc.code;
-
-                  const isLevel1 = acc.level === 1;
-                  const isLevel2 = acc.level === 2;
-                  const isLevel3 = acc.level === 3;
-                  const isLevel4 = acc.level === 4;
-                  const isLevel5 = acc.level >= 5;
-
-                  const indentPx = (acc.level - 1) * 14;
-
-                  // Get rolled-up balances for this account
-                  const bal = balancesMap.get(acc.code) || {
-                    totalDebit: 0,
-                    totalCredit: 0,
-                    debitBalance: 0,
-                    creditBalance: 0,
-                    hasActivity: false
-                  };
-
-                  return (
-                    <tr
-                      key={`acc-row-${acc.code}`}
-                      onClick={() => setSelectedAccountCode(acc.code)}
-                      onDoubleClick={() => onEditAccount(acc)}
-                      className={`group transition-colors h-6.5 leading-none cursor-pointer ${
-                        isSelected 
-                          ? 'bg-blue-100/90 text-slate-950 font-medium' 
-                          : isLevel1 
-                          ? 'bg-slate-100 dark:bg-slate-800/95 font-black text-slate-950 border-t-2 border-slate-300 hover:bg-slate-200/70' 
-                          : isLevel2 
-                          ? 'bg-slate-50 dark:bg-slate-800/50 font-bold text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:bg-slate-800/80' 
-                          : isLevel3 
-                          ? 'font-bold text-slate-900 dark:text-slate-100 hover:bg-blue-50/50' 
-                          : 'text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:bg-slate-800/50'
-                      }`}
+                        <span className="font-mono text-[10px] leading-none font-black text-slate-800 dark:text-slate-200">
+                          {isExpanded ? '−' : '+'}
+                        </span>
+                      </button>
+                    ) : (
+                      <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0 opacity-40 text-slate-400 font-mono text-[9px]">
+                        {acc.level >= 4 ? '└' : '•'}
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        'font-mono tracking-tight truncate',
+                        acc.level === 1 && 'font-black text-slate-950 dark:text-slate-100',
+                        acc.level === 2 && 'font-bold text-slate-900 dark:text-slate-100',
+                        acc.level === 3 && 'font-bold text-blue-950 dark:text-blue-300',
+                        acc.level >= 4 && 'font-semibold text-slate-800 dark:text-slate-200 text-xs'
+                      )}
                     >
-                      {/* Leftmost Row Indicator Gutter: '>' when selected */}
-                      <td className="w-7 text-center font-bold text-[11px] bg-slate-100 dark:bg-slate-800/80 border-r border-slate-300 select-none text-blue-700">
-                        {isSelected ? '▶' : ''}
-                      </td>
-
-                      {/* Render active columns */}
-                      {activeColumns.map(col => {
-                        if (col.id === 'code') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 font-mono whitespace-nowrap overflow-hidden">
-                              <div 
-                                className="flex items-center gap-1.5"
-                                style={{ paddingLeft: `${indentPx}px` }}
-                              >
-                                {hasChildren ? (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleNode(acc.code);
-                                    }}
-                                    className="w-3.5 h-3.5 rounded-xs border flex items-center justify-center transition-all bg-white dark:bg-slate-900 border-slate-300 hover:border-blue-500 hover:bg-blue-50 text-slate-700 dark:text-slate-200 shrink-0 cursor-pointer shadow-2xs"
-                                    title={isExpanded ? 'Düğümü Kapat' : 'Düğümü Aç'}
-                                  >
-                                    {isExpanded ? (
-                                      <span className="font-mono text-[10px] leading-none font-black text-slate-800 dark:text-slate-200">−</span>
-                                    ) : (
-                                      <span className="font-mono text-[10px] leading-none font-black text-slate-800 dark:text-slate-200">+</span>
-                                    )}
-                                  </button>
-                                ) : (
-                                  <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0 opacity-40 text-slate-400 font-mono text-[9px]">
-                                    {isLevel4 || isLevel5 ? '└' : '•'}
-                                  </span>
-                                )}
-
-                                <span className={`tracking-tight truncate ${
-                                  isLevel1 ? 'font-black text-slate-950 text-xs' :
-                                  isLevel2 ? 'font-bold text-slate-900 dark:text-slate-100 text-xs' :
-                                  isLevel3 ? 'font-bold text-blue-950 text-xs' :
-                                  'font-semibold text-slate-800 dark:text-slate-200 text-[11px]'
-                                }`}>
-                                  {acc.code}
-                                </span>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        if (col.id === 'name') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 overflow-hidden">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`truncate ${
-                                  isLevel1 ? 'font-black text-slate-950 uppercase' :
-                                  isLevel2 ? 'font-bold text-slate-900 dark:text-slate-100 uppercase' :
-                                  isLevel3 ? 'font-bold text-slate-900 dark:text-slate-100' :
-                                  'font-normal text-slate-800 dark:text-slate-200'
-                                }`}>
-                                  {acc.name}
-                                </span>
-
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onEditAccount(acc);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded transition-all shrink-0 cursor-pointer"
-                                    title="Hesap adını düzenle"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </button>
-                                  {onDeleteAccount && !acc.isSystem && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDeleteAccount(acc);
-                                      }}
-                                      className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded transition-all shrink-0 cursor-pointer"
-                                      title="Hesabı sil"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        // BORÇ
-                        if (col.id === 'debit') {
-                          const isZero = bal.totalDebit === 0;
-                          return (
-                            <td 
-                              key={col.id} 
-                              className={`py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-right pr-3 font-mono whitespace-nowrap overflow-hidden ${
-                                isZero 
-                                  ? 'text-slate-400' 
-                                  : isLevel1 || isLevel2 || isLevel3 
-                                  ? 'font-bold text-slate-950' 
-                                  : 'text-slate-900 dark:text-slate-100'
-                              }`}
-                            >
-                              {formatAmount(bal.totalDebit)}
-                            </td>
-                          );
-                        }
-
-                        // ALACAK
-                        if (col.id === 'credit') {
-                          const isZero = bal.totalCredit === 0;
-                          return (
-                            <td 
-                              key={col.id} 
-                              className={`py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-right pr-3 font-mono whitespace-nowrap overflow-hidden ${
-                                isZero 
-                                  ? 'text-slate-400' 
-                                  : isLevel1 || isLevel2 || isLevel3 
-                                  ? 'font-bold text-slate-950' 
-                                  : 'text-slate-900 dark:text-slate-100'
-                              }`}
-                            >
-                              {formatAmount(bal.totalCredit)}
-                            </td>
-                          );
-                        }
-
-                        // BORÇ BAKİYE
-                        if (col.id === 'debitBalance') {
-                          const isZero = bal.debitBalance === 0;
-                          return (
-                            <td 
-                              key={col.id} 
-                              className={`py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-right pr-3 font-mono whitespace-nowrap overflow-hidden ${
-                                isZero 
-                                  ? 'text-slate-400' 
-                                  : isLevel1 || isLevel2 || isLevel3 
-                                  ? 'font-bold text-blue-950 bg-blue-50/40' 
-                                  : 'font-semibold text-blue-900'
-                              }`}
-                            >
-                              {formatAmount(bal.debitBalance)}
-                            </td>
-                          );
-                        }
-
-                        // ALACAK BAKİYE
-                        if (col.id === 'creditBalance') {
-                          const isZero = bal.creditBalance === 0;
-                          return (
-                            <td 
-                              key={col.id} 
-                              className={`py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-right pr-3 font-mono whitespace-nowrap overflow-hidden ${
-                                isZero 
-                                  ? 'text-slate-400' 
-                                  : isLevel1 || isLevel2 || isLevel3 
-                                  ? 'font-bold text-amber-950 bg-amber-50/40' 
-                                  : 'font-semibold text-amber-900'
-                              }`}
-                            >
-                              {formatAmount(bal.creditBalance)}
-                            </td>
-                          );
-                        }
-
-                        // HESAP GRUBU
-                        if (col.id === 'group') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium overflow-hidden truncate whitespace-nowrap">
-                              {getAccountGroup(acc)}
-                            </td>
-                          );
-                        }
-
-                        // ANA GRUP
-                        if (col.id === 'mainGroup') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-slate-600 font-medium overflow-hidden truncate whitespace-nowrap">
-                              {getMainGroup(acc)}
-                            </td>
-                          );
-                        }
-
-                        // SEVİYE
-                        if (col.id === 'level') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-[10px] whitespace-nowrap overflow-hidden">
-                              <span className={`inline-block px-1 py-0.2 rounded-xs ${
-                                isLevel1 ? 'bg-slate-200 text-slate-800 dark:text-slate-200 font-bold' :
-                                isLevel2 ? 'bg-sky-100 text-sky-900 font-semibold' :
-                                isLevel3 ? 'bg-emerald-100 text-emerald-900 font-semibold' :
-                                isLevel4 ? 'bg-indigo-100 text-indigo-900 font-medium' :
-                                'bg-amber-100 text-amber-900 font-medium'
-                              }`}>
-                                {isLevel1 ? '1: Sınıf' : 
-                                 isLevel2 ? '2: Grup' : 
-                                 isLevel3 ? '3: Ana' : 
-                                 isLevel4 ? '4: Alt' : 
-                                 '5: Muavin'}
-                              </span>
-                            </td>
-                          );
-                        }
-
-                        // PARA BİRİMİ
-                        if (col.id === 'currency') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-[11px] text-slate-700 dark:text-slate-200 overflow-hidden">
-                              {acc.currency || 'TRY'}
-                            </td>
-                          );
-                        }
-
-                        // İŞLEMLER
-                        if (col.id === 'actions') {
-                          return (
-                            <td key={col.id} className="py-0.5 px-2 text-right pr-2 whitespace-nowrap overflow-hidden">
-                              <div className="inline-flex items-center justify-end gap-1">
-                                {(isLevel3 || isLevel4) && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onAddAccount(acc.code);
-                                    }}
-                                    className="px-1 py-0.2 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 rounded-xs border border-emerald-300/60 transition-colors"
-                                    title={`${acc.code} altına yeni alt hesap aç`}
-                                  >
-                                    +Alt
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEditAccount(acc);
-                                  }}
-                                  className="px-1 py-0.2 text-[10px] font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-700 hover:bg-blue-50 rounded-xs border border-slate-300 transition-colors cursor-pointer"
-                                  title="Hesap adını ve niteliklerini düzenle"
-                                >
-                                  Düzenle
-                                </button>
-
-                                {onDeleteAccount && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDeleteAccount(acc);
-                                    }}
-                                    className="px-1 py-0.2 text-[10px] font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xs border border-rose-200 dark:border-rose-800 transition-colors inline-flex items-center gap-0.5 cursor-pointer"
-                                    title="Bu hesabı sil"
-                                  >
-                                    <Trash2 className="w-2.5 h-2.5" />
-                                    <span>Sil</span>
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenKebir(acc.code);
-                                  }}
-                                  className="px-1 py-0.2 text-[10px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 rounded-xs border border-blue-200 transition-colors inline-flex items-center gap-0.5"
-                                  title="Defter-i Kebir muavin hareketlerini aç"
-                                >
-                                  <span>Kebir</span>
-                                  <ArrowRight className="w-2.5 h-2.5" />
-                                </button>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        return null;
-                      })}
-                    </tr>
-                  );
-                })
+                      {acc.code}
+                    </span>
+                  </div>
+                );
+              },
+              filterValue: (acc) => `${acc.code} ${acc.name} ${acc.description || ''}`,
+            },
+            {
+              key: 'name',
+              title: 'HESAP ADI',
+              sortable: false,
+              render: (acc) => (
+                <span
+                  className={cn(
+                    'truncate block',
+                    acc.level === 1 && 'font-black text-slate-950 dark:text-slate-100 uppercase',
+                    acc.level === 2 && 'font-bold text-slate-900 dark:text-slate-100 uppercase',
+                    acc.level === 3 && 'font-bold text-slate-900 dark:text-slate-100',
+                    acc.level >= 4 && 'font-normal text-slate-800 dark:text-slate-200'
+                  )}
+                >
+                  {acc.name}
+                </span>
+              ),
+            },
+            {
+              key: 'debit',
+              title: 'BORÇ',
+              align: 'right',
+              sortable: false,
+              render: (acc) => {
+                const v = getBal(acc).totalDebit;
+                return (
+                  <span
+                    className={cn(
+                      'font-mono whitespace-nowrap',
+                      v === 0
+                        ? 'text-slate-400'
+                        : acc.level <= 3
+                          ? 'font-bold text-slate-950 dark:text-slate-100'
+                          : 'text-slate-900 dark:text-slate-100'
+                    )}
+                  >
+                    {formatAmount(v)}
+                  </span>
+                );
+              },
+              filterValue: (acc) => String(getBal(acc).totalDebit),
+            },
+            {
+              key: 'credit',
+              title: 'ALACAK',
+              align: 'right',
+              sortable: false,
+              render: (acc) => {
+                const v = getBal(acc).totalCredit;
+                return (
+                  <span
+                    className={cn(
+                      'font-mono whitespace-nowrap',
+                      v === 0
+                        ? 'text-slate-400'
+                        : acc.level <= 3
+                          ? 'font-bold text-slate-950 dark:text-slate-100'
+                          : 'text-slate-900 dark:text-slate-100'
+                    )}
+                  >
+                    {formatAmount(v)}
+                  </span>
+                );
+              },
+              filterValue: (acc) => String(getBal(acc).totalCredit),
+            },
+            {
+              key: 'debitBalance',
+              title: 'BORÇ BAKİYE',
+              align: 'right',
+              sortable: false,
+              render: (acc) => {
+                const v = getBal(acc).debitBalance;
+                return (
+                  <span
+                    className={cn(
+                      'font-mono whitespace-nowrap',
+                      v === 0
+                        ? 'text-slate-400'
+                        : acc.level <= 3
+                          ? 'font-bold text-blue-950 dark:text-blue-200 bg-blue-50/40 dark:bg-blue-500/10'
+                          : 'font-semibold text-blue-900 dark:text-blue-300'
+                    )}
+                  >
+                    {formatAmount(v)}
+                  </span>
+                );
+              },
+              filterValue: (acc) => String(getBal(acc).debitBalance),
+            },
+            {
+              key: 'creditBalance',
+              title: 'ALACAK BAKİYE',
+              align: 'right',
+              sortable: false,
+              render: (acc) => {
+                const v = getBal(acc).creditBalance;
+                return (
+                  <span
+                    className={cn(
+                      'font-mono whitespace-nowrap',
+                      v === 0
+                        ? 'text-slate-400'
+                        : acc.level <= 3
+                          ? 'font-bold text-amber-950 dark:text-amber-200 bg-amber-50/40 dark:bg-amber-500/10'
+                          : 'font-semibold text-amber-900 dark:text-amber-300'
+                    )}
+                  >
+                    {formatAmount(v)}
+                  </span>
+                );
+              },
+              filterValue: (acc) => String(getBal(acc).creditBalance),
+            },
+            {
+              key: 'group',
+              title: 'HESAP GRUBU',
+              sortable: false,
+              render: (acc) => (
+                <span className="text-slate-700 dark:text-slate-200 font-medium truncate block">
+                  {getAccountGroup(acc)}
+                </span>
+              ),
+            },
+            {
+              key: 'level',
+              title: 'SEVİYE',
+              align: 'center',
+              sortable: false,
+              render: (acc) => {
+                const meta = LEVEL_META[acc.level] || LEVEL_META[5];
+                return (
+                  <StatusPill tone={meta.tone} className="text-[10px] px-1.5">
+                    {meta.label}
+                  </StatusPill>
+                );
+              },
+              filterValue: (acc) => (LEVEL_META[acc.level] || LEVEL_META[5]).label,
+            },
+            {
+              key: 'currency',
+              title: 'PB',
+              align: 'center',
+              sortable: false,
+              render: (acc) => (
+                <span className="font-mono text-xs text-slate-600 dark:text-slate-300">
+                  {acc.currency || 'TRY'}
+                </span>
+              ),
+            },
+          ]}
+          rowActions={(acc) => (
+            <>
+              {(acc.level === 3 || acc.level === 4) && (
+                <button
+                  type="button"
+                  onClick={() => onAddAccount(acc.code)}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300/60 transition-colors"
+                  title={`${acc.code} altına yeni alt hesap aç`}
+                >
+                  +Alt
+                </button>
               )}
-            </tbody>
-
-            {/* 5. STICKY SUMMARY / TOTALS FOOTER ROW (GENEL TOPLAM) */}
-            <tfoot className="sticky bottom-0 z-10 bg-gradient-to-b from-slate-200 to-slate-300 text-slate-900 dark:text-slate-100 text-xs font-black border-t-2 border-slate-400 shadow-md">
-              <tr className="h-7 leading-none">
-                <td className="w-7 text-center font-bold bg-slate-300/90 border-r border-slate-400 select-none">
-                  ∑
-                </td>
-
-                {activeColumns.map(col => {
-                  if (col.id === 'code') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        GENEL TOPLAM
-                      </td>
-                    );
-                  }
-                  if (col.id === 'name') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-slate-700 dark:text-slate-200 font-semibold text-[11px] truncate">
-                        Konsolide TDHP Mizan Toplamları
-                      </td>
-                    );
-                  }
-                  if (col.id === 'debit') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-right pr-3 font-mono font-black text-slate-950 whitespace-nowrap">
-                        {formatAmount(grandTotals.totalDebit)}
-                      </td>
-                    );
-                  }
-                  if (col.id === 'credit') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-right pr-3 font-mono font-black text-slate-950 whitespace-nowrap">
-                        {formatAmount(grandTotals.totalCredit)}
-                      </td>
-                    );
-                  }
-                  if (col.id === 'debitBalance') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-right pr-3 font-mono font-black text-blue-950 bg-blue-100/50 whitespace-nowrap">
-                        {formatAmount(grandTotals.totalDebitBal)}
-                      </td>
-                    );
-                  }
-                  if (col.id === 'creditBalance') {
-                    return (
-                      <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-right pr-3 font-mono font-black text-amber-950 bg-amber-100/50 whitespace-nowrap">
-                        {formatAmount(grandTotals.totalCreditBal)}
-                      </td>
-                    );
-                  }
-                  return (
-                    <td key={col.id} className="py-1 px-2 border-r border-slate-400 text-slate-500 dark:text-slate-400 text-center">
-                      -
-                    </td>
-                  );
-                })}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+              <button
+                type="button"
+                onClick={() => onEditAccount(acc)}
+                className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-700 hover:bg-blue-50 rounded border border-slate-300 transition-colors"
+                title="Hesap adını ve niteliklerini düzenle"
+              >
+                Düzenle
+              </button>
+              {onDeleteAccount && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteAccount(acc)}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded border border-rose-200 dark:border-rose-800 transition-colors inline-flex items-center gap-0.5"
+                  title="Bu hesabı sil"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                  <span>Sil</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onOpenKebir(acc.code)}
+                className="px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition-colors inline-flex items-center gap-0.5"
+                title="Defter-i Kebir muavin hareketlerini aç"
+              >
+                <span>Kebir</span>
+                <ArrowRight className="w-2.5 h-2.5" />
+              </button>
+            </>
+          )}
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 w-full">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-black uppercase tracking-tight text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                  GENEL TOPLAM
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500 truncate">
+                  Konsolide TDHP Mizan Toplamları
+                </span>
+              </div>
+              <div className="flex items-center gap-4 font-mono font-bold whitespace-nowrap">
+                <span className="text-slate-600 dark:text-slate-400">
+                  Borç: <strong className="text-slate-950 dark:text-slate-50">{formatAmount(grandTotals.totalDebit)}</strong>
+                </span>
+                <span className="text-slate-600 dark:text-slate-400">
+                  Alacak: <strong className="text-slate-950 dark:text-slate-50">{formatAmount(grandTotals.totalCredit)}</strong>
+                </span>
+                <span className="text-blue-900 dark:text-blue-300">
+                  B.Bakiye: <strong>{formatAmount(grandTotals.totalDebitBal)}</strong>
+                </span>
+                <span className="text-amber-900 dark:text-amber-300">
+                  A.Bakiye: <strong>{formatAmount(grandTotals.totalCreditBal)}</strong>
+                </span>
+              </div>
+              <div className="flex items-center font-mono text-[11px]">
+                {grandTotals.isBalanced ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                    MİZAN DENK (Borç = Alacak)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100 text-rose-900 font-bold border border-rose-300">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-700" />
+                    BAKİYE FARKI: ₺ {grandTotals.diff.toLocaleString('tr-TR')}
+                  </span>
+                )}
+              </div>
+            </div>
+          }
+        />
 
         {/* 6. CLASSIC ERP STATUS BAR AT BOTTOM */}
         <div className="bg-slate-200 border-t border-slate-300 px-3 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 flex flex-wrap items-center justify-between gap-3 select-none">

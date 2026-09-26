@@ -32,7 +32,8 @@ import {
   UserCog,
   Undo2,
   KeyRound,
-  ShieldAlert
+  ShieldAlert,
+  Barcode
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -56,6 +57,7 @@ export interface NavItem {
 const navigation: NavItem[] = [
   { name: 'Panel', href: '/', icon: LayoutDashboard, module: 'dashboard', colorGradient: 'from-indigo-500 to-blue-600', iconColor: 'text-indigo-400', activeGlow: 'shadow-indigo-500/30' },
   { name: 'Stok Yönetimi', href: '/inventory', icon: Package, module: 'inventory', colorGradient: 'from-purple-500 to-indigo-600', iconColor: 'text-purple-400', activeGlow: 'shadow-purple-500/30' },
+  { name: 'Barkod Merkezi', href: '/inventory/barcode', icon: Barcode, module: 'inventory', colorGradient: 'from-fuchsia-500 to-purple-600', iconColor: 'text-fuchsia-400', activeGlow: 'shadow-fuchsia-500/30' },
   { name: 'Sipariş Yönetimi', href: '/orders', icon: ShoppingCart, module: 'orders', colorGradient: 'from-blue-500 to-cyan-500', iconColor: 'text-blue-400', activeGlow: 'shadow-blue-500/30' },
   { name: 'İrsaliyeler', href: '/waybills', icon: Truck, module: 'waybills', colorGradient: 'from-amber-500 to-orange-500', iconColor: 'text-amber-400', activeGlow: 'shadow-amber-500/30' },
   { name: 'Faturalar', href: '/invoices', icon: Receipt, module: 'invoices', colorGradient: 'from-emerald-500 to-teal-600', iconColor: 'text-emerald-400', activeGlow: 'shadow-emerald-500/30' },

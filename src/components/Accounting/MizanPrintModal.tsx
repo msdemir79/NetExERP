@@ -34,11 +34,17 @@ export default function MizanPrintModal({ isOpen, onClose, mizanRows, options }:
 
   if (!isOpen) return null;
 
-  // Calculate totals
-  const totalDebit = mizanRows.reduce((acc, r) => acc + (r.totalDebit || 0), 0);
-  const totalCredit = mizanRows.reduce((acc, r) => acc + (r.totalCredit || 0), 0);
-  const totalDebitBalance = mizanRows.reduce((acc, r) => acc + (r.debitBalance || 0), 0);
-  const totalCreditBalance = mizanRows.reduce((acc, r) => acc + (r.creditBalance || 0), 0);
+  // Üst seviye satırlar (sınıf/grup/ana) alt hesapların toplamlarını zaten içerir;
+  // genel toplam ve denklik yalnızca en alt kırılım (yaprak) satırlardan hesaplanır.
+  const leafRows = mizanRows.filter(
+    r => !mizanRows.some(o => o !== r && o.code.startsWith(r.code + '.'))
+  );
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const totalDebit = round2(leafRows.reduce((acc, r) => acc + (r.totalDebit || 0), 0));
+  const totalCredit = round2(leafRows.reduce((acc, r) => acc + (r.totalCredit || 0), 0));
+  const totalDebitBalance = round2(leafRows.reduce((acc, r) => acc + (r.debitBalance || 0), 0));
+  const totalCreditBalance = round2(leafRows.reduce((acc, r) => acc + (r.creditBalance || 0), 0));
 
   const debitCreditDiff = Math.abs(totalDebit - totalCredit);
   const balanceDiff = Math.abs(totalDebitBalance - totalCreditBalance);

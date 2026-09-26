@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  CreditCard, 
-  Plus, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  DollarSign, 
-  User, 
-  Search, 
-  Calendar 
+import {
+  CreditCard,
+  Plus
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, AdvanceRequest } from '../../types';
 import { hrService } from '../../services/hrService';
 
@@ -21,8 +15,7 @@ interface AdvanceTabProps {
 export default function AdvanceTab({ employees, onAdvancesUpdated }: AdvanceTabProps) {
   const [advances, setAdvances] = useState<AdvanceRequest[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEmpId, setSelectedEmpId] = useState<number>(employees[0]?.id || 0);
@@ -90,10 +83,69 @@ export default function AdvanceTab({ employees, onAdvancesUpdated }: AdvanceTabP
     }
   };
 
-  const filteredAdvances = advances.filter(adv => {
-    if (searchTerm && !adv.employeeName.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  });
+  const advanceColumns: GridColumn<AdvanceRequest>[] = [
+    {
+      key: 'employeeName',
+      title: 'Personel',
+      render: (adv) => (
+        <span className="font-bold text-slate-800 dark:text-slate-200">{adv.employeeName}</span>
+      ),
+      filterValue: (adv) => adv.employeeName
+    },
+    {
+      key: 'date',
+      title: 'Talep Tarihi',
+      render: (adv) => new Date(adv.date).toLocaleDateString('tr-TR'),
+      filterValue: (adv) => new Date(adv.date).toLocaleDateString('tr-TR')
+    },
+    {
+      key: 'period',
+      title: 'Mahsup Dönemi',
+      render: (adv) => (
+        <span className="font-mono text-slate-700 dark:text-slate-200">{adv.month}/{adv.year}</span>
+      ),
+      filterValue: (adv) => `${adv.month}/${adv.year}`
+    },
+    {
+      key: 'amount',
+      title: 'Avans Tutarı',
+      align: 'right',
+      render: (adv) => (
+        <span className="font-mono font-bold text-rose-600">
+          ₺{adv.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+      filterValue: (adv) => String(adv.amount)
+    },
+    {
+      key: 'description',
+      title: 'Açıklama',
+      render: (adv) => (
+        <span className="text-slate-500 dark:text-slate-400 max-w-xs truncate block">{adv.description || '-'}</span>
+      ),
+      filterValue: (adv) => adv.description ?? ''
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'center',
+      render: (adv) => {
+        if (adv.status === 'paid') {
+          return <StatusPill tone="green">{adv.isDeducted ? 'Bordrodan Kesildi' : 'Ödendi / Mahsup Bekliyor'}</StatusPill>;
+        }
+        if (adv.status === 'pending') {
+          return <StatusPill tone="amber">Onay Bekliyor</StatusPill>;
+        }
+        return <StatusPill tone="red">Reddedildi</StatusPill>;
+      },
+      filterValue: (adv) =>
+        adv.status === 'paid'
+          ? (adv.isDeducted ? 'Bordrodan Kesildi' : 'Ödendi Mahsup Bekliyor')
+          : adv.status === 'pending'
+            ? 'Onay Bekliyor'
+            : 'Reddedildi'
+    }
+  ];
 
   const totalPending = advances.filter(a => a.status === 'pending').reduce((sum, a) => sum + a.amount, 0);
   const totalPaid = advances.filter(a => a.status === 'paid').reduce((sum, a) => sum + a.amount, 0);
@@ -102,24 +154,15 @@ export default function AdvanceTab({ employees, onAdvancesUpdated }: AdvanceTabP
     <div className="space-y-6">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="relative w-64">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Personel ara..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-          />
-        </div>
-
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-500 dark:text-slate-400">Bekleyen: <b className="text-amber-600 font-mono">₺{totalPending.toLocaleString('tr-TR')}</b></span>
             <span className="text-slate-300">|</span>
             <span className="text-slate-500 dark:text-slate-400">Ödenen/Mahsup: <b className="text-emerald-600 font-mono">₺{totalPaid.toLocaleString('tr-TR')}</b></span>
           </div>
+        </div>
 
+        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               if (employees.length > 0) setSelectedEmpId(employees[0].id!);
@@ -134,78 +177,29 @@ export default function AdvanceTab({ employees, onAdvancesUpdated }: AdvanceTabP
       </div>
 
       {/* Advances Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+      <DataGrid
+        columns={advanceColumns}
+        data={advances}
+        rowKey={(adv) => adv.id ?? `${adv.employeeId}-${adv.date}`}
+        loading={loading}
+        emptyMessage="Kayıtlı avans talebi bulunamadı."
+        toolbar={
           <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-indigo-600" />
             Personel Avans Talepleri & Mahsup Listesi
           </h3>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
-                <th className="p-3">Personel</th>
-                <th className="p-3">Talep Tarihi</th>
-                <th className="p-3">Mahsup Dönemi</th>
-                <th className="p-3 text-right">Avans Tutarı</th>
-                <th className="p-3">Açıklama</th>
-                <th className="p-3 text-center">Durum</th>
-                <th className="p-3 text-center">İşlem</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredAdvances.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-400">
-                    Kayıtlı avans talebi bulunamadı.
-                  </td>
-                </tr>
-              ) : (
-                filteredAdvances.map((adv) => (
-                  <tr key={adv.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                    <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{adv.employeeName}</td>
-                    <td className="p-3 text-slate-600">{new Date(adv.date).toLocaleDateString('tr-TR')}</td>
-                    <td className="p-3 font-mono text-slate-700 dark:text-slate-200">{adv.month}/{adv.year}</td>
-                    <td className="p-3 text-right font-mono font-bold text-rose-600">
-                      ₺{adv.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="p-3 text-slate-500 dark:text-slate-400 max-w-xs truncate">{adv.description || '-'}</td>
-                    <td className="p-3 text-center">
-                      {adv.status === 'paid' && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          {adv.isDeducted ? 'Bordrodan Kesildi' : 'Ödendi / Mahsup Bekliyor'}
-                        </span>
-                      )}
-                      {adv.status === 'pending' && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          Onay Bekliyor
-                        </span>
-                      )}
-                      {adv.status === 'rejected' && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                          Reddedildi
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 text-center">
-                      {adv.status === 'pending' && (
-                        <button
-                          onClick={() => handleApprove(adv.id!)}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition-colors shadow-2xs"
-                        >
-                          Onayla & Öde
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        }
+        rowActions={(adv) =>
+          adv.status === 'pending' ? (
+            <button
+              onClick={() => handleApprove(adv.id!)}
+              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition-colors"
+            >
+              Onayla & Öde
+            </button>
+          ) : null
+        }
+      />
 
       {/* New Advance Modal */}
       {isModalOpen && (

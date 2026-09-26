@@ -2,6 +2,37 @@
  * Stok ve Envanter Matematiksel Hesaplama & Doğrulama Modülü
  */
 
+/**
+ * İmalat miktarları (metre, çift, dm², kg) temiz ve okunur olmalıdır.
+ * Kayan nokta artefaktlarını (0.3999999999999986 gibi) temizleyip yukarı yuvarlar.
+ * Sunucu ve istemci aynı fonksiyonu kullanır.
+ */
+export function roundUpQuantity(val: number, decimals: number = 2): number {
+  if (val === undefined || val === null || isNaN(val)) return 0;
+  if (val === 0) return 0;
+  const isNegative = val < 0;
+  const absVal = Math.abs(val);
+  // Çok küçük ölçümlerde (< 0.01) hassasiyeti koru.
+  const effDecimals = absVal > 0 && absVal < 0.01 ? 4 : decimals;
+  const clean = Math.round(absVal * 1000000) / 1000000;
+  const factor = Math.pow(10, effDecimals);
+  const rounded = Math.ceil(clean * factor) / factor;
+  return isNegative ? -rounded : rounded;
+}
+
+/** Miktarı Türkçe biçimde (binlik ayraçlı) gösterir. */
+export function formatQuantity(val: number): string {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  if (val === 0) return '0';
+  const isNegative = val < 0;
+  const rounded = roundUpQuantity(Math.abs(val), 2);
+
+  const formatted = Number.isInteger(rounded)
+    ? rounded.toLocaleString('tr-TR')
+    : rounded.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return isNegative ? `-${formatted}` : formatted;
+}
+
 export interface StockItem {
   id?: number;
   code: string;

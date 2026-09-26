@@ -1,27 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Calendar, 
-  TrendingUp, 
-  TrendingDown, 
-  AlertTriangle, 
-  ShieldAlert, 
-  CheckCircle2, 
-  Clock, 
-  Search, 
-  Filter, 
-  Download, 
-  FileText, 
-  Building2, 
-  User, 
-  Phone, 
-  DollarSign, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  RefreshCw, 
-  Sparkles,
+import {
+  TrendingUp,
+  ShieldAlert,
+  Clock,
+  Download,
+  FileText,
+  Building2,
+  Phone,
+  ArrowUpRight,
+  ArrowDownLeft,
+  RefreshCw,
   BarChart3,
-  Layers,
-  ChevronRight,
   Printer
 } from 'lucide-react';
 import { 
@@ -37,10 +26,10 @@ import {
   Area, 
   Line 
 } from 'recharts';
-import { agingService, AgingAnalysisResult, AgingBucketItem } from '../../services/agingService';
+import { agingService, AgingAnalysisResult, AgingBucketItem, CashFlowPeriod } from '../../services/agingService';
 import { cn } from '../../lib/utils';
 import { printHtml } from '../../lib/printService';
-import { turkishIncludes } from '../../lib/turkishUtils';
+import DataGrid, { StatusPill, type PillTone } from '../Common/DataGrid';
 
 interface AgingAnalysisTabProps {
   onOpenReceiptModal?: (contactId: number, type: 'collection' | 'disbursement') => void;
@@ -54,7 +43,6 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
   const [loading, setLoading] = useState(true);
   const [agingData, setAgingData] = useState<AgingAnalysisResult | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'customers' | 'suppliers' | 'cash_flow'>('customers');
-  const [searchTerm, setSearchTerm] = useState('');
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [riskFilter, setRiskFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
 
@@ -81,14 +69,9 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
     return currentList.filter(item => {
       if (onlyOverdue && item.overdueBalance <= 0) return false;
       if (riskFilter !== 'all' && item.riskScore !== riskFilter) return false;
-      if (searchTerm.trim()) {
-        const matchesName = turkishIncludes(item.contactName, searchTerm);
-        const matchesCode = turkishIncludes(item.contactCode, searchTerm);
-        if (!matchesName && !matchesCode) return false;
-      }
       return true;
     });
-  }, [currentList, onlyOverdue, riskFilter, searchTerm]);
+  }, [currentList, onlyOverdue, riskFilter]);
 
   // Chart data for Aging Buckets
   const agingChartData = useMemo(() => {
@@ -177,17 +160,11 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
     printHtml(htmlContent, { title, landscape: true });
   };
 
-  const getRiskBadge = (score: AgingBucketItem['riskScore']) => {
-    switch (score) {
-      case 'critical':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">KRİTİK (90+ GÜN)</span>;
-      case 'high':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">YÜKSEK RİSK</span>;
-      case 'medium':
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">DİKKAT (30+ GÜN)</span>;
-      default:
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">GÜNCEL / DÜŞÜK</span>;
-    }
+  const riskMeta: Record<AgingBucketItem['riskScore'], { tone: PillTone; label: string }> = {
+    critical: { tone: 'red', label: 'KRİTİK (90+ GÜN)' },
+    high: { tone: 'amber', label: 'YÜKSEK RİSK' },
+    medium: { tone: 'blue', label: 'DİKKAT (30+ GÜN)' },
+    low: { tone: 'green', label: 'GÜNCEL / DÜŞÜK' },
   };
 
   if (loading) {
@@ -368,51 +345,6 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
 
         </div>
 
-        {/* Filter Toolbar (For Table Views) */}
-        {activeSubTab !== 'cash_flow' && (
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 flex-1 max-w-sm">
-              <div className="relative w-full">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Cari adı veya kodu ara..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-medium cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={onlyOverdue}
-                  onChange={(e) => setOnlyOverdue(e.target.checked)}
-                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
-                />
-                <span>Yalnızca Vadesi Geçenler</span>
-              </label>
-
-              <div className="flex items-center gap-1 text-slate-500">
-                <span>Risk:</span>
-                <select
-                  value={riskFilter}
-                  onChange={(e: any) => setRiskFilter(e.target.value)}
-                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-700 dark:text-slate-200"
-                >
-                  <option value="all">Tüm Risk Düzeyleri</option>
-                  <option value="critical">Kritik (90+ Gün)</option>
-                  <option value="high">Yüksek (61-90 Gün)</option>
-                  <option value="medium">Dikkat (31-60 Gün)</option>
-                  <option value="low">Düşük / Güncel</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
       </div>
 
       {/* 3. VISUAL CHARTS SECTION */}
@@ -465,41 +397,18 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
           </div>
 
           {/* Cash Flow Forecast Table */}
-          <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="px-4 py-3 text-left">Dönem / Vade Aralığı</th>
-                  <th className="px-4 py-3 text-right text-emerald-700">Beklenen Tahsilat (Giriş)</th>
-                  <th className="px-4 py-3 text-right text-amber-700">Beklenen Ödeme (Çıkış)</th>
-                  <th className="px-4 py-3 text-right">Net Dönem Akışı</th>
-                  <th className="px-4 py-3 text-right text-indigo-700">Tahmini Kasa/Banka Dengesi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                {agingData?.cashFlowProjection.map((period) => (
-                  <tr key={period.periodKey} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="px-4 py-2.5 font-sans font-semibold text-slate-800 dark:text-slate-200">{period.periodLabel}</td>
-                    <td className="px-4 py-2.5 text-right text-emerald-600 font-bold">
-                      ₺{period.expectedInflow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-amber-600 font-bold">
-                      ₺{period.expectedOutflow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className={cn(
-                      "px-4 py-2.5 text-right font-bold",
-                      period.netFlow >= 0 ? "text-emerald-600" : "text-rose-600"
-                    )}>
-                      {period.netFlow >= 0 ? '+' : ''}₺{period.netFlow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-black text-indigo-700 dark:text-indigo-400">
-                      ₺{period.projectedBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid<CashFlowPeriod>
+            columns={[
+              { key: 'periodLabel', title: 'Dönem / Vade Aralığı', render: (period) => <span className="font-semibold text-slate-800 dark:text-slate-200">{period.periodLabel}</span> },
+              { key: 'expectedInflow', title: 'Beklenen Tahsilat (Giriş)', align: 'right', render: (period) => <span className="font-mono text-emerald-600 font-bold">₺{period.expectedInflow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+              { key: 'expectedOutflow', title: 'Beklenen Ödeme (Çıkış)', align: 'right', render: (period) => <span className="font-mono text-amber-600 font-bold">₺{period.expectedOutflow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+              { key: 'netFlow', title: 'Net Dönem Akışı', align: 'right', render: (period) => <span className={cn('font-mono font-bold', period.netFlow >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{period.netFlow >= 0 ? '+' : ''}₺{period.netFlow.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+              { key: 'projectedBalance', title: 'Tahmini Kasa/Banka Dengesi', align: 'right', render: (period) => <span className="font-mono font-black text-indigo-700 dark:text-indigo-400">₺{period.projectedBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            ]}
+            data={agingData?.cashFlowProjection || []}
+            rowKey="periodKey"
+            emptyMessage="Nakit akış projeksiyonu hesaplanamadı."
+          />
         </div>
       ) : (
         /* Yaşlandırma Dağılım Çubuk Grafiği */
@@ -533,126 +442,93 @@ export const AgingAnalysisTab: React.FC<AgingAnalysisTabProps> = ({
 
       {/* 4. DETAYLI YAŞLANDIRMA TABLOSU */}
       {activeSubTab !== 'cash_flow' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                <tr>
-                  <th className="px-3 py-3 text-left">Cari Kodu & Ünvanı</th>
-                  <th className="px-3 py-3 text-right">Vadesi Gelmemiş (Güncel)</th>
-                  <th className="px-3 py-3 text-right">1 - 30 Gün</th>
-                  <th className="px-3 py-3 text-right">31 - 60 Gün</th>
-                  <th className="px-3 py-3 text-right">61 - 90 Gün</th>
-                  <th className="px-3 py-3 text-right text-rose-600 font-black">90+ Gün (Kritik)</th>
-                  <th className="px-3 py-3 text-right font-black">Toplam Açık Bakiye</th>
-                  <th className="px-3 py-3 text-center">Risk Seviyesi</th>
-                  <th className="px-3 py-3 text-right">İşlemler</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-400 font-sans">
-                      Filtre kriterlerine uygun cari kayıt bulunamadı.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.contactId} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      
-                      {/* Cari Bilgisi */}
-                      <td className="px-3 py-2.5 font-sans">
-                        <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                          <span>{item.contactName}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
-                          <span>{item.contactCode}</span>
-                          {item.phone && (
-                            <span className="flex items-center gap-0.5 text-slate-400">
-                              <Phone className="w-2.5 h-2.5" />
-                              {item.phone}
-                            </span>
-                          )}
-                          <span className="text-indigo-600 font-semibold">{item.unpaidInvoiceCount} Açık Belge</span>
-                        </div>
-                      </td>
+        <DataGrid<AgingBucketItem>
+          columns={[
+            {
+              key: 'contactName', title: 'Cari Kodu & Ünvanı',
+              render: (item) => (
+                <div>
+                  <div className="font-bold text-slate-900 dark:text-slate-100">{item.contactName}</div>
+                  <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
+                    <span>{item.contactCode}</span>
+                    {item.phone && (
+                      <span className="flex items-center gap-0.5 text-slate-400">
+                        <Phone className="w-2.5 h-2.5" />
+                        {item.phone}
+                      </span>
+                    )}
+                    <span className="text-indigo-600 font-semibold">{item.unpaidInvoiceCount} Açık Belge</span>
+                  </div>
+                </div>
+              ),
+              filterValue: (item) => `${item.contactCode} ${item.contactName} ${item.phone || ''}`,
+            },
+            { key: 'notDue', title: 'Vadesi Gelmemiş (Güncel)', align: 'right', render: (item) => <span className="font-mono text-slate-700 dark:text-slate-300">{item.notDue > 0 ? `₺${item.notDue.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}</span> },
+            { key: 'days1_30', title: '1 - 30 Gün', align: 'right', render: (item) => <span className="font-mono">{item.days1_30 > 0 ? <span className="text-amber-700 font-semibold">₺{item.days1_30.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : '-'}</span> },
+            { key: 'days31_60', title: '31 - 60 Gün', align: 'right', render: (item) => <span className="font-mono">{item.days31_60 > 0 ? <span className="text-orange-700 font-semibold">₺{item.days31_60.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : '-'}</span> },
+            { key: 'days61_90', title: '61 - 90 Gün', align: 'right', render: (item) => <span className="font-mono">{item.days61_90 > 0 ? <span className="text-rose-600 font-bold">₺{item.days61_90.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : '-'}</span> },
+            { key: 'days90Plus', title: '90+ Gün (Kritik)', align: 'right', render: (item) => <span className="font-mono">{item.days90Plus > 0 ? <span className="text-rose-700 dark:text-rose-400 font-black bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-900">₺{item.days90Plus.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : '-'}</span> },
+            { key: 'totalBalance', title: 'Toplam Açık Bakiye', align: 'right', render: (item) => <span className="font-mono font-black text-slate-900 dark:text-slate-100">₺{item.totalBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            {
+              key: 'riskScore', title: 'Risk Seviyesi', align: 'center',
+              render: (item) => <StatusPill tone={riskMeta[item.riskScore].tone}>{riskMeta[item.riskScore].label}</StatusPill>,
+              filterValue: (item) => riskMeta[item.riskScore].label,
+            },
+          ]}
+          data={filteredItems}
+          rowKey="contactId"
+          toolbar={
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={onlyOverdue}
+                  onChange={(e) => setOnlyOverdue(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Yalnızca Vadesi Geçenler</span>
+              </label>
 
-                      {/* Vadesi Gelmemiş */}
-                      <td className="px-3 py-2.5 text-right text-slate-700 dark:text-slate-300">
-                        {item.notDue > 0 ? `₺${item.notDue.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                      </td>
-
-                      {/* 1 - 30 Gün */}
-                      <td className="px-3 py-2.5 text-right text-slate-800 dark:text-slate-200">
-                        {item.days1_30 > 0 ? (
-                          <span className="text-amber-700 font-semibold">₺{item.days1_30.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
-                        ) : '-'}
-                      </td>
-
-                      {/* 31 - 60 Gün */}
-                      <td className="px-3 py-2.5 text-right text-slate-800 dark:text-slate-200">
-                        {item.days31_60 > 0 ? (
-                          <span className="text-orange-700 font-semibold">₺{item.days31_60.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
-                        ) : '-'}
-                      </td>
-
-                      {/* 61 - 90 Gün */}
-                      <td className="px-3 py-2.5 text-right text-slate-800 dark:text-slate-200">
-                        {item.days61_90 > 0 ? (
-                          <span className="text-rose-600 font-bold">₺{item.days61_90.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
-                        ) : '-'}
-                      </td>
-
-                      {/* 90+ Gün Kritik */}
-                      <td className="px-3 py-2.5 text-right">
-                        {item.days90Plus > 0 ? (
-                          <span className="text-rose-700 dark:text-rose-400 font-black bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-900">
-                            ₺{item.days90Plus.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                          </span>
-                        ) : '-'}
-                      </td>
-
-                      {/* Toplam Bakiye */}
-                      <td className="px-3 py-2.5 text-right font-black text-slate-900 dark:text-slate-100 text-xs">
-                        ₺{item.totalBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      {/* Risk */}
-                      <td className="px-3 py-2.5 text-center font-sans">
-                        {getRiskBadge(item.riskScore)}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-3 py-2.5 text-right font-sans">
-                        <div className="flex items-center justify-end gap-1">
-                          {onOpenReceiptModal && (
-                            <button
-                              onClick={() => onOpenReceiptModal(item.contactId, activeSubTab === 'customers' ? 'collection' : 'disbursement')}
-                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 rounded text-[11px] font-bold transition-colors cursor-pointer"
-                              title={activeSubTab === 'customers' ? 'Tahsilat Makbuzu Kes' : 'Tediye Makbuzu Kes'}
-                            >
-                              {activeSubTab === 'customers' ? 'Tahsilat' : 'Tediye'}
-                            </button>
-                          )}
-                          {onOpenStatementModal && (
-                            <button
-                              onClick={() => onOpenStatementModal(item.contactId)}
-                              className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                              title="Cari Ekstresi"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              <div className="flex items-center gap-1 text-slate-500">
+                <span>Risk:</span>
+                <select
+                  value={riskFilter}
+                  onChange={(e: any) => setRiskFilter(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-700 dark:text-slate-200"
+                >
+                  <option value="all">Tüm Risk Düzeyleri</option>
+                  <option value="critical">Kritik (90+ Gün)</option>
+                  <option value="high">Yüksek (61-90 Gün)</option>
+                  <option value="medium">Dikkat (31-60 Gün)</option>
+                  <option value="low">Düşük / Güncel</option>
+                </select>
+              </div>
+            </div>
+          }
+          rowActions={(item) => (
+            <div className="flex items-center gap-1">
+              {onOpenReceiptModal && (
+                <button
+                  onClick={() => onOpenReceiptModal(item.contactId, activeSubTab === 'customers' ? 'collection' : 'disbursement')}
+                  className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 rounded text-[11px] font-bold transition-colors cursor-pointer"
+                  title={activeSubTab === 'customers' ? 'Tahsilat Makbuzu Kes' : 'Tediye Makbuzu Kes'}
+                >
+                  {activeSubTab === 'customers' ? 'Tahsilat' : 'Tediye'}
+                </button>
+              )}
+              {onOpenStatementModal && (
+                <button
+                  onClick={() => onOpenStatementModal(item.contactId)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Cari Ekstresi"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+          emptyMessage="Filtre kriterlerine uygun cari kayıt bulunamadı."
+        />
       )}
 
     </div>

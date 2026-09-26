@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  Plus, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  Trash2, 
-  User, 
-  FileText, 
-  AlertCircle,
-  Search,
-  Filter
+import {
+  Calendar,
+  Plus,
+  CheckCircle2,
+  XCircle,
+  Trash2,
+  User
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
 import type { Employee, LeaveRequest, LeaveType } from '../../types';
 import { hrService } from '../../services/hrService';
 
@@ -20,21 +16,26 @@ interface LeaveTabProps {
   onLeavesUpdated?: () => void;
 }
 
-const LEAVE_TYPE_CONFIG: Record<LeaveType, { label: string; color: string; bg: string }> = {
-  annual: { label: 'Yıllık İzin', color: 'text-sky-700', bg: 'bg-sky-50 border-sky-200' },
-  excuse: { label: 'Mazeret İzni', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
-  unpaid: { label: 'Ücretsiz İzin', color: 'text-slate-700 dark:text-slate-200', bg: 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700' },
-  sick: { label: 'Sağlık / Rapor', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
-  marriage: { label: 'Evlilik İzni', color: 'text-pink-700', bg: 'bg-pink-50 border-pink-200' },
-  maternity: { label: 'Doğum İzni', color: 'text-teal-700', bg: 'bg-teal-50 border-teal-200' },
-  bereavement: { label: 'Vefat İzni', color: 'text-rose-700', bg: 'bg-rose-50 border-rose-200' }
+const LEAVE_TYPE_CONFIG: Record<LeaveType, { label: string; tone: PillTone }> = {
+  annual: { label: 'Yıllık İzin', tone: 'blue' },
+  excuse: { label: 'Mazeret İzni', tone: 'amber' },
+  unpaid: { label: 'Ücretsiz İzin', tone: 'slate' },
+  sick: { label: 'Sağlık / Rapor', tone: 'violet' },
+  marriage: { label: 'Evlilik İzni', tone: 'cyan' },
+  maternity: { label: 'Doğum İzni', tone: 'cyan' },
+  bereavement: { label: 'Vefat İzni', tone: 'slate' }
+};
+
+const LEAVE_STATUS_CONFIG: Record<LeaveRequest['status'], { label: string; tone: PillTone }> = {
+  approved: { label: 'Onaylandı', tone: 'green' },
+  pending: { label: 'Bekliyor', tone: 'amber' },
+  rejected: { label: 'Reddedildi', tone: 'red' }
 };
 
 export default function LeaveTab({ employees, onLeavesUpdated }: LeaveTabProps) {
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -145,28 +146,77 @@ export default function LeaveTab({ employees, onLeavesUpdated }: LeaveTabProps) 
 
   const filteredLeaves = leaves.filter(item => {
     if (statusFilter !== 'all' && item.status !== statusFilter) return false;
-    if (searchTerm && !item.employeeName.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
+
+  const leaveColumns: GridColumn<LeaveRequest>[] = [
+    {
+      key: 'employeeName',
+      title: 'Personel',
+      render: (leave) => (
+        <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{leave.employeeName}</span>
+      ),
+      filterValue: (leave) => leave.employeeName
+    },
+    {
+      key: 'leaveType',
+      title: 'İzin Türü',
+      render: (leave) => {
+        const typeCfg = LEAVE_TYPE_CONFIG[leave.leaveType] || LEAVE_TYPE_CONFIG.annual;
+        return <StatusPill tone={typeCfg.tone}>{typeCfg.label}</StatusPill>;
+      },
+      filterValue: (leave) => (LEAVE_TYPE_CONFIG[leave.leaveType] || LEAVE_TYPE_CONFIG.annual).label
+    },
+    {
+      key: 'days',
+      title: 'Gün',
+      align: 'center',
+      render: (leave) => (
+        <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{leave.days} Gün</span>
+      ),
+      filterValue: (leave) => String(leave.days)
+    },
+    {
+      key: 'dates',
+      title: 'Tarih Aralığı',
+      render: (leave) => (
+        <span className="font-mono text-[11px] text-slate-600">
+          {new Date(leave.startDate).toLocaleDateString('tr-TR')} - {new Date(leave.endDate).toLocaleDateString('tr-TR')}
+        </span>
+      ),
+      filterValue: (leave) =>
+        `${new Date(leave.startDate).toLocaleDateString('tr-TR')} ${new Date(leave.endDate).toLocaleDateString('tr-TR')}`
+    },
+    {
+      key: 'reason',
+      title: 'Açıklama / Gerekçe',
+      render: (leave) => (
+        <span className="italic text-slate-500 dark:text-slate-400 max-w-xs truncate block">
+          {leave.reason || '-'}
+        </span>
+      ),
+      filterValue: (leave) => leave.reason ?? ''
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'center',
+      render: (leave) => (
+        <StatusPill tone={LEAVE_STATUS_CONFIG[leave.status].tone}>
+          {LEAVE_STATUS_CONFIG[leave.status].label}
+        </StatusPill>
+      ),
+      filterValue: (leave) => LEAVE_STATUS_CONFIG[leave.status].label
+    }
+  ];
 
   return (
     <div className="space-y-6">
       {/* Top Header Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
         
-        {/* Search and Filters */}
+        {/* Status Filters */}
         <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Personel ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-            />
-          </div>
-
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs">
             <button
               onClick={() => setStatusFilter('all')}
@@ -212,95 +262,52 @@ export default function LeaveTab({ employees, onLeavesUpdated }: LeaveTabProps) 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Left 2 Cols: Leave Requests List */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-600" />
-              İzin Talepleri & Geçmişi
-            </h3>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{filteredLeaves.length} Talep</span>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {filteredLeaves.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                Kayıtlı izin talebi bulunmuyor.
-              </div>
-            ) : (
-              filteredLeaves.map((leave) => {
-                const typeCfg = LEAVE_TYPE_CONFIG[leave.leaveType] || LEAVE_TYPE_CONFIG.annual;
-
-                return (
-                  <div key={leave.id} className="p-4 hover:bg-slate-50 dark:bg-slate-800/50/70 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{leave.employeeName}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${typeCfg.bg} ${typeCfg.color}`}>
-                          {typeCfg.label}
-                        </span>
-                        <span className="text-xs font-black text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                          {leave.days} Gün
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                        <span>
-                          {new Date(leave.startDate).toLocaleDateString('tr-TR')} - {new Date(leave.endDate).toLocaleDateString('tr-TR')}
-                        </span>
-                        {leave.reason && (
-                          <span className="italic text-slate-400 max-w-xs truncate">
-                            "{leave.reason}"
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {/* Status badge */}
-                      {leave.status === 'approved' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Onaylandı
-                        </span>
-                      )}
-                      {leave.status === 'pending' && (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleApprove(leave.id!)}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shadow-xs"
-                          >
-                            <CheckCircle2 className="w-3 h-3" />
-                            Onayla
-                          </button>
-                          <button
-                            onClick={() => handleReject(leave.id!)}
-                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg border border-rose-200 transition-colors flex items-center gap-1"
-                          >
-                            <XCircle className="w-3 h-3" />
-                            Reddet
-                          </button>
-                        </div>
-                      )}
-                      {leave.status === 'rejected' && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                          <XCircle className="w-3.5 h-3.5" />
-                          Reddedildi
-                        </span>
-                      )}
-
-                      <button
-                        onClick={() => handleDelete(leave.id!)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors ml-1"
-                        title="Sil"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
+        <div className="lg:col-span-2">
+          <DataGrid
+            columns={leaveColumns}
+            data={filteredLeaves}
+            rowKey={(leave) => leave.id ?? `${leave.employeeId}-${leave.startDate}`}
+            loading={loading}
+            emptyMessage="Kayıtlı izin talebi bulunmuyor."
+            toolbar={
+              <>
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  İzin Talepleri & Geçmişi
+                </h3>
+                <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 font-medium">{filteredLeaves.length} Talep</span>
+              </>
+            }
+            rowActions={(leave) => (
+              <>
+                {leave.status === 'pending' && (
+                  <>
+                    <button
+                      onClick={() => handleApprove(leave.id!)}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Onayla
+                    </button>
+                    <button
+                      onClick={() => handleReject(leave.id!)}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg border border-rose-200 transition-colors flex items-center gap-1"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Reddet
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => handleDelete(leave.id!)}
+                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition-colors"
+                  title="Sil"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
             )}
-          </div>
+          />
         </div>
 
         {/* Right 1 Col: Employee Leave Balances Overview */}

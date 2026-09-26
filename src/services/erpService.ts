@@ -1,5 +1,14 @@
-import { api, authApi, commit, type Mutation } from '../api/client';
+import {
+  api,
+  authApi,
+  commit,
+  stockMovement,
+  consumeRecipe,
+  recalculateContactBalance,
+  type Mutation,
+} from '../api/client';
 import { accountingService } from './accountingService';
+import { formatQuantity, roundUpQuantity } from '../lib/inventoryCalculator';
 import type { 
   Contact,
   EntityType,
@@ -50,40 +59,10 @@ export const PRODUCTION_STAGES_CONFIG: {
 ];
 
 /**
- * Quantities in shoe manufacturing (meters, pairs, dm2, kg) should be clean and rounded up/properly formatted.
- * E.g., removes floating point artifacts like 0.3999999999999986 and cleanly rounds up to 0.40.
+ * Miktar yardımcıları saf hesaplama katmanına taşındı (sunucu da aynı kodları
+ * kullanır); buradan yeniden dışa aktarılır, mevcut import'lar çalışmaya devam eder.
  */
-export function roundUpQuantity(val: number, decimals: number = 2): number {
-  if (val === undefined || val === null || isNaN(val)) return 0;
-  if (val === 0) return 0;
-  const isNegative = val < 0;
-  const absVal = Math.abs(val);
-  // Protect micro-measurements (< 0.01) if any
-  const effDecimals = (absVal > 0 && absVal < 0.01) ? 4 : decimals;
-  // Clean IEEE 754 precision float noise (e.g. 0.3999999999999986 -> 0.40)
-  const clean = Math.round(absVal * 1000000) / 1000000;
-  const factor = Math.pow(10, effDecimals);
-  const rounded = Math.ceil(clean * factor) / factor;
-  return isNegative ? -rounded : rounded;
-}
-
-export function formatQuantity(val: number): string {
-  if (val === undefined || val === null || isNaN(val)) return '0';
-  if (val === 0) return '0';
-  const isNegative = val < 0;
-  const rounded = roundUpQuantity(Math.abs(val), 2);
-  
-  let formatted: string;
-  if (Number.isInteger(rounded)) {
-    formatted = rounded.toLocaleString('tr-TR');
-  } else {
-    formatted = rounded.toLocaleString('tr-TR', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  }
-  return isNegative ? `-${formatted}` : formatted;
-}
+export { roundUpQuantity, formatQuantity };
 
 /**
  * Robust Turkish-aware color normalization and matching helper.
@@ -436,47 +415,15 @@ export const erpService = {
     return true;
   },
 
+  /**
+   * Cari bakiye, sunucuda cari satırı kilitlenerek yeniden hesaplanır
+   * (faturalar + kasa/banka hareketleri). Böylece istemci listelerinin
+   * bayat (stale) olmasından kaynaklanan yanlış bakiye oluşmaz.
+   */
   async recalculateContactBalance(contactId: number) {
-    const contact = await api.contacts.get(contactId);
-    if (!contact) return 0;
-
-    const invoices = await api.invoices.list({ where: { contactId } });
-    const transactions = await api.transactions.list({ where: { contactId } });
-
-    let debit = 0;
-    let credit = 0;
-
-    // Invoices (only issued / non-cancelled)
-    for (const inv of invoices) {
-      if (inv.status === 'cancelled' || inv.status === 'draft') continue;
-      if (inv.type === 'sales') {
-        debit += inv.grandTotal;
-      } else {
-        credit += inv.grandTotal;
-      }
-    }
-
-    // Transactions (Tahsilat / Ödeme / Açılış)
-    for (const tx of transactions) {
-      const isIncome = tx.type === 'income';
-      const isOpening = tx.category === 'Açılış Bakiyesi' || tx.description.includes('Açılış');
-      if (isOpening) {
-        if (tx.amount > 0 && isIncome) debit += tx.amount;
-        else credit += tx.amount;
-      } else if (isIncome) {
-        credit += tx.amount;
-      } else {
-        debit += tx.amount;
-      }
-    }
-
-    const calculatedBalance = debit - credit;
-    await api.contacts.update(contactId, {
-      balance: calculatedBalance,
-      updatedAt: new Date()
-    });
-
-    return calculatedBalance;
+    if (!Number.isFinite(contactId)) return 0;
+    const result = await recalculateContactBalance(contactId);
+    return result.balance;
   },
 
   // --- Production & Work Orders ---
@@ -1849,39 +1796,30 @@ export const erpService = {
   },
 
   // --- Inventory & Purchasing ---
-  async adjustStock(productId: number, quantity: number, type: 'in' | 'out', description: string, variant?: { color?: string; size?: string }) {
-    const product = await api.products.get(productId);
-    if (!product) throw new Error('Ürün bulunamadı');
+  /**
+   * Stok hareketi. Hesaplama ve yazma sunucuda tek transaction içinde,
+   * ürün satırı kilitlenerek yapılır (eşzamanlı hareketlerde kayıp güncelleme olmaz).
+   */
+  async adjustStock(
+    productId: number,
+    quantity: number,
+    type: 'in' | 'out',
+    description: string,
+    variant?: { color?: string; size?: string },
+    options?: { unitCost?: number; allowNegative?: boolean }
+  ) {
+    if (!Number.isFinite(productId)) throw new Error('Geçerli bir ürün seçilmelidir.');
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Stok hareket miktarı sıfırdan büyük olmalıdır.');
 
-    const newStock = type === 'in' ? product.stock + quantity : Math.max(0, product.stock - quantity);
-    
-    let updatedVariantBarcodes = product.variantBarcodes;
-    let logDesc = description;
-
-    if (variant && variant.color && variant.size && product.variantBarcodes && product.variantBarcodes.length > 0) {
-      logDesc = `${description} [${variant.color} / ${variant.size}: ${type === 'in' ? '+' : '-'}${quantity}]`;
-      updatedVariantBarcodes = product.variantBarcodes.map(vb => {
-        if (vb.color.toLowerCase() === variant.color!.toLowerCase() && vb.size.toLowerCase() === variant.size!.toLowerCase()) {
-          const vStock = (vb.stock || 0) + (type === 'in' ? quantity : -quantity);
-          return { ...vb, stock: Math.max(0, vStock) };
-        }
-        return vb;
-      });
-    }
-
-    await commit([
-      { op: 'update', resource: 'products', id: productId, data: {
-        stock: newStock,
-        ...(updatedVariantBarcodes ? { variantBarcodes: updatedVariantBarcodes } : {})
-      } },
-      { op: 'insert', resource: 'inventoryLogs', data: {
-        productId,
-        type,
-        quantity,
-        date: new Date(),
-        description: logDesc
-      } }
-    ]);
+    return await stockMovement({
+      productId,
+      quantity: Math.abs(quantity),
+      type,
+      description,
+      variant,
+      unitCost: options?.unitCost,
+      allowNegative: options?.allowNegative,
+    });
   },
 
   async adjustInventoryQuantity(
@@ -2058,6 +1996,13 @@ export const erpService = {
     };
   },
 
+  /**
+   * Reçete (BOM) sarfiyatı ve mamul stoğa giriş.
+   *
+   * Hammadde düşümü, varyant stokları ve mamul girişi sunucuda TEK transaction
+   * içinde ve satır kilidiyle uygulanır: yarıda kalan sarfiyat ya da eşzamanlı
+   * üretimlerde kayıp güncelleme oluşmaz.
+   */
   async consumeRecipeMaterialsDirectly(params: {
     productId: number;
     quantity: number;
@@ -2067,147 +2012,18 @@ export const erpService = {
     notes?: string;
     orderBarcode?: string;
   }) {
-    const { productId, quantity, color, size, operator, notes, orderBarcode } = params;
-    
-    const allProductRecipes = await api.recipes.list({ where: { productId } });
-    const recipe = allProductRecipes.find(r => color && r.targetColor === color) ||
-                   allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel') ||
-                   allProductRecipes[0];
+    if (!Number.isFinite(params.productId)) throw new Error('Geçerli bir mamul ürün seçilmelidir.');
+    if (!Number.isFinite(params.quantity) || params.quantity <= 0) throw new Error('Üretim miktarı sıfırdan büyük olmalıdır.');
 
-    if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) {
-      throw new Error('Bu model için tanımlı bir BOM (ürün reçetesi) bulunamadı.');
-    }
-
-    const finishedProduct = await api.products.get(productId);
-    if (!finishedProduct) throw new Error('Mamul ayakkabı ürünü bulunamadı.');
-
-    const now = new Date();
-    const consumedList: any[] = [];
-
-    for (const ing of recipe.ingredients) {
-      const raw = await api.products.get(ing.productId);
-      if (!raw) continue;
-
-      const totalNeeded = Number((ing.quantity * quantity).toFixed(3));
-      let logDetail = '';
-      const mutations: Mutation[] = [];
-
-      // Check if semi-finished or footwear matrix item (like soles)
-      const isMatrixItem = ing.isMatrixMatched || 
-                           raw.categoryType === 'semi_finished' || 
-                           raw.isFootwear || 
-                           (raw.variantBarcodes && raw.variantBarcodes.length > 0 && raw.variantBarcodes.some(v => v.size && v.size !== 'Standart'));
-
-      if (isMatrixItem && raw.variantBarcodes && raw.variantBarcodes.length > 0) {
-        let variants = [...raw.variantBarcodes];
-        const targetIngColor = ing.color || color || (raw.colors && raw.colors.length > 0 ? raw.colors[0] : (variants[0]?.color || 'Genel'));
-
-        if (size && size.trim() !== '' && !['Asorti', 'Tüm Bedenler', 'Standart'].includes(size.trim())) {
-          const targetSize = size.trim();
-          let targetVar = variants.find(v => v.size === targetSize && (v.color === targetIngColor || !targetIngColor || v.color === 'Genel'));
-          if (!targetVar) targetVar = variants.find(v => v.size === targetSize);
-          if (targetVar) {
-            targetVar.stock = Math.max(0, (targetVar.stock || 0) - totalNeeded);
-          }
-          logDetail = ` [${targetIngColor ? targetIngColor + ' ' : ''}Beden ${targetSize}: -${totalNeeded} ${raw.unit || 'Çift'}]`;
-        } else {
-          // General or assortment deduction
-          const count = variants.length || 1;
-          let allocated = 0;
-          variants.forEach((v, idx) => {
-            const isLast = idx === count - 1;
-            const sizeQty = isLast ? Math.max(0, totalNeeded - allocated) : Math.round(totalNeeded / count);
-            allocated += sizeQty;
-            v.stock = Math.max(0, (v.stock || 0) - sizeQty);
-          });
-          logDetail = ` [${targetIngColor ? targetIngColor + ' ' : ''}-${totalNeeded} ${raw.unit || 'Çift'}]`;
-        }
-
-        const calculatedTotalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
-        mutations.push({ op: 'update', resource: 'products', id: ing.productId, data: {
-          variantBarcodes: variants,
-          stock: calculatedTotalStock
-        } });
-      } else {
-        // Standard raw material (leather dm2, lining dm2, laces, box, glue)
-        const newStock = Math.max(0, roundUpQuantity((raw.stock || 0) - totalNeeded, 2));
-        mutations.push({ op: 'update', resource: 'products', id: ing.productId, data: { stock: newStock } });
-        logDetail = ` [${ing.partName || raw.subType || ''}: -${totalNeeded} ${raw.unit || 'Birim'}]`;
-      }
-
-      mutations.push({ op: 'insert', resource: 'inventoryLogs', data: {
-        productId: ing.productId,
-        type: 'production_out',
-        quantity: totalNeeded,
-        date: now,
-        description: `Otomatik BOM Sarfiyatı: ${finishedProduct.name} (${quantity} ${finishedProduct.unit || 'Çift'}) ${orderBarcode ? '#' + orderBarcode : ''}${logDetail}${operator ? ' | Operatör: ' + operator : ''}`
-      } });
-
-      await commit(mutations);
-
-      const refreshedRaw = await api.products.get(ing.productId);
-      consumedList.push({
-        productId: ing.productId,
-        name: raw.name,
-        code: raw.code,
-        unit: raw.unit || 'Adet',
-        quantityPerPair: ing.quantity,
-        totalConsumed: totalNeeded,
-        remainingStock: refreshedRaw?.stock || 0,
-        details: logDetail
-      });
-    }
-
-    // Add finished product to stock (production_in)
-    const finishedCurrentStock = finishedProduct.stock || 0;
-    const newFinishedStock = finishedCurrentStock + quantity;
-    
-    // Update variant stock if applicable
-    let updatedVariants = finishedProduct.variantBarcodes ? [...finishedProduct.variantBarcodes] : undefined;
-    if (updatedVariants && updatedVariants.length > 0) {
-      if (size && size.trim() !== '' && !['Asorti', 'Tüm Bedenler', 'Standart'].includes(size.trim())) {
-        let vMatch = updatedVariants.find(v => v.size === size.trim());
-        if (vMatch) {
-          vMatch.stock = (vMatch.stock || 0) + quantity;
-        }
-      } else {
-        const count = updatedVariants.length;
-        let alloc = 0;
-        updatedVariants.forEach((v, idx) => {
-          const isLast = idx === count - 1;
-          const q = isLast ? Math.max(0, quantity - alloc) : Math.round(quantity / count);
-          alloc += q;
-          v.stock = (v.stock || 0) + q;
-        });
-      }
-    }
-
-    await commit([
-      { op: 'update', resource: 'products', id: productId, data: {
-        stock: newFinishedStock,
-        ...(updatedVariants ? { variantBarcodes: updatedVariants } : {})
-      } },
-      { op: 'insert', resource: 'inventoryLogs', data: {
-        productId,
-        type: 'production_in',
-        quantity,
-        date: now,
-        description: `Üretim Tamamlandı & Mamul Stoğa Giriş: ${finishedProduct.name} (+${quantity} ${finishedProduct.unit || 'Çift'})${orderBarcode ? ' | Takip No: ' + orderBarcode : ''}${operator ? ' | Usta: ' + operator : ''}`
-      } }
-    ]);
-
-    return {
-      success: true,
-      finishedProduct: {
-        productId,
-        name: finishedProduct.name,
-        code: finishedProduct.code,
-        quantityAdded: quantity,
-        newStock: newFinishedStock
-      },
-      consumedIngredients: consumedList,
-      timestamp: now
-    };
+    return await consumeRecipe({
+      productId: params.productId,
+      quantity: params.quantity,
+      color: params.color,
+      size: params.size,
+      operator: params.operator,
+      notes: params.notes,
+      orderBarcode: params.orderBarcode,
+    });
   },
 
   // --- Management & Setup ---
@@ -2525,29 +2341,39 @@ export const erpService = {
       throw new Error(check.reason);
     }
 
-    const mutations: Mutation[] = [];
+    // Çocuk kayıtlar önce ayrı commit'te silinir: sipariş silme sırasındaki bağımlılık
+    // kontrolü (assertNoDependents) transaction dışında kalan bağlantıdan çalıştığı için
+    // tek commit'te orderItems hâlâ görünüp 409 üretebiliyordu.
+    const childMutations: Mutation[] = [];
     // 1. Delete associated work orders
     const allWOs = await api.workOrders.list();
     const targetWOs = allWOs.filter(wo => wo.orderId === id || (wo.orderId !== undefined && !isNaN(numId) && Number(wo.orderId) === numId));
     for (const wo of targetWOs) {
-      if (wo.id) mutations.push({ op: 'delete', resource: 'workOrders', id: wo.id });
+      if (wo.id) childMutations.push({ op: 'delete', resource: 'workOrders', id: wo.id });
     }
 
     // 2. Delete associated order items
     const allItems = await api.orderItems.list();
     const targetItems = allItems.filter(it => it.orderId === id || (it.orderId !== undefined && !isNaN(numId) && Number(it.orderId) === numId));
     for (const it of targetItems) {
-      if (it.id) mutations.push({ op: 'delete', resource: 'orderItems', id: it.id });
+      if (it.id) childMutations.push({ op: 'delete', resource: 'orderItems', id: it.id });
+    }
+
+    if (childMutations.length > 0) {
+      await commit(childMutations);
     }
 
     // 3. Delete order itself
+    const orderMutations: Mutation[] = [];
     if (!isNaN(numId)) {
-      mutations.push({ op: 'delete', resource: 'orders', id: numId });
+      orderMutations.push({ op: 'delete', resource: 'orders', id: numId });
     }
     if (typeof id === 'string' && id !== String(numId)) {
-      mutations.push({ op: 'delete', resource: 'orders', id: id as any });
+      orderMutations.push({ op: 'delete', resource: 'orders', id: id as any });
     }
-    await commit(mutations);
+    if (orderMutations.length > 0) {
+      await commit(orderMutations);
+    }
   },
 
   async getOrder(id: number) {

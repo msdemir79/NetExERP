@@ -8,38 +8,29 @@ import {
   Receipt, 
   Plus, 
   Search, 
-  FileText, 
-  Printer, 
   CheckCircle2, 
   Clock, 
   AlertCircle, 
   X, 
   Trash2, 
   Eye, 
-  Download, 
   ArrowUpRight, 
   ArrowDownLeft, 
   Building2, 
   ShoppingBag, 
-  Calendar, 
-  Tag, 
   DollarSign, 
   Percent, 
   Package, 
   Check, 
-  CreditCard,
-  QrCode,
-  Layers,
-  Sparkles,
   Ban,
   AlertTriangle,
   RotateCcw,
-  FileX,
   Info,
   ShieldAlert,
   Truck
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import { InvoicePrintModal } from './Invoices/InvoicePrintModal';
 import PageHeader from './PageHeader';
 
@@ -47,7 +38,6 @@ export default function Invoices() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'all' | 'sales' | 'purchase'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'issued' | 'draft' | 'cancelled'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
   
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -114,19 +104,221 @@ export default function Invoices() {
   const filteredInvoices = invoices?.filter(inv => {
     if (activeTab !== 'all' && inv.type !== activeTab) return false;
     if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
-    
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      const contact = contacts?.find(c => c.id === inv.contactId);
-      const matchNumber = inv.invoiceNumber?.toLowerCase().includes(term);
-      const matchContact = contact?.name?.toLowerCase().includes(term);
-      const matchOrder = inv.orderNumber?.toLowerCase().includes(term);
-      const matchWaybill = inv.waybillNumber?.toLowerCase().includes(term);
-      const matchEttn = inv.ettn?.toLowerCase().includes(term);
-      return matchNumber || matchContact || matchOrder || matchWaybill || matchEttn;
-    }
     return true;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) || [];
+
+  const invoiceStatusMeta: Record<InvoiceStatus, { label: string; tone: PillTone }> = {
+    draft: { label: 'Taslak', tone: 'slate' },
+    issued: { label: 'Kesildi', tone: 'green' },
+    cancelled: { label: 'İptal Edildi', tone: 'red' }
+  };
+
+  const invoiceScenarioLabel = (scenario: InvoiceScenario) =>
+    scenario === 'commercial' ? 'Ticari Fatura' :
+    scenario === 'basic' ? 'Temel Fatura' :
+    scenario === 'return' ? 'İade Faturası' :
+    scenario === 'withholding' ? 'Tevkifatlı' :
+    scenario === 'export' ? 'İhracat' : scenario;
+
+  const invoiceColumns: GridColumn<Invoice>[] = [
+    {
+      key: 'invoiceNumber',
+      title: 'Fatura No & ETTN',
+      render: (invoice) => (
+        <div className="flex flex-col">
+          <span className="font-mono font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+            {invoice.invoiceNumber}
+          </span>
+          {invoice.ettn && (
+            <span className="font-mono text-[9px] text-slate-400 tracking-tighter truncate max-w-[130px]" title={invoice.ettn}>
+              ETTN: {invoice.ettn.substring(0, 8)}...
+            </span>
+          )}
+        </div>
+      ),
+      filterValue: (invoice) => `${invoice.invoiceNumber || ''} ${invoice.ettn || ''}`
+    },
+    {
+      key: 'contactId',
+      title: 'Cari / Ünvan',
+      render: (invoice) => {
+        const contact = contacts?.find(c => c.id === invoice.contactId);
+        const isSales = invoice.type === 'sales';
+        return (
+          <div className="flex items-center gap-2.5">
+            <div className={cn(
+              "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black uppercase shrink-0",
+              isSales ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
+            )}>
+              {contact?.name ? contact.name.substring(0, 2) : 'C'}
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 dark:text-slate-200 line-clamp-1">{contact?.name || 'Bilinmeyen Cari'}</div>
+              <div className="text-[10px] text-slate-400">{contact?.taxOffice ? `${contact.taxOffice} V.D.` : ''}</div>
+            </div>
+          </div>
+        );
+      },
+      filterValue: (invoice) => {
+        const contact = contacts?.find(c => c.id === invoice.contactId);
+        return `${contact?.name || ''} ${contact?.taxOffice || ''}`;
+      }
+    },
+    {
+      key: 'date',
+      title: 'Tarih / Vade',
+      render: (invoice) => (
+        <>
+          <div className="text-slate-700 dark:text-slate-200 font-semibold font-mono">
+            {new Date(invoice.date).toLocaleDateString('tr-TR')}
+          </div>
+          {invoice.dueDate && (
+            <div className="text-[10px] text-amber-700 flex items-center gap-1 font-mono">
+              <Clock className="w-3 h-3" />
+              {new Date(invoice.dueDate).toLocaleDateString('tr-TR')}
+            </div>
+          )}
+        </>
+      ),
+      filterValue: (invoice) => `${new Date(invoice.date).toLocaleDateString('tr-TR')} ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('tr-TR') : ''}`
+    },
+    {
+      key: 'type',
+      title: 'Tür & Senaryo',
+      render: (invoice) => {
+        const isSales = invoice.type === 'sales';
+        return (
+          <div className="flex flex-col items-start gap-0.5">
+            <span className={cn(
+              "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
+              isSales ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-800"
+            )}>
+              {isSales ? 'Satış Faturası' : 'Alış Faturası'}
+            </span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium capitalize">
+              {invoiceScenarioLabel(invoice.scenario)}
+            </span>
+          </div>
+        );
+      },
+      filterValue: (invoice) => `${invoice.type === 'sales' ? 'Satış Faturası' : 'Alış Faturası'} ${invoiceScenarioLabel(invoice.scenario)}`
+    },
+    {
+      key: 'orderNumber',
+      title: 'Sipariş & İrsaliye',
+      render: (invoice) => (
+        <div className="flex flex-col gap-0.5 items-start font-mono text-slate-600">
+          {invoice.orderNumber && (
+            <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded font-bold text-[10px] border border-slate-200 dark:border-slate-700">
+              Sip: {invoice.orderNumber}
+            </span>
+          )}
+          {invoice.waybillNumber && (
+            <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded font-bold text-[10px] border border-purple-200 flex items-center gap-1">
+              <Truck className="w-2.5 h-2.5 text-purple-600" />
+              İrs: {invoice.waybillNumber}
+            </span>
+          )}
+          {!invoice.orderNumber && !invoice.waybillNumber && (
+            <span className="text-slate-300">-</span>
+          )}
+        </div>
+      ),
+      filterValue: (invoice) => `${invoice.orderNumber || ''} ${invoice.waybillNumber || ''}`
+    },
+    {
+      key: 'subtotal',
+      title: 'KDV Matrahı',
+      align: 'right',
+      filterable: false,
+      render: (invoice) => (
+        <span className="font-mono text-slate-600">
+          ₺{invoice.subtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      )
+    },
+    {
+      key: 'taxTotal',
+      title: 'KDV',
+      align: 'right',
+      filterable: false,
+      render: (invoice) => (
+        <>
+          <div className="font-mono text-slate-600">₺{invoice.taxTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          {invoice.withholdingAmount ? (
+            <div className="text-[9px] text-purple-600 font-medium">Tevk: -₺{invoice.withholdingAmount.toFixed(2)}</div>
+          ) : null}
+        </>
+      )
+    },
+    {
+      key: 'grandTotal',
+      title: 'Genel Toplam',
+      align: 'right',
+      filterable: false,
+      render: (invoice) => (
+        <span className={cn(
+          "font-mono font-bold text-xs",
+          invoice.type === 'sales' ? "text-slate-900 dark:text-slate-100" : "text-amber-700"
+        )}>
+          ₺{invoice.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      )
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'center',
+      render: (invoice) => {
+        const meta = invoiceStatusMeta[invoice.status] || invoiceStatusMeta.draft;
+        return <StatusPill tone={meta.tone}>{meta.label}</StatusPill>;
+      },
+      filterValue: (invoice) => (invoiceStatusMeta[invoice.status] || invoiceStatusMeta.draft).label
+    }
+  ];
+
+  const invoiceRowActions = (invoice: Invoice) => (
+    <>
+      <button
+        onClick={() => openViewModal(invoice.id!)}
+        title="Görüntüle & Yazdır"
+        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+      >
+        <Eye className="w-3.5 h-3.5" />
+      </button>
+
+      {invoice.status === 'draft' && (
+        <button
+          onClick={() => handleApproveDraft(invoice)}
+          title="Resmileştir / Kes"
+          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-sm"
+        >
+          <Check className="w-4 h-4" />
+        </button>
+      )}
+
+      {invoice.status === 'issued' && (
+        <button
+          onClick={() => openActionModalForInvoice(invoice)}
+          title="Faturayı İptal Et veya Sil"
+          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all border border-transparent hover:border-rose-200 shadow-sm flex items-center gap-1 text-xs font-semibold"
+        >
+          <Ban className="w-4 h-4 text-rose-500" />
+          <span className="hidden xl:inline text-[11px] text-rose-600">İptal / Sil</span>
+        </button>
+      )}
+
+      {(invoice.status === 'cancelled' || invoice.status === 'draft') && (
+        <button
+          onClick={() => openActionModalForInvoice(invoice)}
+          title={invoice.status === 'cancelled' ? "İptal Edilmiş Faturayı Kalıcı Olarak Temizle" : "Taslağı Sil"}
+          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-sm"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      )}
+    </>
+  );
 
   const openCreateModal = (type: InvoiceType = 'sales', contactId?: number, orderId?: number) => {
     setCreateInvoiceType(type);
@@ -311,12 +503,15 @@ export default function Invoices() {
       </div>
 
       {/* Main Table Card */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        {/* Filter Bar */}
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
+      <DataGrid<Invoice>
+        columns={invoiceColumns}
+        data={filteredInvoices}
+        rowKey="id"
+        loading={!invoices}
+        toolbar={(
+          <div className="flex items-center gap-2 flex-wrap w-full">
             <div className="flex bg-slate-200/70 p-1 rounded-xl">
-              <button 
+              <button
                 onClick={() => setActiveTab('all')}
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
@@ -325,7 +520,7 @@ export default function Invoices() {
               >
                 Tümü ({invoices?.length || 0})
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('sales')}
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
@@ -334,7 +529,7 @@ export default function Invoices() {
               >
                 Satış ({salesInvoices.length})
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('purchase')}
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
@@ -345,7 +540,7 @@ export default function Invoices() {
               </button>
             </div>
 
-            <div className="flex bg-slate-200/70 p-1 rounded-xl">
+            <div className="flex bg-slate-200/70 p-1 rounded-xl md:ml-auto">
               <button
                 onClick={() => setStatusFilter('all')}
                 className={cn(
@@ -384,213 +579,10 @@ export default function Invoices() {
               </button>
             </div>
           </div>
-
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Fatura no, cari adı, sipariş no veya ETTN ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-slate-300"
-            />
-          </div>
-        </div>
-
-        {/* Invoice Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50/90 border-b border-slate-200 dark:border-slate-700">
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fatura No & ETTN</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cari / Ünvan</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tarih / Vade</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tür & Senaryo</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sipariş & İrsaliye</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">KDV Matrahı</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">KDV</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Genel Toplam</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-center">Durum</th>
-                <th className="px-3.5 py-2.5 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="py-12 text-center">
-                    <div className="flex flex-col items-center justify-center text-slate-300">
-                      <Receipt className="w-12 h-12 mb-2 opacity-20" />
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Kayıtlı Fatura Bulunamadı</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5 max-w-md">
-                        Yukarıdaki butonlardan yeni bir Satış veya Alış faturası oluşturabilir veya siparişlerden doğrudan fatura kesebilirsiniz.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredInvoices.map((invoice) => {
-                  const contact = contacts?.find(c => c.id === invoice.contactId);
-                  const isSales = invoice.type === 'sales';
-
-                  return (
-                    <tr key={`inv-row-${invoice.id}`} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors group">
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex flex-col">
-                          <span className="font-mono font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                            {invoice.invoiceNumber}
-                          </span>
-                          {invoice.ettn && (
-                            <span className="font-mono text-[9px] text-slate-400 tracking-tighter truncate max-w-[130px]" title={invoice.ettn}>
-                              ETTN: {invoice.ettn.substring(0, 8)}...
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className={cn(
-                            "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black uppercase shrink-0",
-                            isSales ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
-                          )}>
-                            {contact?.name ? contact.name.substring(0, 2) : 'C'}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-800 dark:text-slate-200 line-clamp-1">{contact?.name || 'Bilinmeyen Cari'}</div>
-                            <div className="text-[10px] text-slate-400">{contact?.taxOffice ? `${contact.taxOffice} V.D.` : ''}</div>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="px-3.5 py-2.5 font-mono">
-                        <div className="text-slate-700 dark:text-slate-200 font-semibold">
-                          {new Date(invoice.date).toLocaleDateString('tr-TR')}
-                        </div>
-                        {invoice.dueDate && (
-                          <div className="text-[10px] text-amber-700 flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(invoice.dueDate).toLocaleDateString('tr-TR')}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex flex-col items-start gap-0.5">
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
-                            isSales ? "bg-indigo-100 text-indigo-800" : "bg-amber-100 text-amber-800"
-                          )}>
-                            {isSales ? 'Satış Faturası' : 'Alış Faturası'}
-                          </span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium capitalize">
-                            {invoice.scenario === 'commercial' ? 'Ticari Fatura' :
-                             invoice.scenario === 'basic' ? 'Temel Fatura' :
-                             invoice.scenario === 'return' ? 'İade Faturası' :
-                             invoice.scenario === 'withholding' ? 'Tevkifatlı' :
-                             invoice.scenario === 'export' ? 'İhracat' : invoice.scenario}
-                          </span>
-                        </div>
-                      </td>
-
-                      <td className="px-3.5 py-2.5 font-mono text-slate-600">
-                        <div className="flex flex-col gap-0.5 items-start">
-                          {invoice.orderNumber && (
-                            <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded font-bold text-[10px] border border-slate-200 dark:border-slate-700">
-                              Sip: {invoice.orderNumber}
-                            </span>
-                          )}
-                          {invoice.waybillNumber && (
-                            <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded font-bold text-[10px] border border-purple-200 flex items-center gap-1">
-                              <Truck className="w-2.5 h-2.5 text-purple-600" />
-                              İrs: {invoice.waybillNumber}
-                            </span>
-                          )}
-                          {!invoice.orderNumber && !invoice.waybillNumber && (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-600">
-                        ₺{invoice.subtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-
-                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-600">
-                        <div>₺{invoice.taxTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        {invoice.withholdingAmount ? (
-                          <div className="text-[9px] text-purple-600 font-medium">Tevk: -₺{invoice.withholdingAmount.toFixed(2)}</div>
-                        ) : null}
-                      </td>
-
-                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-xs">
-                        <span className={isSales ? "text-slate-900 dark:text-slate-100" : "text-amber-700"}>
-                          ₺{invoice.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </td>
-
-                      <td className="px-3.5 py-2.5 text-center">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1",
-                          invoice.status === 'issued' ? "bg-emerald-100 text-emerald-800" :
-                          invoice.status === 'cancelled' ? "bg-rose-100 text-rose-800" :
-                          "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-                        )}>
-                          {invoice.status === 'issued' && <CheckCircle2 className="w-3 h-3" />}
-                          {invoice.status === 'issued' ? 'Kesildi' :
-                           invoice.status === 'cancelled' ? 'İptal Edildi' : 'Taslak'}
-                        </span>
-                      </td>
-
-                      <td className="px-3.5 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => openViewModal(invoice.id!)}
-                            title="Görüntüle & Yazdır"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {invoice.status === 'draft' && (
-                            <button
-                              onClick={() => handleApproveDraft(invoice)}
-                              title="Resmileştir / Kes"
-                              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-sm"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {invoice.status === 'issued' && (
-                            <button
-                              onClick={() => openActionModalForInvoice(invoice)}
-                              title="Faturayı İptal Et veya Sil"
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all border border-transparent hover:border-rose-200 shadow-sm flex items-center gap-1 text-xs font-semibold"
-                            >
-                              <Ban className="w-4 h-4 text-rose-500" />
-                              <span className="hidden xl:inline text-[11px] text-rose-600">İptal / Sil</span>
-                            </button>
-                          )}
-
-                          {(invoice.status === 'cancelled' || invoice.status === 'draft') && (
-                            <button
-                              onClick={() => openActionModalForInvoice(invoice)}
-                              title={invoice.status === 'cancelled' ? "İptal Edilmiş Faturayı Kalıcı Olarak Temizle" : "Taslağı Sil"}
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-sm"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        )}
+        rowActions={invoiceRowActions}
+        emptyMessage="Kayıtlı Fatura Bulunamadı"
+      />
 
       {/* CREATE INVOICE MODAL */}
       {isCreateModalOpen && (

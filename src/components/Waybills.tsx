@@ -16,7 +16,6 @@ import type {
 import { 
   Truck, 
   Plus, 
-  Search, 
   FileText, 
   Printer, 
   CheckCircle2, 
@@ -51,6 +50,7 @@ import {
   Camera
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import { WaybillPrintModal } from './Waybills/WaybillPrintModal';
 import PageHeader from './PageHeader';
 import CameraBarcodeScannerModal from './Common/CameraBarcodeScannerModal';
@@ -61,8 +61,7 @@ export default function Waybills() {
   const [activeTab, setActiveTab] = useState<'all' | 'sales' | 'purchase'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'issued' | 'draft' | 'cancelled'>('all');
   const [invoicedFilter, setInvoicedFilter] = useState<'all' | 'invoiced' | 'not_invoiced'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Modals
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -126,22 +125,247 @@ export default function Waybills() {
     if (statusFilter !== 'all' && wb.status !== statusFilter) return false;
     if (invoicedFilter === 'invoiced' && wb.invoicedStatus !== 'invoiced') return false;
     if (invoicedFilter === 'not_invoiced' && wb.invoicedStatus === 'invoiced') return false;
-    
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      const contact = contacts?.find(c => c.id === wb.contactId);
-      const matchNumber = wb.waybillNumber?.toLowerCase().includes(term);
-      const matchContact = contact?.name?.toLowerCase().includes(term);
-      const matchOrder = wb.orderNumber?.toLowerCase().includes(term);
-      const matchInvoice = wb.invoiceNumber?.toLowerCase().includes(term);
-      const matchPlate = wb.vehiclePlate?.toLowerCase().includes(term);
-      const matchDriver = wb.driverName?.toLowerCase().includes(term);
-      const matchCarrier = wb.carrierTitle?.toLowerCase().includes(term);
-      const matchEttn = wb.ettn?.toLowerCase().includes(term);
-      return matchNumber || matchContact || matchOrder || matchInvoice || matchPlate || matchDriver || matchCarrier || matchEttn;
-    }
     return true;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) || [];
+
+  const waybillStatusMeta: Record<WaybillStatus, { label: string; tone: PillTone }> = {
+    draft: { label: 'Taslak', tone: 'slate' },
+    issued: { label: 'Sevk Edildi', tone: 'green' },
+    cancelled: { label: 'İptal Edildi', tone: 'red' }
+  };
+
+  const waybillColumns: GridColumn<Waybill>[] = [
+    {
+      key: 'waybillNumber',
+      title: 'İrsaliye Bilgileri',
+      render: (waybill) => {
+        const isSales = waybill.type === 'sales';
+        return (
+          <div className="flex items-center gap-2.5">
+            <div className={cn(
+              "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs",
+              isSales ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600"
+            )}>
+              {isSales ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownLeft className="w-3.5 h-3.5" />}
+            </div>
+            <div>
+              <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs hover:text-indigo-600 cursor-pointer block" onClick={() => openViewModal(waybill.id!)}>
+                {waybill.waybillNumber}
+              </span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                  {isSales ? 'Sevk İrsaliyesi' : 'Alış İrsaliyesi'}
+                </span>
+                {waybill.ettn && (
+                  <span className="text-[9px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded">
+                    e-İrsaliye
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      },
+      filterValue: (waybill) => `${waybill.waybillNumber || ''} ${waybill.ettn || ''}`
+    },
+    {
+      key: 'contactId',
+      title: 'Cari / Alıcı Firma',
+      render: (waybill) => {
+        const contact = contacts?.find(c => c.id === waybill.contactId);
+        return (
+          <>
+            <div className="font-bold text-slate-900 dark:text-slate-100 uppercase">
+              {contact?.name || 'Belirtilmedi'}
+            </div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs mt-0.5">
+              {waybill.deliveryAddress || contact?.shippingAddress || contact?.address || 'Merkez Depo'}
+            </div>
+          </>
+        );
+      },
+      filterValue: (waybill) => {
+        const contact = contacts?.find(c => c.id === waybill.contactId);
+        return `${contact?.name || ''} ${waybill.deliveryAddress || contact?.shippingAddress || contact?.address || ''}`;
+      }
+    },
+    {
+      key: 'date',
+      title: 'Sipariş & Sevk Tarihi',
+      render: (waybill) => (
+        <>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {waybill.date ? new Date(waybill.date).toLocaleDateString('tr-TR') : '-'}
+            </span>
+          </div>
+          {waybill.orderNumber && (
+            <div className="mt-1">
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
+                Sipariş: {waybill.orderNumber}
+              </span>
+            </div>
+          )}
+        </>
+      ),
+      filterValue: (waybill) => `${waybill.date ? new Date(waybill.date).toLocaleDateString('tr-TR') : ''} ${waybill.orderNumber || ''}`
+    },
+    {
+      key: 'vehiclePlate',
+      title: 'Nakliye / Taşıma',
+      render: (waybill) => (
+        <>
+          <div className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+            <Car className="w-3.5 h-3.5 text-slate-400" />
+            <span>{waybill.vehiclePlate || 'Plaka Yok'}</span>
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs mt-0.5">
+            {waybill.driverName ? `${waybill.driverName}` : (waybill.carrierTitle || '-')}
+          </div>
+        </>
+      ),
+      filterValue: (waybill) => `${waybill.vehiclePlate || ''} ${waybill.driverName || ''} ${waybill.carrierTitle || ''}`
+    },
+    {
+      key: 'totalQuantity',
+      title: 'Miktar',
+      align: 'center',
+      filterable: false,
+      render: (waybill) => (
+        <>
+          <span className="font-black text-slate-900 dark:text-slate-100 text-xs">
+            {waybill.totalQuantity || 0}
+          </span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Çift / Adet</span>
+        </>
+      )
+    },
+    {
+      key: 'grandTotal',
+      title: 'Tutar',
+      align: 'right',
+      filterable: false,
+      render: (waybill) => (
+        <>
+          <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs">
+            {(waybill.grandTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono">
+            KDV: {(waybill.taxTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+          </div>
+        </>
+      )
+    },
+    {
+      key: 'status',
+      title: 'Durum',
+      align: 'center',
+      render: (waybill) => {
+        const isInvoiced = waybill.invoicedStatus === 'invoiced';
+        const meta = waybillStatusMeta[waybill.status] || waybillStatusMeta.draft;
+        return (
+          <div className="flex flex-col items-center gap-1">
+            <StatusPill tone={meta.tone}>{meta.label}</StatusPill>
+            {waybill.status === 'issued' && (
+              isInvoiced ? (
+                <StatusPill tone="violet">
+                  <Receipt className="w-2.5 h-2.5" />
+                  {waybill.invoiceNumber || 'Faturalandı'}
+                </StatusPill>
+              ) : (
+                <StatusPill tone="amber">Faturalanmadı</StatusPill>
+              )
+            )}
+          </div>
+        );
+      },
+      filterValue: (waybill) => {
+        const meta = waybillStatusMeta[waybill.status] || waybillStatusMeta.draft;
+        const isInvoiced = waybill.invoicedStatus === 'invoiced';
+        return `${meta.label} ${waybill.status === 'issued' ? (isInvoiced ? (waybill.invoiceNumber || 'Faturalandı') : 'Faturalanmadı') : ''}`;
+      }
+    }
+  ];
+
+  const waybillRowActions = (waybill: Waybill) => {
+    const isInvoiced = waybill.invoicedStatus === 'invoiced';
+    return (
+      <>
+        {waybill.status === 'issued' && (
+          <button
+            disabled={isInvoiced}
+            onClick={() => {
+              if (isInvoiced) return;
+              navigate(`/invoices?waybillId=${waybill.id}&contactId=${waybill.contactId}&type=${waybill.type}`);
+            }}
+            title={isInvoiced
+              ? `İrsaliye faturalandırılmıştır (${waybill.invoiceNumber || 'Fatura'}). Fatura iptal edilmedikçe tekrar faturalandırılamaz.`
+              : "Bu irsaliyeyi faturaya dönüştür"
+            }
+            className={cn(
+              "px-2.5 py-1.5 rounded-lg transition-all border shadow-2xs flex items-center gap-1 text-xs font-bold",
+              isInvoiced
+                ? "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 shadow-none"
+                : "text-white bg-indigo-600 hover:bg-indigo-700 border-transparent cursor-pointer hover:shadow-md"
+            )}
+          >
+            <Receipt className="w-3.5 h-3.5" />
+            <span>{isInvoiced ? 'Faturalandı' : 'Faturalandır'}</span>
+          </button>
+        )}
+
+        {isInvoiced && waybill.invoiceNumber && (
+          <button
+            onClick={() => navigate(`/invoices?search=${encodeURIComponent(waybill.invoiceNumber || '')}`)}
+            title={`Bağlı Faturayı Görüntüle: ${waybill.invoiceNumber}`}
+            className="p-1.5 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-all border border-purple-200 shadow-2xs flex items-center gap-1 text-xs font-bold cursor-pointer"
+          >
+            <Eye className="w-3.5 h-3.5 text-purple-600" />
+          </button>
+        )}
+
+        <button
+          onClick={() => openViewModal(waybill.id!)}
+          title="GİB e-İrsaliye Önizle & Yazdır"
+          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+        >
+          <Eye className="w-3.5 h-3.5" />
+        </button>
+
+        {waybill.status === 'draft' && (
+          <button
+            onClick={() => handleApproveDraft(waybill)}
+            title="Resmileştir / Sevk Et"
+            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        )}
+
+        {waybill.status === 'issued' && (
+          <button
+            onClick={() => openActionModalForWaybill(waybill)}
+            title="İrsaliyeyi İptal Et"
+            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all border border-transparent hover:border-rose-200 shadow-2xs flex items-center gap-1 text-xs font-semibold"
+          >
+            <Ban className="w-4 h-4 text-rose-500" />
+            <span className="hidden xl:inline text-[11px] text-rose-600">İptal / Sil</span>
+          </button>
+        )}
+
+        {(waybill.status === 'cancelled' || waybill.status === 'draft') && (
+          <button
+            onClick={() => openActionModalForWaybill(waybill)}
+            title={waybill.status === 'cancelled' ? "İptal Edilmiş İrsaliyeyi Kalıcı Olarak Temizle" : "Taslağı Sil"}
+            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+      </>
+    );
+  };
 
   const openCreateModal = (type: WaybillType = 'sales', contactId?: number, orderId?: number) => {
     setCreateWaybillType(type);
@@ -346,324 +570,75 @@ export default function Waybills() {
         </div>
       </div>
 
-      {/* SEARCH, TABS & FILTERS */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs space-y-3">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-          {/* Tab Selection */}
-          <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-full md:w-auto">
-            <button
-              onClick={() => setActiveTab('all')}
-              className={cn(
-                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
-                activeTab === 'all' ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
-              )}
-            >
-              Tümü ({waybills?.length || 0})
-            </button>
-            <button
-              onClick={() => setActiveTab('sales')}
-              className={cn(
-                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
-                activeTab === 'sales' ? "bg-white dark:bg-slate-900 text-indigo-700 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
-              )}
-            >
-              <ArrowUpRight className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Satış & Sevk ({waybills?.filter(w => w.type === 'sales').length || 0})</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('purchase')}
-              className={cn(
-                "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
-                activeTab === 'purchase' ? "bg-white dark:bg-slate-900 text-emerald-700 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
-              )}
-            >
-              <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Alış / Gelen ({waybills?.filter(w => w.type === 'purchase').length || 0})</span>
-            </button>
-          </div>
+      {/* WAYBILLS DATA TABLE */}
+      <DataGrid<Waybill>
+        columns={waybillColumns}
+        data={filteredWaybills}
+        rowKey="id"
+        loading={!waybills}
+        toolbar={(
+          <div className="flex items-center gap-2 flex-wrap w-full">
+            {/* Tab Selection */}
+            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-full md:w-auto">
+              <button
+                onClick={() => setActiveTab('all')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  activeTab === 'all' ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
+                )}
+              >
+                Tümü ({waybills?.length || 0})
+              </button>
+              <button
+                onClick={() => setActiveTab('sales')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                  activeTab === 'sales' ? "bg-white dark:bg-slate-900 text-indigo-700 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
+                )}
+              >
+                <ArrowUpRight className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Satış & Sevk ({waybills?.filter(w => w.type === 'sales').length || 0})</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('purchase')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                  activeTab === 'purchase' ? "bg-white dark:bg-slate-900 text-emerald-700 shadow-2xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
+                )}
+              >
+                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Alış / Gelen ({waybills?.filter(w => w.type === 'purchase').length || 0})</span>
+              </button>
+            </div>
 
-          {/* Status Filter & Search */}
-          <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
-            >
-              <option value="all">Tüm Durumlar</option>
-              <option value="issued">Sevk Edildi / Kesildi</option>
-              <option value="draft">Taslak İrsaliyeler</option>
-              <option value="cancelled">İptal Edilenler</option>
-            </select>
+            {/* Status & Invoiced Filters */}
+            <div className="flex items-center gap-2 flex-wrap md:ml-auto">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="all">Tüm Durumlar</option>
+                <option value="issued">Sevk Edildi / Kesildi</option>
+                <option value="draft">Taslak İrsaliyeler</option>
+                <option value="cancelled">İptal Edilenler</option>
+              </select>
 
-            <select
-              value={invoicedFilter}
-              onChange={(e) => setInvoicedFilter(e.target.value as any)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/20"
-            >
-              <option value="all">Fatura: Tümü</option>
-              <option value="not_invoiced">Faturalanmamış ({pendingInvoicingCount})</option>
-              <option value="invoiced">Faturalanmış</option>
-            </select>
-
-            <div className="relative flex-1 md:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="İrsaliye no, cari, plaka, şoför..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/20"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+              <select
+                value={invoicedFilter}
+                onChange={(e) => setInvoicedFilter(e.target.value as any)}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/20"
+              >
+                <option value="all">Fatura: Tümü</option>
+                <option value="not_invoiced">Faturalanmamış ({pendingInvoicingCount})</option>
+                <option value="invoiced">Faturalanmış</option>
+              </select>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* WAYBILLS DATA TABLE */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50/90 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                <th className="px-3.5 py-2.5">İrsaliye Bilgileri</th>
-                <th className="px-3.5 py-2.5">Cari / Alıcı Firma</th>
-                <th className="px-3.5 py-2.5">Sipariş & Sevk Tarihi</th>
-                <th className="px-3.5 py-2.5">Nakliye / Taşıma</th>
-                <th className="px-3.5 py-2.5 text-center">Miktar</th>
-                <th className="px-3.5 py-2.5 text-right">Tutar</th>
-                <th className="px-3.5 py-2.5 text-center">Durum</th>
-                <th className="px-3.5 py-2.5 text-right">İşlemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredWaybills.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400">
-                    <Truck className="w-10 h-10 mx-auto mb-2 opacity-30 text-indigo-500" />
-                    <p className="font-bold text-sm text-slate-600">Henüz kayıtlı sevk irsaliyesi bulunamadı.</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      "Yeni Sevk İrsaliyesi" butonu ile yeni bir irsaliye oluşturabilir veya Siparişler modülünden sevk başlatabilirsiniz.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                filteredWaybills.map((waybill) => {
-                  const contact = contacts?.find(c => c.id === waybill.contactId);
-                  const isSales = waybill.type === 'sales';
-                  const isInvoiced = waybill.invoicedStatus === 'invoiced';
-
-                  return (
-                    <tr 
-                      key={`wb-row-${waybill.id}`}
-                      className={cn(
-                        "hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors",
-                        waybill.status === 'cancelled' ? "opacity-60 bg-rose-50/20" : ""
-                      )}
-                    >
-                      {/* İrsaliye No & Tip */}
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className={cn(
-                            "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 font-bold text-xs",
-                            isSales ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600"
-                          )}>
-                            {isSales ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownLeft className="w-3.5 h-3.5" />}
-                          </div>
-                          <div>
-                            <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs hover:text-indigo-600 cursor-pointer block" onClick={() => openViewModal(waybill.id!)}>
-                              {waybill.waybillNumber}
-                            </span>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                                {isSales ? 'Sevk İrsaliyesi' : 'Alış İrsaliyesi'}
-                              </span>
-                              {waybill.ettn && (
-                                <span className="text-[9px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded">
-                                  e-İrsaliye
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Cari Bilgisi */}
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-slate-900 dark:text-slate-100 uppercase">
-                          {contact?.name || 'Belirtilmedi'}
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs mt-0.5">
-                          {waybill.deliveryAddress || contact?.shippingAddress || contact?.address || 'Merkez Depo'}
-                        </div>
-                      </td>
-
-                      {/* Sipariş & Tarih */}
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                          <span className="font-semibold text-slate-700 dark:text-slate-200">
-                            {waybill.date ? new Date(waybill.date).toLocaleDateString('tr-TR') : '-'}
-                          </span>
-                        </div>
-                        {waybill.orderNumber && (
-                          <div className="mt-1">
-                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
-                              Sipariş: {waybill.orderNumber}
-                            </span>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Nakliye / Araç / Şoför */}
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                          <Car className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{waybill.vehiclePlate || 'Plaka Yok'}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs mt-0.5">
-                          {waybill.driverName ? `${waybill.driverName}` : (waybill.carrierTitle || '-')}
-                        </div>
-                      </td>
-
-                      {/* Miktar */}
-                      <td className="px-3.5 py-2.5 text-center">
-                        <span className="font-black text-slate-900 dark:text-slate-100 text-xs">
-                          {waybill.totalQuantity || 0}
-                        </span>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Çift / Adet</span>
-                      </td>
-
-                      {/* Tutar */}
-                      <td className="px-3.5 py-2.5 text-right">
-                        <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs">
-                          {(waybill.grandTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          KDV: {(waybill.taxTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-                        </div>
-                      </td>
-
-                      {/* Durum */}
-                      <td className="px-3.5 py-2.5 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={cn(
-                            "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1",
-                            waybill.status === 'issued' ? "bg-emerald-100 text-emerald-800" :
-                            waybill.status === 'cancelled' ? "bg-rose-100 text-rose-800" :
-                            "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-                          )}>
-                            {waybill.status === 'issued' && <CheckCircle2 className="w-3 h-3" />}
-                            {waybill.status === 'issued' ? 'Sevk Edildi' :
-                             waybill.status === 'cancelled' ? 'İptal Edildi' : 'Taslak'}
-                          </span>
-
-                          {waybill.status === 'issued' && (
-                            isInvoiced ? (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
-                                <Receipt className="w-2.5 h-2.5" />
-                                {waybill.invoiceNumber || 'Faturalandı'}
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
-                                Faturalanmadı
-                              </span>
-                            )
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Aksiyonlar */}
-                      <td className="px-3.5 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {waybill.status === 'issued' && (
-                            <button
-                              disabled={isInvoiced}
-                              onClick={() => {
-                                if (isInvoiced) return;
-                                navigate(`/invoices?waybillId=${waybill.id}&contactId=${waybill.contactId}&type=${waybill.type}`);
-                              }}
-                              title={isInvoiced 
-                                ? `İrsaliye faturalandırılmıştır (${waybill.invoiceNumber || 'Fatura'}). Fatura iptal edilmedikçe tekrar faturalandırılamaz.` 
-                                : "Bu irsaliyeyi faturaya dönüştür"
-                              }
-                              className={cn(
-                                "px-2.5 py-1.5 rounded-lg transition-all border shadow-2xs flex items-center gap-1 text-xs font-bold",
-                                isInvoiced
-                                  ? "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60 shadow-none"
-                                  : "text-white bg-indigo-600 hover:bg-indigo-700 border-transparent cursor-pointer hover:shadow-md"
-                              )}
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              <span>{isInvoiced ? 'Faturalandı' : 'Faturalandır'}</span>
-                            </button>
-                          )}
-
-                          {isInvoiced && waybill.invoiceNumber && (
-                            <button
-                              onClick={() => navigate(`/invoices?search=${encodeURIComponent(waybill.invoiceNumber || '')}`)}
-                              title={`Bağlı Faturayı Görüntüle: ${waybill.invoiceNumber}`}
-                              className="p-1.5 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-all border border-purple-200 shadow-2xs flex items-center gap-1 text-xs font-bold cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-purple-600" />
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => openViewModal(waybill.id!)}
-                            title="GİB e-İrsaliye Önizle & Yazdır"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {waybill.status === 'draft' && (
-                            <button
-                              onClick={() => handleApproveDraft(waybill)}
-                              title="Resmileştir / Sevk Et"
-                              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {waybill.status === 'issued' && (
-                            <button
-                              onClick={() => openActionModalForWaybill(waybill)}
-                              title="İrsaliyeyi İptal Et"
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all border border-transparent hover:border-rose-200 shadow-2xs flex items-center gap-1 text-xs font-semibold"
-                            >
-                              <Ban className="w-4 h-4 text-rose-500" />
-                              <span className="hidden xl:inline text-[11px] text-rose-600">İptal / Sil</span>
-                            </button>
-                          )}
-
-                          {(waybill.status === 'cancelled' || waybill.status === 'draft') && (
-                            <button
-                              onClick={() => openActionModalForWaybill(waybill)}
-                              title={waybill.status === 'cancelled' ? "İptal Edilmiş İrsaliyeyi Kalıcı Olarak Temizle" : "Taslağı Sil"}
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        )}
+        rowActions={waybillRowActions}
+        emptyMessage="Henüz kayıtlı sevk irsaliyesi bulunamadı."
+      />
 
       {/* CREATE WAYBILL MODAL */}
       {isCreateModalOpen && (

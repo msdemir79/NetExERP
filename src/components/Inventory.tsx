@@ -1,33 +1,28 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
-import { 
-  Package, 
-  Plus, 
-  Search, 
-  AlertTriangle, 
-  ArrowDown, 
-  ArrowUp, 
-  Palette, 
-  Ruler, 
-  Eye, 
-  Trash2, 
-  ChevronRight, 
+import {
+  Package,
+  Plus,
+  Search,
+  AlertTriangle,
+  ArrowUp,
+  Palette,
+  Ruler,
+  Eye,
+  Trash2,
+  ChevronRight,
   ChevronDown,
-  Hash, 
-  X, 
-  Barcode, 
-  Settings, 
-  Image as ImageIcon, 
-  Camera, 
+  X,
+  Barcode,
+  Settings,
+  Camera,
   Printer,
   Sparkles,
   Layers,
   CheckCircle2,
   Edit2,
-  Filter,
   Boxes,
-  HelpCircle,
   Tag,
   ShoppingBag,
   Scissors,
@@ -35,27 +30,24 @@ import {
   Grid,
   BookOpen,
   BarChart3,
-  ExternalLink,
   FileText,
-  Receipt,
   Calendar,
-  ArrowUpRight,
-  ArrowDownLeft,
   FileDown,
   RotateCcw,
   Building2
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import Modal from './Modal';
-import { erpService, formatQuantity, roundUpQuantity } from '../services/erpService';
-import BarcodePrintModal from './BarcodePrintModal';
+import { erpService, formatQuantity } from '../services/erpService';
 import { resizeAndOptimizeImage } from '../utils/imageUtils';
 import PageHeader from './PageHeader';
+import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
 import CameraBarcodeScannerModal, { type ScannerMode } from './Common/CameraBarcodeScannerModal';
 import { StockCategoryType, Product, AssortmentTemplate, BarcodeVariant } from '../types';
 import { printTabularReport } from '../lib/printService';
+import { getColorSwatch } from '../lib/colorSwatches';
 import { exportToCsv } from '../lib/exportService';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -131,6 +123,7 @@ export const CATEGORY_CONFIGS: Record<StockCategoryType, CategoryConfig> = {
 };
 
 export default function Inventory() {
+  const navigate = useNavigate();
   const products = useApiQuery(() => api.products.list(), [], ['products']);
   const templates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']);
   const tdhpAccounts = useApiQuery(() => api.accounts.list(), [], ['accounts']);
@@ -150,11 +143,15 @@ export default function Inventory() {
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<'general' | 'stock' | 'tdhp'>('general');
+
+  useEffect(() => {
+    if (isDetailModalOpen) setDetailTab('general');
+  }, [isDetailModalOpen, selectedProduct?.id]);
 
   // Statement / Movement Ledger Modal Filter States
   const [statementTypeFilter, setStatementTypeFilter] = useState<'all' | 'in' | 'out' | 'production_in' | 'production_out'>('all');
@@ -225,6 +222,93 @@ export default function Inventory() {
       totalCount: productLogs.length
     };
   }, [productLogs]);
+
+  const statementColumns = useMemo<GridColumn<(typeof productLogs)[number]>[]>(() => [
+    {
+      key: 'date',
+      title: 'Tarih & Saat',
+      render: (log) => (
+        <span className="font-mono text-[11px] text-slate-600">
+          {log.date ? format(new Date(log.date), 'dd.MM.yyyy HH:mm', { locale: tr }) : '-'}
+        </span>
+      ),
+      filterValue: (log) => (log.date ? format(new Date(log.date), 'dd.MM.yyyy HH:mm', { locale: tr }) : '')
+    },
+    {
+      key: 'type',
+      title: 'Hareket Tipi',
+      render: (log) => {
+        if (log.type === 'in') return <StatusPill tone="green">Stok Girişi</StatusPill>;
+        if (log.type === 'out') return <StatusPill tone="red">Stok Çıkışı</StatusPill>;
+        if (log.type === 'production_in') return <StatusPill tone="violet">Üretim Girişi</StatusPill>;
+        if (log.type === 'production_out') return <StatusPill tone="amber">Hammadde Sarf</StatusPill>;
+        return <StatusPill tone="slate">{log.type}</StatusPill>;
+      },
+      filterValue: (log) =>
+        log.type === 'in' ? 'Stok Girişi' :
+        log.type === 'out' ? 'Stok Çıkışı' :
+        log.type === 'production_in' ? 'Üretim Girişi' :
+        log.type === 'production_out' ? 'Hammadde Sarf' :
+        (log.type || '')
+    },
+    {
+      key: 'variant',
+      title: 'Renk / Beden',
+      render: (log) => (
+        <span className="text-slate-700 dark:text-slate-200 text-[11px]">
+          {[log.color, log.size].filter(Boolean).join(' / ') || '-'}
+        </span>
+      ),
+      filterValue: (log) => [log.color, log.size].filter(Boolean).join(' ')
+    },
+    {
+      key: 'quantity',
+      title: 'Giriş (+)',
+      align: 'right',
+      render: (log) => {
+        const qty = Number(log.quantity) || 0;
+        return (
+          <span className="font-mono font-bold text-emerald-600">
+            {qty > 0 ? `+${qty}` : '-'}
+          </span>
+        );
+      },
+      filterValue: (log) => `${Number(log.quantity) || 0}`
+    },
+    {
+      key: 'quantityOut',
+      title: 'Çıkış (-)',
+      align: 'right',
+      render: (log) => {
+        const qty = Number(log.quantity) || 0;
+        return (
+          <span className="font-mono font-bold text-rose-600">
+            {qty <= 0 ? `-${Math.abs(qty)}` : '-'}
+          </span>
+        );
+      },
+      filterValue: (log) => `${Math.abs(Number(log.quantity) || 0)}`
+    },
+    {
+      key: 'runningBalance',
+      title: 'Yürüyen Bakiye',
+      align: 'right',
+      render: (log) => (
+        <span className="font-mono font-black text-slate-900 dark:text-slate-100">
+          {log.runningBalance} <span className="text-[10px] text-slate-400 font-semibold">{selectedProduct?.unit}</span>
+        </span>
+      ),
+      filterValue: (log) => `${log.runningBalance}`
+    },
+    {
+      key: 'description',
+      title: 'Açıklama / Belge',
+      render: (log) => (
+        <span className="text-slate-600 text-[11px]">{log.description || '-'}</span>
+      ),
+      filterValue: (log) => log.description || ''
+    }
+  ], [selectedProduct]);
 
   const handlePrintStatement = () => {
     if (!selectedProduct || !productLogs || productLogs.length === 0) return;
@@ -482,6 +566,163 @@ export default function Inventory() {
     }
     return counts;
   }, [products]);
+
+  const productColumns = useMemo<GridColumn<Product>[]>(() => [
+    {
+      key: 'name',
+      title: 'Stok / Malzeme Kartı',
+      render: (product) => (
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-10 rounded-lg bg-white border border-slate-200 dark:border-slate-700 overflow-hidden flex-shrink-0 flex items-center justify-center p-0.5">
+            {product.image ? (
+              <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
+            ) : (
+              <Package className="w-5 h-5 text-slate-300" />
+            )}
+          </div>
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-mono text-[10px] font-black px-1.5 py-px rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                {product.code}
+              </span>
+              {product.accountingCode && (
+                <span className="font-mono text-[9px] font-bold px-1.5 py-px rounded bg-indigo-50 border border-indigo-200 text-indigo-700 whitespace-nowrap" title={`TDHP Stok Hesabı: ${product.accountingCode}`}>
+                  TDHP: {product.accountingCode}
+                </span>
+              )}
+              {product.shelf && (
+                <span className="text-[9px] font-bold text-slate-400 uppercase whitespace-nowrap">
+                  Raf: {product.shelf}
+                </span>
+              )}
+            </div>
+            <div className="font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+              {product.name}
+              {product.brand && (
+                <span className="ml-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  {product.brand}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      ),
+      filterValue: (product) => `${product.code || ''} ${product.name || ''} ${product.brand || ''} ${product.shelf || ''} ${product.colorBoxBarcodes?.map(b => b.barcode).join(' ') || ''} ${product.variantBarcodes?.map(v => v.barcode).join(' ') || ''}`
+    },
+    {
+      key: 'categoryType',
+      title: 'Kategori & Tür',
+      render: (product) => {
+        const cfg = CATEGORY_CONFIGS[getProductCategoryType(product)];
+        return (
+          <div className="space-y-0.5">
+            <span className={cn(
+              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border whitespace-nowrap",
+              `${cfg.bgClass} ${cfg.textClass} ${cfg.borderClass}`
+            )}>
+              <cfg.icon className="w-3 h-3" />
+              {cfg.badge}
+            </span>
+            {product.subType && (
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase leading-tight truncate">
+                {product.subType}
+              </div>
+            )}
+          </div>
+        );
+      },
+      filterValue: (product) => {
+        const cfg = CATEGORY_CONFIGS[getProductCategoryType(product)];
+        return `${cfg.badge} ${product.subType || ''}`;
+      }
+    },
+    {
+      key: 'variant',
+      title: 'Beden & Varyant',
+      render: (product) => {
+        const isVariant = product.hasSizeVariants || product.isFootwear || (product.variantBarcodes && product.variantBarcodes.length > 0);
+        if ((product.colors && product.colors.length > 0) || isVariant) {
+          return (
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1 flex-wrap">
+                {product.colors && product.colors.length > 0 ? (
+                  <>
+                    {product.colors.slice(0, 3).map(col => (
+                      <span key={col} className="text-[9px] font-black uppercase px-1.5 py-px bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                        {col}
+                      </span>
+                    ))}
+                    {product.colors.length > 3 && (
+                      <span className="text-[9px] font-black text-slate-400" title={product.colors.join(', ')}>
+                        +{product.colors.length - 3}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[9px] text-slate-400 font-bold">Matris Var</span>
+                )}
+              </div>
+              {product.variantBarcodes && product.variantBarcodes.length > 0 && (
+                <div className="text-[9px] font-mono text-indigo-600 font-bold leading-tight">
+                  {product.variantBarcodes.length} Beden Varyantı
+                </div>
+              )}
+            </div>
+          );
+        }
+        return <span className="text-[10px] text-slate-400 font-semibold italic">Tekil Stok</span>;
+      },
+      filterValue: (product) => `${(product.colors || []).join(' ')} ${product.variantBarcodes && product.variantBarcodes.length > 0 ? 'matris varyant' : ''}`
+    },
+    {
+      key: 'sellingPrice',
+      title: 'Fiyat (Alış / Satış)',
+      align: 'right',
+      render: (product) => (
+        <div className="whitespace-nowrap">
+          <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight">
+            ₺{(product.sellingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-slate-400 font-bold leading-tight">
+            Alış: ₺{(product.buyingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+          </div>
+        </div>
+      ),
+      filterValue: (product) => `${product.sellingPrice || 0}`
+    },
+    {
+      key: 'stock',
+      title: 'Mevcut Stok',
+      align: 'right',
+      render: (product) => {
+        const isLow = product.stock <= (product.minStock || 0);
+        return (
+          <div className="space-y-0.5 whitespace-nowrap">
+            <div className={cn(
+              "text-sm font-black font-mono inline-flex items-baseline gap-1 leading-tight",
+              isLow ? "text-rose-600" : "text-slate-900 dark:text-slate-100"
+            )}>
+              <span>{formatQuantity(product.stock)}</span>
+              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">{product.unit}</span>
+            </div>
+            {isLow && (
+              <div className="flex justify-end">
+                <StatusPill tone="red" className="text-[9px] uppercase">
+                  <AlertTriangle className="w-3 h-3" /> Kritik (Min: {product.minStock})
+                </StatusPill>
+              </div>
+            )}
+            {product.multiplier && product.multiplier > 1 && product.secondaryUnit && (
+              <div className="text-[9px] text-indigo-500 font-bold uppercase leading-tight">
+                ({formatQuantity(product.stock * product.multiplier)} {product.secondaryUnit})
+              </div>
+            )}
+          </div>
+        );
+      },
+      filterValue: (product) => `${product.stock ?? 0}`
+    }
+  ], []);
 
   // Reset form handler
   const resetForm = () => {
@@ -1090,302 +1331,122 @@ export default function Inventory() {
         })}
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 shadow-sm">
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Stok Kodu, Ürün Adı, Marka, Barkod veya Renk ile ara..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 rounded-xl pl-10 pr-4 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white dark:bg-slate-900 transition-all"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <button
-            onClick={() => setFilterLowStock(!filterLowStock)}
-            className={cn(
-              "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
-              filterLowStock
-                ? "bg-rose-50 border-rose-200 text-rose-700 shadow-sm"
-                : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
-            )}
-          >
-            <AlertTriangle className={cn("w-3.5 h-3.5", filterLowStock ? "text-rose-600" : "text-slate-400")} />
-            <span>Kritik Stok</span>
-          </button>
-
-          <button
-            onClick={() => setFilterVariantOnly(!filterVariantOnly)}
-            className={cn(
-              "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
-              filterVariantOnly
-                ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
-                : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
-            )}
-          >
-            <Grid className={cn("w-3.5 h-3.5", filterVariantOnly ? "text-indigo-600" : "text-slate-400")} />
-            <span>Bedenli / Matris</span>
-          </button>
-        </div>
-      </div>
-
       {/* Products Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 shadow-sm overflow-hidden">
-        {filteredProducts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
-            <div className="w-16 h-16 rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-300 mb-4">
-              <Boxes className="w-8 h-8" />
+      <DataGrid<Product>
+        columns={productColumns}
+        data={filteredProducts}
+        rowKey="id"
+        emptyMessage="Arama kriterlerinize uygun stok kartı bulunamadı veya henüz stok kartı eklenmedi."
+        toolbar={
+          <div className="flex flex-col md:flex-row items-center gap-2 flex-1 w-full">
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Stok Kodu, Ürün Adı, Marka, Barkod veya Renk ile ara..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white transition-all"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <h3 className="text-base font-black text-slate-800 dark:text-slate-200 uppercase tracking-tight">Kayıtlı Stok Bulunamadı</h3>
-            <p className="text-xs text-slate-400 font-semibold max-w-sm mt-1 mb-6">
-              Arama kriterlerinize uygun kart bulunamadı veya henüz stok kartı eklenmedi.
-            </p>
+
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <button
+                onClick={() => setFilterLowStock(!filterLowStock)}
+                className={cn(
+                  "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
+                  filterLowStock
+                    ? "bg-rose-50 border-rose-200 text-rose-700 shadow-sm"
+                    : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                <AlertTriangle className={cn("w-3.5 h-3.5", filterLowStock ? "text-rose-600" : "text-slate-400")} />
+                <span>Kritik Stok</span>
+              </button>
+
+              <button
+                onClick={() => setFilterVariantOnly(!filterVariantOnly)}
+                className={cn(
+                  "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
+                  filterVariantOnly
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
+                    : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                <Grid className={cn("w-3.5 h-3.5", filterVariantOnly ? "text-indigo-600" : "text-slate-400")} />
+                <span>Bedenli / Matris</span>
+              </button>
+            </div>
+          </div>
+        }
+        rowActions={(product) => (
+          <>
             <button
-              onClick={() => handleOpenAddModal()}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-indigo-600/20"
+              onClick={() => { setSelectedProduct(product); setIsDetailModalOpen(true); }}
+              title="Kart Detayı"
+              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
             >
-              <Plus className="w-4 h-4" /> Yeni Stok Kartı Ekle
+              <Eye className="w-3.5 h-3.5" />
             </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1060px] text-left border-collapse table-fixed">
-              <colgroup>
-                <col />
-                <col className="w-[152px]" />
-                <col className="w-[186px]" />
-                <col className="w-[124px]" />
-                <col className="w-[124px]" />
-                <col className="w-[150px]" />
-              </colgroup>
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                  <th className="py-2.5 px-4">Stok / Malzeme Kartı</th>
-                  <th className="py-2.5 px-3">Kategori & Tür</th>
-                  <th className="py-2.5 px-3">Beden & Varyant</th>
-                  <th className="py-2.5 px-3 text-right">Fiyat (Alış / Satış)</th>
-                  <th className="py-2.5 px-3 text-right">Mevcut Stok</th>
-                  <th className="py-2.5 px-3 text-center">İşlemler</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs font-semibold [&_td]:align-middle">
-                {filteredProducts.map(product => {
-                  const cat = getProductCategoryType(product);
-                  const cfg = CATEGORY_CONFIGS[cat];
-                  const isLow = product.stock <= (product.minStock || 0);
-                  const isVariant = product.hasSizeVariants || product.isFootwear || (product.variantBarcodes && product.variantBarcodes.length > 0);
 
-                  return (
-                    <tr
-                      key={product.id}
-                      className="even:bg-slate-50/60 dark:even:bg-slate-800/30 hover:bg-indigo-50/40! dark:hover:bg-slate-800/60 transition-colors group"
-                    >
-                      {/* Product Name & Code */}
-                      <td className="py-2 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-14 h-10 rounded-lg bg-white border border-slate-200 dark:border-slate-700 overflow-hidden flex-shrink-0 flex items-center justify-center p-0.5">
-                            {product.image ? (
-                              <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
-                            ) : (
-                              <Package className="w-5 h-5 text-slate-300" />
-                            )}
-                          </div>
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-mono text-[10px] font-black px-1.5 py-px rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                                {product.code}
-                              </span>
-                              {product.accountingCode && (
-                                <span className="font-mono text-[9px] font-bold px-1.5 py-px rounded bg-indigo-50 border border-indigo-200 text-indigo-700 whitespace-nowrap" title={`TDHP Stok Hesabı: ${product.accountingCode}`}>
-                                  TDHP: {product.accountingCode}
-                                </span>
-                              )}
-                              {product.shelf && (
-                                <span className="text-[9px] font-bold text-slate-400 uppercase whitespace-nowrap">
-                                  Raf: {product.shelf}
-                                </span>
-                              )}
-                            </div>
-                            <div className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 transition-colors leading-tight truncate">
-                              {product.name}
-                              {product.brand && (
-                                <span className="ml-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                  {product.brand}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
+            <button
+              onClick={() => navigate(`/inventory/barcode?product=${product.id}`)}
+              title="Barkod Yazdır"
+              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 transition-colors"
+            >
+              <Barcode className="w-3.5 h-3.5" />
+            </button>
 
-                      {/* Category Badge */}
-                      <td className="py-2 px-3">
-                        <div className="space-y-0.5">
-                          <span className={cn(
-                            "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border whitespace-nowrap",
-                            `${cfg.bgClass} ${cfg.textClass} ${cfg.borderClass}`
-                          )}>
-                            <cfg.icon className="w-3 h-3" />
-                            {cfg.badge}
-                          </span>
-                          {product.subType && (
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase leading-tight truncate">
-                              {product.subType}
-                            </div>
-                          )}
-                        </div>
-                      </td>
+            <button
+              onClick={() => {
+                setSelectedProduct(product);
+                setAdjustData({
+                  type: 'in',
+                  quantity: 1,
+                  selectedColor: product.colors?.[0] || '',
+                  selectedSize: product.variantBarcodes?.[0]?.size || '',
+                  description: 'Stok hareketi'
+                });
+                setIsAdjustModalOpen(true);
+              }}
+              title="Stok Hareketi Giriş/Çıkış"
+              className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
 
-                      {/* Variants / Sizes / Colors */}
-                      <td className="py-2 px-3">
-                        {(product.colors && product.colors.length > 0) || isVariant ? (
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1 flex-wrap">
-                              {product.colors && product.colors.length > 0 ? (
-                                <>
-                                  {product.colors.slice(0, 3).map(col => (
-                                    <span key={col} className="text-[9px] font-black uppercase px-1.5 py-px bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                                      {col}
-                                    </span>
-                                  ))}
-                                  {product.colors.length > 3 && (
-                                    <span className="text-[9px] font-black text-slate-400" title={product.colors.join(', ')}>
-                                      +{product.colors.length - 3}
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="text-[9px] text-slate-400 font-bold">Matris Var</span>
-                              )}
-                            </div>
-                            {product.variantBarcodes && product.variantBarcodes.length > 0 && (
-                              <div className="text-[9px] font-mono text-indigo-600 font-bold leading-tight">
-                                {product.variantBarcodes.length} Beden Varyantı
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 font-semibold italic">Tekil Stok</span>
-                        )}
-                      </td>
+            <button
+              onClick={() => {
+                setSelectedProduct(product);
+                setStatementDateRange({ start: '', end: '' });
+                setStatementTypeFilter('all');
+                setStatementSearch('');
+                setIsStatementModalOpen(true);
+              }}
+              title="Stok Kart Ekstresi / Hareket Raporu"
+              className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 transition-colors cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+            </button>
 
-                      {/* Prices */}
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
-                        <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                          ₺{(product.sellingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </div>
-                        <div className="text-[9px] text-slate-400 font-bold leading-tight">
-                          Alış: ₺{(product.buyingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </div>
-                      </td>
-
-                      {/* Current Stock */}
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
-                        <div className="space-y-0.5">
-                          <div className={cn(
-                            "text-sm font-black font-mono inline-flex items-baseline gap-1 leading-tight",
-                            isLow ? "text-rose-600" : "text-slate-900 dark:text-slate-100"
-                          )}>
-                            <span>{formatQuantity(product.stock)}</span>
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">{product.unit}</span>
-                          </div>
-                          {isLow && (
-                            <div className="text-[9px] font-black text-rose-500 uppercase tracking-tight flex items-center justify-end gap-1 leading-tight">
-                              <AlertTriangle className="w-3 h-3" /> Kritik (Min: {product.minStock})
-                            </div>
-                          )}
-                          {product.multiplier && product.multiplier > 1 && product.secondaryUnit && (
-                            <div className="text-[9px] text-indigo-500 font-bold uppercase leading-tight">
-                              ({formatQuantity(product.stock * product.multiplier)} {product.secondaryUnit})
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Action Buttons */}
-                      <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {/* Detail Modal Button */}
-                          <button
-                            onClick={() => { setSelectedProduct(product); setIsDetailModalOpen(true); }}
-                            title="Kart Detayı"
-                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Print Barcode Button */}
-                          <button
-                            onClick={() => { setSelectedProduct(product); setIsPrintModalOpen(true); }}
-                            title="Barkod Yazdır"
-                            className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 transition-colors"
-                          >
-                            <Barcode className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Quick Adjust Button */}
-                          <button
-                            onClick={() => {
-                              setSelectedProduct(product);
-                              setAdjustData({
-                                type: 'in',
-                                quantity: 1,
-                                selectedColor: product.colors?.[0] || '',
-                                selectedSize: product.variantBarcodes?.[0]?.size || '',
-                                description: 'Stok hareketi'
-                              });
-                              setIsAdjustModalOpen(true);
-                            }}
-                            title="Stok Hareketi Giriş/Çıkış"
-                            className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Stok Ekstresi / Hareket Raporu Button */}
-                          <button
-                            onClick={() => {
-                              setSelectedProduct(product);
-                              setStatementDateRange({ start: '', end: '' });
-                              setStatementTypeFilter('all');
-                              setStatementSearch('');
-                              setIsStatementModalOpen(true);
-                            }}
-                            title="Stok Kart Ekstresi / Hareket Raporu"
-                            className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 transition-colors cursor-pointer"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Edit Button */}
-                          <button
-                            onClick={() => handleOpenEditModal(product)}
-                            title="Kartı Düzenle"
-                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+            <button
+              onClick={() => handleOpenEditModal(product)}
+              title="Kartı Düzenle"
+              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+          </>
         )}
-      </div>
+      />
 
       {/* ========================================================================= */}
       {/* ADD / EDIT STOCK CARD MODAL                                              */}
@@ -2652,17 +2713,34 @@ export default function Inventory() {
           const cat = getProductCategoryType(selectedProduct);
           const cfg = CATEGORY_CONFIGS[cat];
           const isLow = selectedProduct.stock <= (selectedProduct.minStock || 0);
+          const vbs: BarcodeVariant[] = selectedProduct.variantBarcodes || [];
+          const hasMatrix = (selectedProduct.hasSizeVariants || selectedProduct.isFootwear) && vbs.length > 0;
+          const activeTab = detailTab === 'stock' && !hasMatrix ? 'general' : detailTab;
+          const matrixSizes = Array.from(new Set(vbs.map(v => v.size)))
+            .sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0) || a.localeCompare(b, 'tr'));
+          const variantColors = Array.from(new Set(vbs.map(v => v.color)));
+          const definedColors = selectedProduct.colors || [];
+          const matrixColors = [
+            ...definedColors.filter(c => variantColors.includes(c)),
+            ...variantColors.filter(c => !definedColors.includes(c)),
+          ];
+          const cellOf = (color: string, size: string) => vbs.find(v => v.color === color && v.size === size);
+          const detailTabs: { id: 'general' | 'stock' | 'tdhp'; label: string }[] = [
+            { id: 'general', label: 'Genel Bilgiler' },
+            ...(hasMatrix ? [{ id: 'stock' as const, label: 'Renk & Numara Stok' }] : []),
+            { id: 'tdhp', label: 'Muhasebe (TDHP)' },
+          ];
 
           return (
             <div className="space-y-6">
               {/* Product Header Profile */}
               <div className="flex flex-col md:flex-row items-start justify-between gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                 <div className="flex items-start gap-4">
-                  <div className="w-20 h-20 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <div className="w-28 h-28 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-sm">
                     {selectedProduct.image ? (
                       <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-contain" />
                     ) : (
-                      <Package className="w-10 h-10 text-slate-300" />
+                      <Package className="w-14 h-14 text-slate-300" />
                     )}
                   </div>
                   <div className="space-y-1">
@@ -2697,6 +2775,27 @@ export default function Inventory() {
                 </div>
               </div>
 
+              {/* Tab Bar */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit max-w-full overflow-x-auto">
+                {detailTabs.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setDetailTab(t.id)}
+                    className={cn(
+                      'px-3.5 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors cursor-pointer',
+                      activeTab === t.id
+                        ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === 'general' && (
+              <div className="space-y-4">
               {/* Price & Shelf Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl">
@@ -2728,7 +2827,37 @@ export default function Inventory() {
                 </div>
               </div>
 
-              {/* TDHP Muhasebe Entegrasyon Kartı */}
+              {/* Defined Color Options */}
+              {selectedProduct.colors && selectedProduct.colors.length > 0 && (
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-indigo-600" /> Tanımlı Renk Seçenekleri
+                    </h4>
+                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                      {selectedProduct.colors.length} Renk
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {selectedProduct.colors.map(c => {
+                      const sw = getColorSwatch(c);
+                      return (
+                        <span
+                          key={c}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase text-slate-800 dark:text-slate-200 shadow-sm"
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full border flex-shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+                          {c}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              </div>
+              )}
+
+              {activeTab === 'tdhp' && (
               <div className="p-4 bg-indigo-50/50 border border-indigo-200/80 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-black text-indigo-950 uppercase tracking-wider flex items-center gap-2">
@@ -2770,52 +2899,83 @@ export default function Inventory() {
                   </div>
                 </div>
               </div>
-
-              {/* Defined Color Options (For all categories: Suni Deri, Kumaş, Bağcık, Mostra, Ayakkabı vs.) */}
-              {selectedProduct.colors && selectedProduct.colors.length > 0 && (
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                      <Palette className="w-4 h-4 text-indigo-600" /> Tanımlı Renk Seçenekleri
-                    </h4>
-                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
-                      {selectedProduct.colors.length} Renk
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {selectedProduct.colors.map(c => (
-                      <span
-                        key={c}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase text-slate-800 dark:text-slate-200 shadow-sm"
-                      >
-                        <span className="w-2 h-2 rounded-full bg-indigo-600" />
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
               )}
 
-              {/* Size Matrix Breakdown (If available) */}
-              {(selectedProduct.hasSizeVariants || selectedProduct.isFootwear) && selectedProduct.variantBarcodes && selectedProduct.variantBarcodes.length > 0 && (
-                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+              {activeTab === 'stock' && hasMatrix && (
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
                       <Grid className="w-4 h-4 text-indigo-600" /> Beden & Numara Bazlı Stok Dağılımı
                     </h4>
                     <span className="text-[10px] font-bold text-slate-400">
-                      {selectedProduct.variantBarcodes.length} Varyant
+                      {vbs.length} Varyant
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {selectedProduct.variantBarcodes.map((vb, idx) => (
-                      <div key={idx} className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center space-y-0.5 shadow-sm">
-                        <div className="text-[9px] font-black text-slate-400 uppercase truncate">{vb.color}</div>
-                        <div className="text-xs font-black text-slate-800 dark:text-slate-200">No: {vb.size}</div>
-                        <div className="text-sm font-black text-indigo-600 font-mono">{vb.stock || 0}</div>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+                    <table className="w-full border-collapse text-center">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                          <th className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Renk</th>
+                          {matrixSizes.map(s => (
+                            <th key={s} className="px-2 py-2 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                              No: {s}
+                            </th>
+                          ))}
+                          <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-700">Toplam</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matrixColors.map(color => {
+                          const sw = getColorSwatch(color);
+                          return (
+                            <tr key={color} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="px-3 py-2 text-left whitespace-nowrap">
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase text-slate-800 dark:text-slate-200">
+                                  <span className="w-2.5 h-2.5 rounded-full border flex-shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+                                  {color}
+                                </span>
+                              </td>
+                              {matrixSizes.map(s => {
+                                const v = cellOf(color, s);
+                                return (
+                                  <td key={s} className="px-2 py-1.5 border-l border-slate-100 dark:border-slate-800">
+                                    {v ? (
+                                      <div className="space-y-0.5">
+                                        <div className={cn('text-sm font-black font-mono', (v.stock || 0) > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400')}>
+                                          {v.stock || 0}
+                                        </div>
+                                        <div className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 max-w-[7.5rem] truncate mx-auto" title={v.barcode}>
+                                          {v.barcode}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 dark:text-slate-500">-</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="px-3 py-2 border-l border-slate-200 dark:border-slate-700 text-xs font-black font-mono text-slate-700 dark:text-slate-200">
+                                {matrixSizes.reduce((sum, s) => sum + (cellOf(color, s)?.stock || 0), 0)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
+                          <td className="px-3 py-2 text-left text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Toplam</td>
+                          {matrixSizes.map(s => (
+                            <td key={s} className="px-2 py-2 border-l border-slate-200 dark:border-slate-700 text-[11px] font-black font-mono text-slate-600 dark:text-slate-300">
+                              {matrixColors.reduce((sum, c) => sum + (cellOf(c, s)?.stock || 0), 0)}
+                            </td>
+                          ))}
+                          <td className="px-3 py-2 border-l border-slate-200 dark:border-slate-700 text-[11px] font-black font-mono text-indigo-600 dark:text-indigo-400">
+                            {vbs.reduce((sum, v) => sum + (v.stock || 0), 0)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </div>
               )}
@@ -2872,7 +3032,7 @@ export default function Inventory() {
                   <button
                     onClick={() => {
                       setIsDetailModalOpen(false);
-                      setIsPrintModalOpen(true);
+                      if (selectedProduct?.id) navigate(`/inventory/barcode?product=${selectedProduct.id}`);
                     }}
                     className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors"
                   >
@@ -3117,16 +3277,6 @@ export default function Inventory() {
       </Modal>
 
       {/* ========================================================================= */}
-      {/* BARCODE PRINT MODAL                                                      */}
-      {/* ========================================================================= */}
-      <BarcodePrintModal
-        isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
-        product={selectedProduct}
-        templates={templates}
-      />
-
-      {/* ========================================================================= */}
       {/* STOK KART EKSTRESİ & HAREKET RAPORU MODAL                               */}
       {/* ========================================================================= */}
       <Modal
@@ -3288,77 +3438,13 @@ export default function Inventory() {
             </div>
 
             {/* Movement Ledger Table */}
-            <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
-              <div className="max-h-[380px] overflow-y-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4">Tarih & Saat</th>
-                      <th className="py-3 px-3">Hareket Tipi</th>
-                      <th className="py-3 px-3">Renk / Beden</th>
-                      <th className="py-3 px-3 text-right">Giriş (+)</th>
-                      <th className="py-3 px-3 text-right">Çıkış (-)</th>
-                      <th className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-200">Yürüyen Bakiye</th>
-                      <th className="py-3 px-4">Açıklama / Belge</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs font-semibold">
-                    {productLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-12 text-center text-slate-400">
-                          <Receipt className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-slate-600">Henüz Stok Hareketi Bulunmuyor</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Seçilen kriterlere uygun stok kartı hareketi kaydedilmedi.</p>
-                        </td>
-                      </tr>
-                    ) : (
-                      productLogs.map((log, idx) => {
-                        const qty = Number(log.quantity) || 0;
-                        const isIn = qty > 0;
-                        const dateFormatted = log.date ? format(new Date(log.date), 'dd.MM.yyyy HH:mm', { locale: tr }) : '-';
-                        
-                        const typeBadge = 
-                          log.type === 'in' ? { label: 'Stok Girişi', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' } :
-                          log.type === 'out' ? { label: 'Stok Çıkışı', bg: 'bg-rose-50 text-rose-700 border-rose-200' } :
-                          log.type === 'production_in' ? { label: 'Üretim Girişi', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' } :
-                          log.type === 'production_out' ? { label: 'Hammadde Sarf', bg: 'bg-amber-50 text-amber-700 border-amber-200' } :
-                          { label: log.type, bg: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700' };
-
-                        const variantText = [log.color, log.size].filter(Boolean).join(' / ') || '-';
-
-                        return (
-                          <tr key={log.id || idx} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                            <td className="py-3 px-4 font-mono text-[11px] text-slate-600">
-                              {dateFormatted}
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold border", typeBadge.bg)}>
-                                {typeBadge.label}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-slate-700 dark:text-slate-200 text-[11px]">
-                              {variantText}
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
-                              {isIn ? `+${qty}` : '-'}
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold text-rose-600">
-                              {!isIn ? `-${Math.abs(qty)}` : '-'}
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-black text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-800/50/50">
-                              {log.runningBalance} <span className="text-[10px] text-slate-400 font-semibold">{selectedProduct.unit}</span>
-                            </td>
-                            <td className="py-3 px-4 text-slate-600 text-[11px]">
-                              {log.description || '-'}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <DataGrid<(typeof productLogs)[number]>
+              columns={statementColumns}
+              data={productLogs}
+              rowKey={(log) => log.id ?? `${log.date}-${log.quantity}-${log.runningBalance}`}
+              maxHeight="380px"
+              emptyMessage="Seçilen kriterlere uygun stok kartı hareketi kaydedilmedi."
+            />
           </div>
         )}
       </Modal>

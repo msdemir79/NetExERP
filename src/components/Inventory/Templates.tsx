@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { Hash, Plus, Trash2, Ruler, Barcode, Layers, Sparkles } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Trash2, Ruler, Barcode } from 'lucide-react';
 import { erpService } from '../../services/erpService';
+import DataGrid, { GridColumn } from '../Common/DataGrid';
+import { AssortmentTemplate } from '../../types';
 import { BarcodeTemplatesManager } from './BarcodeTemplatesManager';
 import { cn } from '../../lib/utils';
 
@@ -49,6 +50,43 @@ export default function Templates() {
       await api.assortmentTemplates.remove(id);
     }
   };
+
+  const templateColumns = React.useMemo<GridColumn<AssortmentTemplate>[]>(() => [
+    {
+      key: 'name',
+      title: 'Şablon Adı',
+      render: (t) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-500 shrink-0">
+            <Ruler className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tight">{t.name}</h4>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+              TOPLAM: {t.items.reduce((acc, curr) => acc + curr.quantity, 0)} ÇİFT / KOLİ
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'items',
+      title: 'Beden Dağılımı',
+      filterable: false,
+      render: (t) => (
+        <div className="flex flex-wrap gap-2">
+          {t.items.map((item, i) => (
+            <div key={i} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg flex flex-col items-center min-w-[50px]">
+              <span className="text-[9px] font-bold text-slate-400 uppercase">NO</span>
+              <span className="text-xs font-black text-slate-700 dark:text-slate-200">{item.size}</span>
+              <div className="w-full h-px bg-slate-200 dark:bg-slate-700 my-1" />
+              <span className="text-[10px] font-bold text-indigo-600">{item.quantity}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+  ], []);
 
   return (
     <div className="space-y-6">
@@ -176,56 +214,21 @@ export default function Templates() {
           </div>
 
           {/* Existing Templates List */}
-          <div className="lg:col-span-2 space-y-4">
-            <AnimatePresence>
-              {assortmentTemplates?.map((t) => (
-                <motion.div 
-                  key={t.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-200 dark:hover:border-indigo-800 transition-all group"
+          <div className="lg:col-span-2">
+            <DataGrid
+              columns={templateColumns}
+              data={assortmentTemplates}
+              rowKey={(t) => t.id ?? t.name}
+              emptyMessage="Henüz hiçbir asorti şablonu tanımlanmadı."
+              rowActions={(t) => (
+                <button
+                  onClick={() => t.id && deleteTemplate(t.id)}
+                  className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all cursor-pointer"
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-500">
-                        <Ruler className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-tight">{t.name}</h4>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                          TOPLAM: {t.items.reduce((acc, curr) => acc + curr.quantity, 0)} ÇİFT / KOLİ
-                        </p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => t.id && deleteTemplate(t.id)}
-                      className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2">
-                    {t.items.map((item, i) => (
-                      <div key={i} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg flex flex-col items-center min-w-[50px]">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">NO</span>
-                        <span className="text-xs font-black text-slate-700 dark:text-slate-200">{item.size}</span>
-                        <div className="w-full h-px bg-slate-200 dark:bg-slate-700 my-1" />
-                        <span className="text-[10px] font-bold text-indigo-600">{item.quantity}</span>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            {assortmentTemplates?.length === 0 && (
-              <div className="text-center py-20 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                <Hash className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Henüz hiçbir asorti şablonu tanımlanmadı.</p>
-              </div>
-            )}
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            />
           </div>
         </div>
       )}

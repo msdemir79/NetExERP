@@ -62,12 +62,19 @@ export function printHtml(htmlContent: string, options: PrintOptions = {}): Prom
         ? `@page { size: ${options.widthMm}mm ${options.heightMm}mm; margin: 0; }`
         : `@page { margin: 4mm; size: ${options.landscape ? 'landscape' : 'auto'}; }`;
 
+      // Ekrandaki birebir görünüm için uygulamanın aktif stil sayfalarını da taşı
+      // (Tailwind sınıfları olmadan yazdırma çıktısında düzen çöküyordu).
+      const activeStyles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+        .map(el => el.outerHTML)
+        .join('\n');
+
       const fullHtml = `
         <!DOCTYPE html>
         <html lang="tr">
           <head>
             <meta charset="UTF-8">
             <title>${title}</title>
+            ${activeStyles}
             <style>
               ${pageSizeCss}
               *, *::before, *::after {

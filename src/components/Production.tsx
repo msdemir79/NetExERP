@@ -58,6 +58,7 @@ import ProductionRefakatKartiModal from './Production/ProductionRefakatKartiModa
 import BomConsumptionModal from './Production/BomConsumptionModal';
 import { RecipeModal } from './Production/RecipeModal';
 import CameraBarcodeScannerModal, { type ScannerMode } from './Common/CameraBarcodeScannerModal';
+import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
 import { PurchaseOrderPrintModal } from './Orders/PurchaseOrderPrintModal';
 import ProductionReport from './Reports/ProductionReport';
 import { printElement, openPrintWindow } from '../lib/printService';
@@ -224,11 +225,431 @@ export default function Production() {
   }[]>([]);
 
   const barcodeInputRef = React.useRef<HTMLInputElement>(null);
+
+  type ScanHistoryRow = {
+    id: string;
+    barcode: string;
+    productName: string;
+    prevStage: string;
+    newStage: string;
+    time: string;
+  };
+
+  const scanHistoryColumns = React.useMemo<GridColumn<ScanHistoryRow>[]>(() => [
+    {
+      key: 'time', title: 'Saat', width: 'w-24',
+      render: (hist) => <span className="font-mono font-bold text-slate-500 dark:text-slate-400">{hist.time}</span>,
+    },
+    {
+      key: 'barcode', title: 'Barkod',
+      render: (hist) => <span className="font-mono font-black text-indigo-600">{hist.barcode}</span>,
+      filterValue: (hist) => hist.barcode,
+    },
+    {
+      key: 'productName', title: 'Model / Ürün',
+      render: (hist) => <span className="font-black text-slate-900 dark:text-slate-100">{hist.productName}</span>,
+      filterValue: (hist) => hist.productName,
+    },
+    {
+      key: 'prevStage', title: 'Önceki Aşama',
+      render: (hist) => <span className="font-bold text-slate-500 dark:text-slate-400">{hist.prevStage}</span>,
+      filterValue: (hist) => hist.prevStage,
+    },
+    {
+      key: 'newStage', title: 'Yeni Aşama',
+      render: (hist) => <span className="font-black text-emerald-600">{hist.newStage}</span>,
+      filterValue: (hist) => hist.newStage,
+    },
+    {
+      key: 'status', title: 'Durum', align: 'center', width: 'w-28', sortable: false,
+      render: () => <StatusPill tone="green" className="text-[9px] uppercase">Tamamlandı</StatusPill>,
+      filterable: false,
+    },
+  ], []);
+
   const [mrpWoFilter, setMrpWoFilter] = React.useState<string>('all');
 
   // Helper Maps
   const productMap = React.useMemo(() => new Map((products || []).map(p => [p.id!, p])), [products]);
   const recipeMap = React.useMemo(() => new Map((recipes || []).map(r => [r.productId, r])), [recipes]);
+
+  // MRP DataGrid columns (custom checkbox column + in-cell matrix expansion)
+  const mrpColumns = React.useMemo<GridColumn<MrpRequirementItem>[]>(() => [
+    {
+      key: '_select', title: '', width: 'w-10', sortable: false, filterable: false,
+      render: (item) => {
+        const itemKey = getMrpKey(item);
+        const isSelected = selectedMrpKeys.includes(itemKey);
+        const isShortage = item.status === 'shortage' && item.shortageQuantity > 0;
+        const isPoCreated = item.status === 'po_created';
+        return (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            disabled={!isShortage}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelectedMrpKeys([...selectedMrpKeys, itemKey]);
+              } else {
+                setSelectedMrpKeys(selectedMrpKeys.filter(k => k !== itemKey));
+              }
+            }}
+            title={
+              isPoCreated
+                ? "Bu malzeme için Satın Alma Siparişi zaten oluşturuldu. Mükerrer sipariş engellendi."
+                : !isShortage
+                  ? "Mevcut stok yeterli."
+                  : "Satın alma siparişi oluşturmak için seçin"
+            }
+            className="rounded text-indigo-600 focus:ring-indigo-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+          />
+        );
+      },
+    },
+    {
+      key: 'rawMaterialName', title: 'Hammadde Kodu & Adı',
+      render: (item) => {
+        const itemKey = getMrpKey(item);
+        const isMatrixExpanded = expandedMatrixKeys.includes(itemKey);
+        return (
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-black text-slate-900 dark:text-slate-100">{item.rawMaterialName}</span>
+              {item.color && (
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  Renk: {item.color}
+                </span>
+              )}
+              {item.subType && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                  {item.subType}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] font-mono text-slate-400 mt-0.5">{item.rawMaterialCode}</div>
+
+            {item.affectedWorkOrders && item.affectedWorkOrders.length > 0 && (
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                <span className="text-[9px] font-bold text-slate-400">İş Emirleri ({item.affectedWorkOrders.length}):</span>
+                {item.affectedWorkOrders.map((wo, woIdx) => (
+                  <span
+                    key={`wo-badge-${itemKey}-${wo.workOrderId}-${woIdx}`}
+                    className="inline-flex items-center gap-1 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
+                    title={`${wo.modelName} — ${wo.quantity} Çift`}
+                  >
+                    <span>{wo.barcode} ({wo.quantity} Çift)</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {item.activePurchaseOrders && item.activePurchaseOrders.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {item.activePurchaseOrders.map((po, poIdx) => (
+                  <span
+                    key={`mrp-po-tag-${itemKey}-${po.orderId}-${poIdx}`}
+                    className="inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
+                    title={`${po.supplierName || 'Tedarikçi'} firmasından ${po.quantity} ${item.unit} sipariş edildi`}
+                  >
+                    <Truck className="w-2.5 h-2.5 text-sky-500" />
+                    <span>SAS: <b>{po.orderNumber}</b> ({po.quantity} {item.unit})</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isMatrixExpanded) {
+                      setExpandedMatrixKeys(expandedMatrixKeys.filter(k => k !== itemKey));
+                    } else {
+                      setExpandedMatrixKeys([...expandedMatrixKeys, itemKey]);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Layers className="w-3 h-3" />
+                  <span>Beden Asorti Matrisi ({item.sizeBreakdown.length} Beden)</span>
+                  <span className="text-[9px] font-mono font-black">{isMatrixExpanded ? '▲ Gizle' : '▼ Detay'}</span>
+                </button>
+              </div>
+            )}
+
+            {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && isMatrixExpanded && (
+              <div className="mt-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/60 shadow-xs space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-black text-indigo-900 dark:text-indigo-200">
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                    {item.rawMaterialName} ({item.color ? `Renk: ${item.color}` : 'Tüm Renkler'}) — Beden / Asorti Detayı:
+                  </span>
+                  <span className="text-slate-500 font-normal">
+                    {item.unit || 'Çift'} bazında dağılım
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                  {item.sizeBreakdown.map((sb, sbIdx) => {
+                    const isSbShortage = sb.shortage > 0;
+                    const isSbOnOrder = (sb.onOrderQuantity || 0) > 0 && sb.shortage === 0;
+
+                    return (
+                      <div
+                        key={`sb-chip-${itemKey}-${sb.size}-${sbIdx}`}
+                        className={cn(
+                          "p-2 rounded-lg border text-center space-y-0.5 transition-all",
+                          isSbShortage
+                            ? "bg-rose-50/60 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50"
+                            : isSbOnOrder
+                              ? "bg-sky-50/50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900/50"
+                              : "bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
+                        )}
+                      >
+                        <div className="text-xs font-black text-slate-800 dark:text-slate-100">
+                          Beden {sb.size}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                          İhtiyaç: <b className="text-slate-900 dark:text-slate-100">{sb.required}</b>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
+                          Stok: <b className="text-slate-700 dark:text-slate-300">{sb.currentStock}</b>
+                        </div>
+                        {sb.onOrderQuantity && sb.onOrderQuantity > 0 ? (
+                          <div className="text-[10px] text-sky-600 dark:text-sky-400 font-semibold">
+                            Yolda: <b>+{sb.onOrderQuantity}</b>
+                          </div>
+                        ) : null}
+                        <div className="text-[10px] font-black pt-0.5 border-t border-slate-200 dark:border-slate-700">
+                          {isSbShortage ? (
+                            <span className="text-rose-600 dark:text-rose-400">Eksik: {sb.shortage}</span>
+                          ) : isSbOnOrder ? (
+                            <span className="text-sky-600 dark:text-sky-400">Siparişte (+{sb.onOrderQuantity})</span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400">Yeterli</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      },
+      filterValue: (item) => `${item.rawMaterialName} ${item.rawMaterialCode} ${item.color || ''} ${item.subType || ''}`,
+    },
+    {
+      key: 'preferredSupplierName', title: 'Öncelikli Tedarikçi', width: 'w-44',
+      render: (item) => item.preferredSupplierName ? (
+        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/40">
+          <Building2 className="w-3 h-3 text-indigo-500 shrink-0" />
+          <span className="truncate max-w-[130px]">{item.preferredSupplierName}</span>
+        </div>
+      ) : (
+        <span className="text-[11px] text-slate-400 italic">Genel / Tanımsız</span>
+      ),
+      filterValue: (item) => item.preferredSupplierName || 'Genel Tanımsız',
+    },
+    {
+      key: 'requiredQuantity', title: 'Toplam İhtiyaç', align: 'right', width: 'w-32',
+      render: (item) => (
+        <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+          {formatQuantity(item.requiredQuantity)} {item.unit}
+        </span>
+      ),
+      filterValue: (item) => `${item.requiredQuantity ?? 0}`,
+    },
+    {
+      key: 'currentStock', title: 'Mevcut Stok / Yolda', align: 'right', width: 'w-40',
+      render: (item) => (
+        <div className="text-right">
+          <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+            {formatQuantity(item.currentStock)} {item.unit}
+          </div>
+          {item.warehouseStock !== undefined && item.warehouseStock !== item.currentStock && (
+            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+              Depo Kartı: {formatQuantity(item.warehouseStock)} {item.unit}
+            </div>
+          )}
+          {item.onOrderQuantity && item.onOrderQuantity > 0 ? (
+            <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400 flex items-center justify-end gap-1 mt-0.5">
+              <Truck className="w-3 h-3" />
+              <span>Yolda (SAS): +{formatQuantity(item.onOrderQuantity)} {item.unit}</span>
+            </div>
+          ) : null}
+        </div>
+      ),
+      filterValue: (item) => `${item.currentStock ?? 0}`,
+    },
+    {
+      key: 'shortageQuantity', title: 'Net Eksik / Fazla', align: 'right', width: 'w-36',
+      render: (item) => {
+        const isShortage = item.status === 'shortage' && item.shortageQuantity > 0;
+        const isPoCreated = item.status === 'po_created';
+        if (isShortage) {
+          return (
+            <span className="text-xs font-black text-rose-600 bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 rounded">
+              -{formatQuantity(item.shortageQuantity)} {item.unit}
+            </span>
+          );
+        }
+        if (isPoCreated) {
+          return (
+            <span className="text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800 inline-block">
+              Siparişte (+{formatQuantity(item.onOrderQuantity || 0)} {item.unit})
+            </span>
+          );
+        }
+        return (
+          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+            +{formatQuantity(item.currentStock - item.requiredQuantity)} {item.unit} (Yeterli)
+          </span>
+        );
+      },
+      filterValue: (item) => `${item.shortageQuantity ?? 0}`,
+    },
+    {
+      key: 'status', title: 'Durum', align: 'center', width: 'w-32',
+      render: (item) => {
+        const isShortage = item.status === 'shortage' && item.shortageQuantity > 0;
+        const isPoCreated = item.status === 'po_created';
+        if (isShortage) return <StatusPill tone="red" className="text-[9px] uppercase">Kritik Eksik</StatusPill>;
+        if (isPoCreated) return <StatusPill tone="blue" className="text-[9px] uppercase"><Truck className="w-3 h-3" /> Sipariş Açıldı</StatusPill>;
+        return <StatusPill tone="green" className="text-[9px] uppercase">Stok Yeterli</StatusPill>;
+      },
+      filterValue: (item) => {
+        const isShortage = item.status === 'shortage' && item.shortageQuantity > 0;
+        const isPoCreated = item.status === 'po_created';
+        if (isShortage) return 'Kritik Eksik';
+        if (isPoCreated) return 'Sipariş Açıldı';
+        return 'Stok Yeterli';
+      },
+    },
+    {
+      key: 'estimatedCost', title: 'Tahmini Maliyet', align: 'right', width: 'w-32',
+      render: (item) => (
+        <div className="text-right">
+          <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+            {item.estimatedCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+          </div>
+          <div className="text-[9px] text-slate-400">
+            Birim: {item.buyingPrice.toLocaleString('tr-TR')} ₺
+          </div>
+        </div>
+      ),
+      filterValue: (item) => `${item.estimatedCost ?? 0}`,
+    },
+  ], [selectedMrpKeys, expandedMatrixKeys]);
+
+  // PO Modal items DataGrid columns
+  const poModalColumns = React.useMemo<GridColumn<MrpRequirementItem>[]>(() => [
+    {
+      key: 'rawMaterialName', title: 'Hammadde / Malzeme',
+      render: (item) => {
+        const itemKey = getMrpKey(item);
+        return (
+          <div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-slate-900 dark:text-slate-100">{item.rawMaterialName}</span>
+              {item.color && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                  Renk: {item.color}
+                </span>
+              )}
+              {item.subType && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold">
+                  {item.subType}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] font-mono text-slate-400">{item.rawMaterialCode}</div>
+
+            {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {item.sizeBreakdown.filter(sb => sb.shortage > 0).map((sb, sbIdx) => (
+                  <span
+                    key={`po-chip-${itemKey}-${sb.size}-${sbIdx}`}
+                    className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
+                  >
+                    {sb.size}: {sb.shortage} {item.unit || 'Çift'}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      },
+      filterValue: (item) => `${item.rawMaterialName} ${item.rawMaterialCode} ${item.color || ''} ${item.subType || ''}`,
+    },
+    {
+      key: 'shortageQuantity', title: 'Eksik Miktar', align: 'right', width: 'w-32',
+      render: (item) => (
+        <span className="font-black text-rose-600">
+          {formatQuantity(item.shortageQuantity)} {item.unit}
+        </span>
+      ),
+      filterValue: (item) => `${item.shortageQuantity ?? 0}`,
+    },
+    {
+      key: 'supplier', title: 'Tedarikçi Firma',
+      render: (item) => {
+        const itemKey = getMrpKey(item);
+        const currentSupId = itemSuppliers[itemKey] || itemSuppliers[String(item.rawMaterialId)] || item.preferredSupplierId || 0;
+        const isPredefined = item.preferredSupplierId && currentSupId === item.preferredSupplierId;
+        return (
+          <div className="flex items-center gap-2">
+            <select
+              value={currentSupId || ''}
+              onChange={e => {
+                const val = Number(e.target.value) || 0;
+                setItemSuppliers(prev => {
+                  const updated = { ...prev, [itemKey]: val, [String(item.rawMaterialId)]: val };
+                  mrpResult?.items.forEach(otherItem => {
+                    if (otherItem.rawMaterialId === item.rawMaterialId) {
+                      updated[getMrpKey(otherItem)] = val;
+                    }
+                  });
+                  return updated;
+                });
+              }}
+              className="w-full max-w-[200px] border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-bold bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
+            >
+              <option value="">Tedarikçi Seçin...</option>
+              {contacts?.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
+                <option key={`po-sup-opt-${itemKey}-${c.id}`} value={c.id}>
+                  {c.name} {c.id === item.preferredSupplierId ? '(Tanımlı)' : ''}
+                </option>
+              ))}
+            </select>
+            {isPredefined && (
+              <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded shrink-0">
+                Kayıtlı
+              </span>
+            )}
+          </div>
+        );
+      },
+      filterValue: (item) => {
+        const itemKey = getMrpKey(item);
+        const currentSupId = itemSuppliers[itemKey] || itemSuppliers[String(item.rawMaterialId)] || item.preferredSupplierId || 0;
+        const sup = contacts?.find(c => c.id === currentSupId);
+        return sup?.name || '';
+      },
+    },
+    {
+      key: 'estimatedCost', title: 'Tahmini Tutar', align: 'right', width: 'w-32',
+      render: (item) => (
+        <span className="font-black text-slate-900 dark:text-slate-100">
+          {item.estimatedCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+        </span>
+      ),
+      filterValue: (item) => `${item.estimatedCost ?? 0}`,
+    },
+  ], [itemSuppliers, contacts, mrpResult]);
+
 
   // Run initial MRP calculation when tab opens or on demand
   const handleCalculateMRP = async (targetIds?: number[]) => {
@@ -290,6 +711,77 @@ export default function Production() {
       };
     });
   }, [orders, orderItems, workOrders, contacts, productMap]);
+
+  // Orders Pool DataGrid columns
+  const ordersPoolColumns = React.useMemo<GridColumn<(typeof pendingSalesOrders)[number]>[]>(() => [
+    {
+      key: 'orderNumber', title: 'Sipariş No',
+      render: (order) => (
+        <div>
+          <div className="text-sm font-black text-slate-900 dark:text-slate-100">{order.orderNumber}</div>
+          <span className="text-[9px] font-bold text-slate-400 uppercase">Satış Siparişi</span>
+        </div>
+      ),
+      filterValue: (order) => order.orderNumber || '',
+    },
+    {
+      key: 'contactName', title: 'Müşteri / Cari',
+      render: (order) => <div className="text-xs font-black text-slate-800 dark:text-slate-200">{order.contactName}</div>,
+      filterValue: (order) => order.contactName || '',
+    },
+    {
+      key: 'date', title: 'Sipariş & Termin Tarihi', width: 'w-44',
+      render: (order) => (
+        <div>
+          <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+            {new Date(order.date).toLocaleDateString('tr-TR')}
+          </div>
+          {order.deliveryDate && (
+            <div className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> Termin: {new Date(order.deliveryDate).toLocaleDateString('tr-TR')}
+            </div>
+          )}
+        </div>
+      ),
+      filterValue: (order) => `${new Date(order.date).toLocaleDateString('tr-TR')} ${order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString('tr-TR') : ''}`,
+    },
+    {
+      key: 'items', title: 'Ürün Kalemleri',
+      render: (order) => (
+        <div className="space-y-1">
+          {order.items.map((item, idx) => {
+            const prod = productMap.get(item.productId);
+            const hasRecipe = recipeMap.has(item.productId);
+            return (
+              <div key={idx} className="flex items-center gap-2 text-xs">
+                <span className="font-bold text-slate-800 dark:text-slate-200">{prod?.name || 'Ürün'}</span>
+                <span className="text-slate-400 font-medium">({item.quantity} Adet)</span>
+                {!hasRecipe && (
+                  <button
+                    type="button"
+                    onClick={() => openRecipeModalForProduct(item.productId)}
+                    className="text-[9px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded hover:bg-amber-100"
+                  >
+                    + Reçete Yaz
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ),
+      filterValue: (order) => order.items.map(item => `${productMap.get(item.productId)?.name || ''} ${item.quantity}`).join(' '),
+    },
+    {
+      key: 'hasMissingWorkOrders', title: 'Üretim Durumu', width: 'w-56',
+      render: (order) => order.hasMissingWorkOrders ? (
+        <StatusPill tone="amber" className="text-[9px] uppercase"><Clock className="w-3 h-3" /> Plana Alınmayı Bekliyor</StatusPill>
+      ) : (
+        <StatusPill tone="green" className="text-[9px] uppercase"><CheckCircle2 className="w-3 h-3" /> Üretim Planında ({order.workOrderCount} İş Emri)</StatusPill>
+      ),
+      filterValue: (order) => order.hasMissingWorkOrders ? 'Plana Alınmayı Bekliyor' : 'Üretim Planında',
+    },
+  ], [productMap, recipeMap]);
 
   // Stage Helpers
   const getStageInfo = (stageId: ProductionStage) => {
@@ -1181,98 +1673,21 @@ export default function Production() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sipariş No</th>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Müşteri / Cari</th>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sipariş & Termin Tarihi</th>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ürün Kalemleri</th>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Üretim Durumu</th>
-                    <th className="p-4 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">İşlem</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {pendingSalesOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-12 text-center text-slate-400 font-bold text-xs uppercase">
-                        Kayıtlı satış siparişi bulunamadı.
-                      </td>
-                    </tr>
-                  ) : (
-                    pendingSalesOrders.map(order => {
-                      return (
-                        <tr key={order.id} className="hover:bg-slate-50 dark:bg-slate-800/50/70 transition-colors">
-                          <td className="p-4">
-                            <div className="text-sm font-black text-slate-900 dark:text-slate-100">{order.orderNumber}</div>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase">Satış Siparişi</span>
-                          </td>
-                          <td className="p-4">
-                            <div className="text-xs font-black text-slate-800 dark:text-slate-200">{order.contactName}</div>
-                          </td>
-                          <td className="p-4">
-                            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                              {new Date(order.date).toLocaleDateString('tr-TR')}
-                            </div>
-                            {order.deliveryDate && (
-                              <div className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
-                                <Calendar className="w-3 h-3" /> Termin: {new Date(order.deliveryDate).toLocaleDateString('tr-TR')}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-4">
-                            <div className="space-y-1">
-                              {order.items.map((item, idx) => {
-                                const prod = productMap.get(item.productId);
-                                const hasRecipe = recipeMap.has(item.productId);
-                                return (
-                                  <div key={idx} className="flex items-center gap-2 text-xs">
-                                    <span className="font-bold text-slate-800 dark:text-slate-200">{prod?.name || 'Ürün'}</span>
-                                    <span className="text-slate-400 font-medium">({item.quantity} Adet)</span>
-                                    {!hasRecipe && (
-                                      <button
-                                        type="button"
-                                        onClick={() => openRecipeModalForProduct(item.productId)}
-                                        className="text-[9px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded hover:bg-amber-100"
-                                      >
-                                        + Reçete Yaz
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            {order.hasMissingWorkOrders ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-                                <Clock className="w-3 h-3" /> Plana Alınmayı Bekliyor
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                <CheckCircle2 className="w-3 h-3" /> Üretim Planında ({order.workOrderCount} İş Emri)
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleTransferOrderToProduction(order.id!)}
-                              className="px-4 py-2 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-xs"
-                            >
-                              ⚡ Üretim Planına Al
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataGrid
+            columns={ordersPoolColumns}
+            data={pendingSalesOrders}
+            rowKey="id"
+            emptyMessage="Kayıtlı satış siparişi bulunamadı."
+            rowActions={(order) => (
+              <button
+                type="button"
+                onClick={() => handleTransferOrderToProduction(order.id!)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-xs whitespace-nowrap"
+              >
+                ⚡ Üretim Planına Al
+              </button>
+            )}
+          />
         </div>
       )}
 
@@ -1374,297 +1789,35 @@ export default function Production() {
               ) : null}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 dark:bg-slate-800/50/50 border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider w-10">
-                      {(() => {
-                        const shortages = mrpResult?.items.filter(i => i.status === 'shortage' && i.shortageQuantity > 0) || [];
-                        const allShortagesSelected = shortages.length > 0 && shortages.every(i => selectedMrpKeys.includes(getMrpKey(i)));
-                        return (
-                          <input
-                            type="checkbox"
-                            checked={allShortagesSelected}
-                            disabled={shortages.length === 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedMrpKeys(shortages.map(i => getMrpKey(i)));
-                              } else {
-                                setSelectedMrpKeys([]);
-                              }
-                            }}
-                            className="rounded text-indigo-600 focus:ring-indigo-500 disabled:opacity-30"
-                            title={shortages.length === 0 ? "Sipariş verilecek yeni eksik hammadde bulunmuyor" : "Tüm eksikleri seç"}
-                          />
-                        );
-                      })()}
-                    </th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Hammadde Kodu & Adı</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Öncelikli Tedarikçi</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Toplam İhtiyaç</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Mevcut Stok / Yolda</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Net Eksik / Fazla</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-center">Durum</th>
-                    <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Tahmini Maliyet</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {!mrpResult || mrpResult.items.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="p-12 text-center text-slate-400 font-bold text-xs uppercase">
-                        Aktif üretim emirlerinde hammadde ihtiyacı bulunamadı veya reçete tanımlanmamış.
-                      </td>
-                    </tr>
-                  ) : (
-                    mrpResult.items.map((item, itemIdx) => {
-                      const itemKey = getMrpKey(item);
-                      const isSelected = selectedMrpKeys.includes(itemKey);
-                      const isMatrixExpanded = expandedMatrixKeys.includes(itemKey);
-                      const isShortage = item.status === 'shortage' && item.shortageQuantity > 0;
-                      const isPoCreated = item.status === 'po_created';
-
-                      return (
-                        <React.Fragment key={`mrp-row-frag-${itemKey}-${itemIdx}`}>
-                          <tr 
-                            className={cn(
-                              "hover:bg-slate-50 dark:bg-slate-800/50 transition-colors",
-                              isShortage && "bg-rose-50/30 dark:bg-rose-950/20",
-                              isPoCreated && "bg-sky-50/25 dark:bg-sky-950/20"
-                            )}
-                          >
-                            <td className="p-4 align-top">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                disabled={!isShortage}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedMrpKeys([...selectedMrpKeys, itemKey]);
-                                  } else {
-                                    setSelectedMrpKeys(selectedMrpKeys.filter(k => k !== itemKey));
-                                  }
-                                }}
-                                title={
-                                  isPoCreated 
-                                    ? "Bu malzeme için Satın Alma Siparişi zaten oluşturuldu. Mükerrer sipariş engellendi." 
-                                    : !isShortage 
-                                      ? "Mevcut stok yeterli." 
-                                      : "Satın alma siparişi oluşturmak için seçin"
-                                }
-                                className="rounded text-indigo-600 focus:ring-indigo-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                              />
-                            </td>
-                            <td className="p-4 align-top">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-black text-slate-900 dark:text-slate-100">{item.rawMaterialName}</span>
-                                {item.color && (
-                                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                    Renk: {item.color}
-                                  </span>
-                                )}
-                                {item.subType && (
-                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                    {item.subType}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] font-mono text-slate-400 mt-0.5">{item.rawMaterialCode}</div>
-
-                              {/* Affected Work Orders badge / tags */}
-                              {item.affectedWorkOrders && item.affectedWorkOrders.length > 0 && (
-                                <div className="mt-1 flex flex-wrap items-center gap-1">
-                                  <span className="text-[9px] font-bold text-slate-400">İş Emirleri ({item.affectedWorkOrders.length}):</span>
-                                  {item.affectedWorkOrders.map((wo, woIdx) => (
-                                    <span
-                                      key={`wo-badge-${itemKey}-${wo.workOrderId}-${woIdx}`}
-                                      className="inline-flex items-center gap-1 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
-                                      title={`${wo.modelName} — ${wo.quantity} Çift`}
-                                    >
-                                      <span>{wo.barcode} ({wo.quantity} Çift)</span>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Active PO tags linked to this material */}
-                              {item.activePurchaseOrders && item.activePurchaseOrders.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {item.activePurchaseOrders.map((po, poIdx) => (
-                                    <span
-                                      key={`mrp-po-tag-${itemKey}-${po.orderId}-${poIdx}`}
-                                      className="inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
-                                      title={`${po.supplierName || 'Tedarikçi'} firmasından ${po.quantity} ${item.unit} sipariş edildi`}
-                                    >
-                                      <Truck className="w-2.5 h-2.5 text-sky-500" />
-                                      <span>SAS: <b>{po.orderNumber}</b> ({po.quantity} {item.unit})</span>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Matrix badge & toggle button */}
-                              {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && (
-                                <div className="mt-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (isMatrixExpanded) {
-                                        setExpandedMatrixKeys(expandedMatrixKeys.filter(k => k !== itemKey));
-                                      } else {
-                                        setExpandedMatrixKeys([...expandedMatrixKeys, itemKey]);
-                                      }
-                                    }}
-                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    <Layers className="w-3 h-3" />
-                                    <span>Beden Asorti Matrisi ({item.sizeBreakdown.length} Beden)</span>
-                                    <span className="text-[9px] font-mono font-black">{isMatrixExpanded ? '▲ Gizle' : '▼ Detay'}</span>
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-4 align-top">
-                              {item.preferredSupplierName ? (
-                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/40">
-                                  <Building2 className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="truncate max-w-[130px]">{item.preferredSupplierName}</span>
-                                </div>
-                              ) : (
-                                <span className="text-[11px] text-slate-400 italic">Genel / Tanımsız</span>
-                              )}
-                            </td>
-                            <td className="p-4 text-right align-top">
-                              <span className="text-xs font-black text-slate-800 dark:text-slate-200">
-                                {formatQuantity(item.requiredQuantity)} {item.unit}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right align-top">
-                              <div className="text-xs font-black text-slate-800 dark:text-slate-200">
-                                {formatQuantity(item.currentStock)} {item.unit}
-                              </div>
-                              {item.warehouseStock !== undefined && item.warehouseStock !== item.currentStock && (
-                                <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                                  Depo Kartı: {formatQuantity(item.warehouseStock)} {item.unit}
-                                </div>
-                              )}
-                              {item.onOrderQuantity && item.onOrderQuantity > 0 ? (
-                                <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400 flex items-center justify-end gap-1 mt-0.5">
-                                  <Truck className="w-3 h-3" />
-                                  <span>Yolda (SAS): +{formatQuantity(item.onOrderQuantity)} {item.unit}</span>
-                                </div>
-                              ) : null}
-                            </td>
-                            <td className="p-4 text-right align-top">
-                              {isShortage ? (
-                                <span className="text-xs font-black text-rose-600 bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 rounded">
-                                  -{formatQuantity(item.shortageQuantity)} {item.unit}
-                                </span>
-                              ) : isPoCreated ? (
-                                <span className="text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800 inline-block">
-                                  Siparişte (+{formatQuantity(item.onOrderQuantity || 0)} {item.unit})
-                                </span>
-                              ) : (
-                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                                  +{formatQuantity(item.currentStock - item.requiredQuantity)} {item.unit} (Yeterli)
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-4 text-center align-top">
-                              {isShortage ? (
-                                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-100 text-rose-700 border border-rose-200">
-                                  Kritik Eksik
-                                </span>
-                              ) : isPoCreated ? (
-                                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800 inline-flex items-center justify-center gap-1">
-                                  <Truck className="w-3 h-3" /> Sipariş Açıldı
-                                </span>
-                              ) : (
-                                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-700 border border-emerald-200">
-                                  Stok Yeterli
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-4 text-right align-top">
-                              <div className="text-xs font-black text-slate-800 dark:text-slate-200">
-                                {item.estimatedCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-                              </div>
-                              <div className="text-[9px] text-slate-400">
-                                Birim: {item.buyingPrice.toLocaleString('tr-TR')} ₺
-                              </div>
-                            </td>
-                          </tr>
-
-                          {/* Expanded Size Assortment Breakdown */}
-                          {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && isMatrixExpanded && (
-                            <tr className="bg-slate-50/70 dark:bg-slate-850/60">
-                              <td colSpan={8} className="px-6 py-3">
-                                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/60 shadow-xs space-y-2">
-                                  <div className="flex items-center justify-between text-[11px] font-black text-indigo-900 dark:text-indigo-200">
-                                    <span className="flex items-center gap-1.5">
-                                      <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                                      {item.rawMaterialName} ({item.color ? `Renk: ${item.color}` : 'Tüm Renkler'}) — Beden / Asorti Detayı:
-                                    </span>
-                                    <span className="text-slate-500 font-normal">
-                                      {item.unit || 'Çift'} bazında dağılım
-                                    </span>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                                    {item.sizeBreakdown.map((sb, sbIdx) => {
-                                      const isSbShortage = sb.shortage > 0;
-                                      const isSbOnOrder = (sb.onOrderQuantity || 0) > 0 && sb.shortage === 0;
-
-                                      return (
-                                        <div 
-                                          key={`sb-chip-${itemKey}-${sb.size}-${sbIdx}`}
-                                          className={cn(
-                                            "p-2 rounded-lg border text-center space-y-0.5 transition-all",
-                                            isSbShortage 
-                                              ? "bg-rose-50/60 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50" 
-                                              : isSbOnOrder
-                                                ? "bg-sky-50/50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900/50"
-                                                : "bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40"
-                                          )}
-                                        >
-                                          <div className="text-xs font-black text-slate-800 dark:text-slate-100">
-                                            Beden {sb.size}
-                                          </div>
-                                          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
-                                            İhtiyaç: <b className="text-slate-900 dark:text-slate-100">{sb.required}</b>
-                                          </div>
-                                          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
-                                            Stok: <b className="text-slate-700 dark:text-slate-300">{sb.currentStock}</b>
-                                          </div>
-                                          {sb.onOrderQuantity && sb.onOrderQuantity > 0 ? (
-                                            <div className="text-[10px] text-sky-600 dark:text-sky-400 font-semibold">
-                                              Yolda: <b>+{sb.onOrderQuantity}</b>
-                                            </div>
-                                          ) : null}
-                                          <div className="text-[10px] font-black pt-0.5 border-t border-slate-200 dark:border-slate-700">
-                                            {isSbShortage ? (
-                                              <span className="text-rose-600 dark:text-rose-400">Eksik: {sb.shortage}</span>
-                                            ) : isSbOnOrder ? (
-                                              <span className="text-sky-600 dark:text-sky-400">Siparişte (+{sb.onOrderQuantity})</span>
-                                            ) : (
-                                              <span className="text-emerald-600 dark:text-emerald-400">Yeterli</span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataGrid<MrpRequirementItem>
+              columns={mrpColumns}
+              data={mrpResult?.items || []}
+              rowKey={(item) => getMrpKey(item)}
+              emptyMessage="Aktif üretim emirlerinde hammadde ihtiyacı bulunamadı veya reçete tanımlanmamış."
+              toolbar={(() => {
+                const shortages = mrpResult?.items.filter(i => i.status === 'shortage' && i.shortageQuantity > 0) || [];
+                const allShortagesSelected = shortages.length > 0 && shortages.every(i => selectedMrpKeys.includes(getMrpKey(i)));
+                return (
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={allShortagesSelected}
+                      disabled={shortages.length === 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedMrpKeys(shortages.map(i => getMrpKey(i)));
+                        } else {
+                          setSelectedMrpKeys([]);
+                        }
+                      }}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 disabled:opacity-30 cursor-pointer"
+                      title={shortages.length === 0 ? "Sipariş verilecek yeni eksik hammadde bulunmuyor" : "Tüm eksikleri seç"}
+                    />
+                    Tüm Eksikleri Seç ({shortages.length})
+                  </label>
+                );
+              })()}
+            />
           </div>
         </div>
       )}
@@ -1782,44 +1935,12 @@ export default function Production() {
               <span className="text-[10px] text-slate-400 font-bold uppercase">Canlı Akış</span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 dark:bg-slate-800/50/50 border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase">Saat</th>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase">Barkod</th>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase">Model / Ürün</th>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase">Önceki Aşama</th>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase">Yeni Aşama</th>
-                    <th className="p-3 text-[9px] font-black text-slate-400 uppercase text-center">Durum</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {scanHistory.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-400 text-xs font-bold uppercase">
-                        Henüz barkod okutma işlemi yapılmadı.
-                      </td>
-                    </tr>
-                  ) : (
-                    scanHistory.map(hist => (
-                      <tr key={hist.id} className="hover:bg-slate-50 dark:bg-slate-800/50 text-xs">
-                        <td className="p-3 font-mono font-bold text-slate-500 dark:text-slate-400">{hist.time}</td>
-                        <td className="p-3 font-mono font-black text-indigo-600">{hist.barcode}</td>
-                        <td className="p-3 font-black text-slate-900 dark:text-slate-100">{hist.productName}</td>
-                        <td className="p-3 font-bold text-slate-500 dark:text-slate-400">{hist.prevStage}</td>
-                        <td className="p-3 font-black text-emerald-600">{hist.newStage}</td>
-                        <td className="p-3 text-center">
-                          <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-2 py-0.5 rounded uppercase">
-                            Tamamlandı
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataGrid
+              columns={scanHistoryColumns}
+              data={scanHistory}
+              rowKey="id"
+              emptyMessage="Henüz barkod okutma işlemi yapılmadı."
+            />
           </div>
         </div>
       )}
@@ -2513,103 +2634,13 @@ export default function Production() {
             </div>
 
             {/* Items table */}
-            <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden max-h-72 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0">
-                  <tr>
-                    <th className="p-3 text-[10px] font-black text-slate-400 uppercase tracking-wider">Hammadde / Malzeme</th>
-                    <th className="p-3 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Eksik Miktar</th>
-                    <th className="p-3 text-[10px] font-black text-slate-400 uppercase tracking-wider">Tedarikçi Firma</th>
-                    <th className="p-3 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Tahmini Tutar</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {mrpResult?.items
-                    .filter(i => selectedMrpKeys.includes(getMrpKey(i)) && i.shortageQuantity > 0)
-                    .map((item, itemIdx) => {
-                      const itemKey = getMrpKey(item);
-                      const currentSupId = itemSuppliers[itemKey] || itemSuppliers[String(item.rawMaterialId)] || item.preferredSupplierId || 0;
-                      const isPredefined = item.preferredSupplierId && currentSupId === item.preferredSupplierId;
-
-                      return (
-                        <tr key={`po-modal-item-${itemKey}-${itemIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                          <td className="p-3">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-slate-900 dark:text-slate-100">{item.rawMaterialName}</span>
-                              {item.color && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
-                                  Renk: {item.color}
-                                </span>
-                              )}
-                              {item.subType && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold">
-                                  {item.subType}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-400">{item.rawMaterialCode}</div>
-
-                            {/* Size Assortment Chips in PO Modal */}
-                            {item.hasSizeMatrix && item.sizeBreakdown && item.sizeBreakdown.length > 0 && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {item.sizeBreakdown.filter(sb => sb.shortage > 0).map((sb, sbIdx) => (
-                                  <span
-                                    key={`po-chip-${itemKey}-${sb.size}-${sbIdx}`}
-                                    className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
-                                  >
-                                    {sb.size}: {sb.shortage} {item.unit || 'Çift'}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3 text-right">
-                            <span className="font-black text-rose-600">
-                              {formatQuantity(item.shortageQuantity)} {item.unit}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={currentSupId || ''}
-                                onChange={e => {
-                                  const val = Number(e.target.value) || 0;
-                                  setItemSuppliers(prev => {
-                                    const updated = { ...prev, [itemKey]: val, [String(item.rawMaterialId)]: val };
-                                    // Also sync other color variants of this raw material
-                                    mrpResult?.items.forEach(otherItem => {
-                                      if (otherItem.rawMaterialId === item.rawMaterialId) {
-                                        updated[getMrpKey(otherItem)] = val;
-                                      }
-                                    });
-                                    return updated;
-                                  });
-                                }}
-                                className="w-full max-w-[200px] border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-bold bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="">Tedarikçi Seçin...</option>
-                                {contacts?.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
-                                  <option key={`po-sup-opt-${itemKey}-${c.id}`} value={c.id}>
-                                    {c.name} {c.id === item.preferredSupplierId ? '(Tanımlı)' : ''}
-                                  </option>
-                                ))}
-                              </select>
-                              {isPredefined && (
-                                <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded shrink-0">
-                                  Kayıtlı
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-3 text-right font-black text-slate-900 dark:text-slate-100">
-                            {item.estimatedCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
+            <DataGrid<MrpRequirementItem>
+              columns={poModalColumns}
+              data={(mrpResult?.items || []).filter(i => selectedMrpKeys.includes(getMrpKey(i)) && i.shortageQuantity > 0)}
+              rowKey={(item) => getMrpKey(item)}
+              maxHeight="18rem"
+              emptyMessage="Seçili eksik hammadde bulunmuyor."
+            />
 
             {/* Live split summary preview */}
             {(() => {

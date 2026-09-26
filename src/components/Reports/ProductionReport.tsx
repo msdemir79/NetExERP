@@ -1,22 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { 
-  Hammer, 
-  Search, 
-  Printer, 
-  FileDown, 
-  Filter, 
-  Clock, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Scissors, 
-  Layers, 
-  PackageCheck,
-  TrendingUp,
-  BarChart3,
-  Calendar
+import {
+  Hammer,
+  Search,
+  Printer,
+  FileDown,
+  Filter,
+  Clock,
+  CheckCircle2,
+  Layers,
+  TrendingUp
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 import { cn } from '../../lib/utils';
@@ -200,6 +196,114 @@ export default function ProductionReport() {
     exportToCsv('Uretim_Takip_Raporu.csv', headers, rows);
   };
 
+  const columns: GridColumn<WorkOrder>[] = [
+    {
+      key: 'barcode',
+      title: 'Barkod / No',
+      render: (wo) => (
+        <span className="font-mono font-bold text-slate-600">{wo.barcode}</span>
+      ),
+    },
+    {
+      key: 'product',
+      title: 'Model / Ürün',
+      render: (wo) => {
+        const prod = productMap.get(wo.productId);
+        return (
+          <div>
+            <div className="font-black text-slate-900 dark:text-slate-100">{prod?.name || 'Ürün Tanımsız'}</div>
+            <div className="text-[10px] text-slate-400 font-semibold">{prod?.code || ''} {wo.color ? `• ${wo.color}` : ''}</div>
+          </div>
+        );
+      },
+      filterValue: (wo) => {
+        const prod = productMap.get(wo.productId);
+        return `${prod?.name || ''} ${prod?.code || ''} ${wo.color || ''}`;
+      },
+    },
+    {
+      key: 'orderInfo',
+      title: 'Sipariş & Müşteri',
+      render: (wo) => (
+        <div>
+          <div className="font-bold text-slate-800 dark:text-slate-200">{wo.orderNumber || 'Serbest Stok'}</div>
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{wo.customerName || '-'}</div>
+        </div>
+      ),
+      filterValue: (wo) => `${wo.orderNumber || ''} ${wo.customerName || ''}`,
+    },
+    {
+      key: 'quantity',
+      title: 'Miktar',
+      align: 'right',
+      render: (wo) => (
+        <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-sm">
+          {wo.quantity} <span className="text-[10px] text-slate-400 font-semibold">Çift</span>
+        </span>
+      ),
+    },
+    {
+      key: 'currentStage',
+      title: 'Mevcut İstasyon',
+      render: (wo) => (
+        <StatusPill
+          tone={wo.currentStage === 'completed' ? 'green' : wo.currentStage === 'planning' ? 'slate' : 'blue'}
+          className="border"
+        >
+          {STAGE_LABELS[wo.currentStage] || wo.currentStage}
+        </StatusPill>
+      ),
+      filterValue: (wo) => STAGE_LABELS[wo.currentStage] || wo.currentStage,
+    },
+    {
+      key: 'progress',
+      title: 'İlerleme',
+      width: '10rem',
+      render: (wo) => {
+        const progress = STAGE_PROGRESS[wo.currentStage] || 0;
+        return (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  progress === 100 ? "bg-emerald-600" : "bg-indigo-600"
+                )}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="font-mono text-[10px] font-bold text-slate-600 w-8">
+              %{progress}
+            </span>
+          </div>
+        );
+      },
+      filterValue: (wo) => `${STAGE_PROGRESS[wo.currentStage] || 0}`,
+    },
+    {
+      key: 'operator',
+      title: 'Operatör',
+      render: (wo) => (
+        <span className="text-slate-600 font-medium text-[11px]">{wo.operator || '-'}</span>
+      ),
+      filterValue: (wo) => wo.operator || '',
+    },
+    {
+      key: 'targetDate',
+      title: 'Hedef Bitiş',
+      align: 'right',
+      render: (wo) => (
+        <span className="text-slate-600 font-medium text-[11px]">
+          {(wo as any).targetCompletionDate || (wo as any).dueDate ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR') : '-'}
+        </span>
+      ),
+      filterValue: (wo) =>
+        (wo as any).targetCompletionDate || (wo as any).dueDate
+          ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR')
+          : '',
+    },
+  ];
+
   return (
     <div className="space-y-6">
       
@@ -370,121 +474,36 @@ export default function ProductionReport() {
       </div>
 
       {/* Detaylı İş Emirleri Tablosu */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-              <Hammer className="w-4 h-4" />
+      <DataGrid<WorkOrder>
+        columns={columns}
+        data={filteredWorkOrders}
+        rowKey="id"
+        emptyMessage="Seçili filtrelere uygun üretim iş emri bulunamadı."
+        toolbar={
+          <>
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                <Hammer className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                  Model ve İş Emri Bazlı İmalat İzleme Çizelgesi
+                </h3>
+                <p className="text-[10px] text-slate-400 font-semibold">Tüm proses istasyonları, tamamlanma yüzdeleri ve terminler</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                Model ve İş Emri Bazlı İmalat İzleme Çizelgesi
-              </h3>
-              <p className="text-[10px] text-slate-400 font-semibold">Tüm proses istasyonları, tamamlanma yüzdeleri ve terminler</p>
-            </div>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
+              {filteredWorkOrders.length} İş Emri
+            </span>
+          </>
+        }
+        footer={filteredWorkOrders.length > 0 ? (
+          <div className="flex items-center justify-end gap-2 font-black text-slate-900 dark:text-slate-100 uppercase text-[10px] tracking-wider">
+            <span>Toplam İmalat Adedi:</span>
+            <span className="font-mono text-sm">{stats.totalPairs.toLocaleString('tr-TR')} Çift</span>
           </div>
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-            {filteredWorkOrders.length} İş Emri
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                <th className="py-3 px-3">Barkod / No</th>
-                <th className="py-3 px-3">Model / Ürün</th>
-                <th className="py-3 px-3">Sipariş & Müşteri</th>
-                <th className="py-3 px-3 text-right">Miktar</th>
-                <th className="py-3 px-3">Mevcut İstasyon</th>
-                <th className="py-3 px-3">İlerleme</th>
-                <th className="py-3 px-3">Operatör</th>
-                <th className="py-3 px-3 text-right">Hedef Bitiş</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredWorkOrders.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
-                    Seçili filtrelere uygun üretim iş emri bulunamadı.
-                  </td>
-                </tr>
-              ) : (
-                filteredWorkOrders.map(wo => {
-                  const prod = productMap.get(wo.productId);
-                  const progress = STAGE_PROGRESS[wo.currentStage] || 0;
-
-                  return (
-                    <tr key={wo.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                      <td className="py-3 px-3 font-mono font-bold text-slate-600">
-                        {wo.barcode}
-                      </td>
-                      <td className="py-3 px-3">
-                        <div className="font-black text-slate-900 dark:text-slate-100">{prod?.name || 'Ürün Tanımsız'}</div>
-                        <div className="text-[10px] text-slate-400 font-semibold">{prod?.code || ''} {wo.color ? `• ${wo.color}` : ''}</div>
-                      </td>
-                      <td className="py-3 px-3">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">{wo.orderNumber || 'Serbest Stok'}</div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{wo.customerName || '-'}</div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-slate-900 dark:text-slate-100 text-sm">
-                        {wo.quantity} <span className="text-[10px] text-slate-400 font-semibold">Çift</span>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className={cn(
-                          "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
-                          wo.currentStage === 'completed' 
-                            ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
-                            : wo.currentStage === 'planning'
-                            ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
-                            : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                        )}>
-                          {STAGE_LABELS[wo.currentStage] || wo.currentStage}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 w-40">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                            <div 
-                              className={cn(
-                                "h-full rounded-full transition-all duration-300",
-                                progress === 100 ? "bg-emerald-600" : "bg-indigo-600"
-                              )} 
-                              style={{ width: `${progress}%` }} 
-                            />
-                          </div>
-                          <span className="font-mono text-[10px] font-bold text-slate-600 w-8">
-                            %{progress}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-slate-600 font-medium text-[11px]">
-                        {wo.operator || '-'}
-                      </td>
-                      <td className="py-3 px-3 text-right text-slate-600 font-medium text-[11px]">
-                        {(wo as any).targetCompletionDate || (wo as any).dueDate ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR') : '-'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            {filteredWorkOrders.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-100 dark:bg-slate-800/90 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300">
-                  <td colSpan={3} className="py-3.5 px-3 text-right uppercase text-[10px] tracking-wider text-slate-600">
-                    Toplam İmalat Adedi:
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-sm">
-                    {stats.totalPairs.toLocaleString('tr-TR')} Çift
-                  </td>
-                  <td colSpan={4}></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
+        ) : undefined}
+      />
 
     </div>
   );

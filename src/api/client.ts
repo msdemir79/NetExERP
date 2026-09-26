@@ -1,4 +1,9 @@
 import type {
+  StockMovementInput,
+  StockMovementResult,
+  RecipeConsumptionParams,
+  RecipeConsumptionResult,
+  ContactBalanceResult,
   Contact,
   AssortmentTemplate,
   BarcodeTemplate,
@@ -191,7 +196,11 @@ export interface ResourceClient<T> {
   /** id varsa günceller, yoksa ekler (Dexie put karşılığı). */
   save(data: Partial<T> & { id?: Id }): Promise<Id>;
   saveMany(rows: (Partial<T> & { id?: Id })[]): Promise<Id[]>;
-  update(id: Id, changes: Partial<T>): Promise<number>;
+  /**
+   * Kısmi güncelleme. `expectedVersion` verilirse iyimser kilitleme uygulanır:
+   * kayıt bu sürümden sonra değişmişse istek 409 (VERSION_CONFLICT) ile reddedilir.
+   */
+  update(id: Id, changes: Partial<T>, options?: { expectedVersion?: number }): Promise<number>;
   remove(id: Id): Promise<void>;
   removeMany(ids: Id[]): Promise<number>;
   removeWhere(where: ListOptions['where']): Promise<number>;
@@ -263,10 +272,13 @@ function resource<T>(name: string): ResourceClient<T> {
       return res.data || [];
     },
 
-    async update(id, changes) {
+    async update(id, changes, options) {
       const res = await http<{ data: { changes: number } }>(`/${name}/${encodeURIComponent(String(id))}`, {
         method: 'PATCH',
-        body: JSON.stringify(changes),
+        body: JSON.stringify({
+          ...changes,
+          ...(options?.expectedVersion ? { expectedVersion: options.expectedVersion } : {}),
+        }),
       });
       return res.data?.changes ?? 0;
     },
@@ -354,7 +366,14 @@ export async function callOp<T = any>(op: string, payload: any = {}): Promise<T>
 export type Mutation =
   | { op: 'insert'; resource: string; data: Record<string, any> }
   | { op: 'insertMany'; resource: string; rows: Record<string, any>[] }
-  | { op: 'update'; resource: string; id: Id; data: Record<string, any> }
+  | {
+      op: 'update';
+      resource: string;
+      id: Id;
+      data: Record<string, any>;
+      /** Verilirse kayıt bu sürümden sonra değişmişse işlem 409 ile reddedilir. */
+      expectedVersion?: number;
+    }
   | { op: 'updateWhere'; resource: string; where: ListOptions['where']; data: Record<string, any> }
   | { op: 'delete'; resource: string; id: Id }
   | { op: 'deleteWhere'; resource: string; where: ListOptions['where'] }
@@ -383,6 +402,31 @@ export async function commit(mutations: Mutation[], options?: { disableFkChecks?
     body: JSON.stringify({ mutations, disableFkChecks: options?.disableFkChecks === true }),
   });
   return res.data?.results || [];
+}
+
+/* ------------------------------------------------------------------ */
+/* Atomik işlem uçları (stok, reçete, cari bakiye)                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Stok hareketi: miktar, varyant stoğu, ağırlıklı ortalama maliyet ve
+ * stok hareket kaydı sunucuda tek transaction içinde uygulanır.
+ */
+export async function stockMovement(input: StockMovementInput): Promise<StockMovementResult> {
+  return callOp<StockMovementResult>('stock-movement', input);
+}
+
+/**
+ * Reçete (BOM) sarfiyatı ve mamul stoğa girişi tek transaction içinde
+ * uygulanır; hammadde satırları kilitlenerek eşzamanlı sarfiyat güvenli hale gelir.
+ */
+export async function consumeRecipe(params: RecipeConsumptionParams): Promise<RecipeConsumptionResult> {
+  return callOp<RecipeConsumptionResult>('consume-recipe', params);
+}
+
+/** Cari bakiyeyi sunucuda, cari satırı kilitlenerek yeniden hesaplar. */
+export async function recalculateContactBalance(contactId: number): Promise<ContactBalanceResult> {
+  return callOp<ContactBalanceResult>('recalculate-contact-balance', { contactId });
 }
 
 /** Tüm tabloları boşaltıp demo verisini baştan yükler. */

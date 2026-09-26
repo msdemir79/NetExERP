@@ -28,6 +28,9 @@ import {
   type AuthContext,
 } from './auth.js';
 import { writeAudit } from './audit.js';
+import { createBusinessOpsRouter } from './businessOps.js';
+import { versionSupported } from './schema.js';
+import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
 
 /* ------------------------------------------------------------------ */
 /* Yardımcılar                                                         */
@@ -75,9 +78,13 @@ function coerce(def: ResourceDef, column: string, value: any): any {
   }
 }
 
+/** Sürüm kolonu istemci gövdesinden yazılamaz; yalnızca sunucu artırır. */
+const SERVER_ONLY_COLUMNS = new Set(['version']);
+
 /**
  * Gövdedeki alanları tablonun kolonlarına göre filtreler.
- * `protectedColumns` (ör. passwordHash) istemci gövdesinden hiçbir zaman alınmaz.
+ * `protectedColumns` (ör. passwordHash) ve sunucuya ait kolonlar (version)
+ * istemci gövdesinden hiçbir zaman alınmaz.
  */
 function pickColumns(
   resource: string,
@@ -90,6 +97,7 @@ function pickColumns(
   for (const [key, value] of Object.entries(body || {})) {
     if (key === def.primaryKey) continue;
     if (protectedColumns.has(key)) continue;
+    if (SERVER_ONLY_COLUMNS.has(key)) continue;
     const col = def.columns.find((c) => c.name === key);
     if (!col) continue;
     const coerced = coerce(def, key, value);
@@ -131,13 +139,88 @@ function withPrimaryKey(def: ResourceDef, data: Record<string, any>, pk: any): R
   return { ...data, [def.primaryKey]: coerced };
 }
 
-function updateSql(def: ResourceDef, data: Record<string, any>, whereSql: string): { sql: string; params: any[] } {
+/**
+ * Her güncellemede `version` artırılır: iyimser kilitleme (optimistic locking)
+ * bu sayacı karşılaştırarak eşzamanlı düzenlemeleri 409 ile reddeder.
+ */
+function updateSql(
+  def: ResourceDef,
+  data: Record<string, any>,
+  whereSql: string,
+  withVersion: boolean,
+): { sql: string; params: any[] } {
   const keys = Object.keys(data);
-  const setSql = keys.map((k) => `\`${k}\` = ?`).join(', ');
+  const sets = keys.map((k) => `\`${k}\` = ?`);
+  if (withVersion) sets.push('`version` = `version` + 1');
   return {
-    sql: `UPDATE \`${def.table}\` SET ${setSql} ${whereSql}`,
+    sql: `UPDATE \`${def.table}\` SET ${sets.join(', ')} ${whereSql}`,
     params: [...keys.map((k) => data[k])],
   };
+}
+
+/** `version` kolonu destekleniyorsa iyimser kilitleme uygulanır (server/schema.ts). */
+async function supportsVersion(def: ResourceDef): Promise<boolean> {
+  return versionSupported(def.table);
+}
+
+/**
+ * `If-Match` başlığı veya gövdedeki `expectedVersion` alanından beklenen sürümü okur.
+ * Değer verilmezse iyimser kilitleme uygulanmaz (mevcut davranış korunur).
+ */
+function expectedVersion(req: Request): number | null {
+  const header = req.headers['if-match'];
+  if (typeof header === 'string' && header.trim()) {
+    const cleaned = header.replace(/^W\//, '').replace(/"/g, '').trim();
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const fromBody = Number((req.body as any)?.expectedVersion);
+  return Number.isFinite(fromBody) && fromBody > 0 ? fromBody : null;
+}
+
+/** Sürüm çakışması olduğunda hangi hatanın döneceğine karar verir. */
+async function assertVersionMatch(def: ResourceDef, pk: any, expected: number): Promise<void> {
+  const row = await queryOne<any>(
+    `SELECT \`version\` FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`,
+    [pk],
+  );
+  if (!row) throw new HttpError(404, 'Kayıt bulunamadı.');
+  if (Number(row.version) !== expected) {
+    throw new HttpError(
+      409,
+      'Bu kayıt siz düzenlerken başka bir kullanıcı tarafından değiştirildi. Lütfen sayfayı yenileyip tekrar deneyin.',
+      'VERSION_CONFLICT',
+    );
+  }
+}
+
+/**
+ * Yevmiye fişi disiplini: borç/alacak toplamları sunucuda da doğrulanır ve
+ * toplam alanları sunucu tarafından yeniden hesaplanır (tek doğruluk kaynağı).
+ */
+function applyResourceRules(resource: string, data: Record<string, any>): void {
+  if (resource !== 'journalEntries') return;
+  if (!('lines' in data)) return;
+
+  let lines: any = data.lines;
+  if (typeof lines === 'string') {
+    try {
+      lines = JSON.parse(lines);
+    } catch {
+      throw new HttpError(400, 'Yevmiye satırları geçersiz JSON biçiminde.', 'INVALID_JOURNAL_LINES');
+    }
+  }
+  // Satır içermeyen (taslak) kayıtlar denge kontrolüne tabi değildir.
+  if (!Array.isArray(lines) || lines.length === 0) return;
+
+  try {
+    const { totalDebit, totalCredit } = assertBalancedJournalEntry(lines);
+    data.totalDebit = totalDebit;
+    data.totalCredit = totalCredit;
+    data.isBalanced = 1;
+  } catch (err: any) {
+    throw new HttpError(422, err?.message || 'Dengesiz yevmiye fişi reddedildi.', 'UNBALANCED_JOURNAL_ENTRY');
+  }
 }
 
 /** Gizli kolonları (parola türevleri) istemciye göndermeden önce ayıklar. */
@@ -206,13 +289,15 @@ export function sseHandler(req: Request, res: Response) {
 /* Referans kontrolü (silme güvenliği)                                 */
 /* ------------------------------------------------------------------ */
 
-async function assertNoDependents(resource: string, id: number | string) {
+async function assertNoDependents(resource: string, id: number | string, conn?: { query: (sql: string, params?: any[]) => Promise<any> }) {
   const meta = getMeta(resource);
   for (const guard of meta.guards || []) {
-    const row = await queryOne<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM \`${guard.table}\` WHERE \`${guard.column}\` = ? LIMIT 1`,
-      [id]
-    );
+    const sql = `SELECT COUNT(*) AS n FROM \`${guard.table}\` WHERE \`${guard.column}\` = ? LIMIT 1`;
+    // Transaction içinde çağrılıyorsa aynı bağlantıyı kullan: silinmiş çocuk kayıtlar
+    // pool bağlantısından hâlâ görünüp yanlış 409 üretmesin.
+    const row = conn
+      ? ((await conn.query(sql, [id])) as any[])?.[0]?.[0] ?? null
+      : await queryOne<{ n: number }>(sql, [id]);
     if (row && Number((row as any).n) > 0) {
       throw new HttpError(409, guard.message);
     }
@@ -828,6 +913,12 @@ export function createApiRouter(): Router {
   router.get('/events', sseHandler);
 
   /* ---------------------------------------------------------------- */
+  /* İşlem uçları: stok hareketi, reçete sarfiyatı, cari bakiye        */
+  /* (tek transaction + satır kilidi)                                 */
+  /* ---------------------------------------------------------------- */
+  router.use('/ops', createBusinessOpsRouter());
+
+  /* ---------------------------------------------------------------- */
   /* Denetim izi: istemci yalnızca açıklama gönderir, kimlik sunucudan */
   /* yazılır; temizleme yıkıcı işlem olarak Süper Admin'e kapalıdır.   */
   /* ---------------------------------------------------------------- */
@@ -956,7 +1047,9 @@ export function createApiRouter(): Router {
 
             switch (m.op) {
               case 'insert': {
-                const { sql, params } = insertSql(def, pickColumns(m.resource, def, m.data || {}, { partial: false }));
+                const data = pickColumns(m.resource, def, m.data || {}, { partial: false });
+                applyResourceRules(m.resource, data);
+                const { sql, params } = insertSql(def, data);
                 const [r] = await conn.query(sql, params);
                 results.push({ op: m.op, resource: m.resource, id: (r as any)?.insertId });
                 break;
@@ -965,7 +1058,9 @@ export function createApiRouter(): Router {
                 const rows = Array.isArray(m.rows) ? m.rows : [];
                 const ids: any[] = [];
                 for (const row of rows) {
-                  const { sql, params } = insertSql(def, pickColumns(m.resource, def, row, { partial: false }));
+                  const data = pickColumns(m.resource, def, row, { partial: false });
+                  applyResourceRules(m.resource, data);
+                  const { sql, params } = insertSql(def, data);
                   const [r] = await conn.query(sql, params);
                   ids.push((r as any)?.insertId);
                 }
@@ -974,26 +1069,48 @@ export function createApiRouter(): Router {
               }
               case 'update': {
                 if (m.id === undefined || m.id === null) throw new HttpError(400, 'update için id gerekli.');
+                const data = pickColumns(m.resource, def, m.data || {}, { partial: true });
+                applyResourceRules(m.resource, data);
+                const withVersion = await supportsVersion(def);
+                const expected = Number((m as any).expectedVersion);
+                const hasExpected = Number.isFinite(expected) && expected > 0;
+                if (hasExpected && !withVersion) {
+                  throw new HttpError(400, 'Bu kurulumda iyimser kilitleme etkin değil (version kolonu yok). `npm run db:migrate` çalıştırın.', 'MIGRATION_REQUIRED');
+                }
                 const { sql, params } = updateSql(
                   def,
-                  pickColumns(m.resource, def, m.data || {}, { partial: true }),
-                  `WHERE \`${def.primaryKey}\` = ?`,
+                  data,
+                  hasExpected
+                    ? `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`
+                    : `WHERE \`${def.primaryKey}\` = ?`,
+                  withVersion,
                 );
-                const [r] = await conn.query(sql, [...params, coerce(def, def.primaryKey, m.id)]);
+                const [r] = await conn.query(
+                  sql,
+                  hasExpected
+                    ? [...params, coerce(def, def.primaryKey, m.id), expected]
+                    : [...params, coerce(def, def.primaryKey, m.id)],
+                );
+                if (hasExpected && !(r as any)?.affectedRows) {
+                  await assertVersionMatch(def, coerce(def, def.primaryKey, m.id), expected);
+                  throw new HttpError(404, 'Kayıt bulunamadı.');
+                }
                 results.push({ op: m.op, resource: m.resource, changes: (r as any)?.affectedRows ?? 0 });
                 break;
               }
               case 'updateWhere': {
                 const where = buildWhere(def, m.resource, m.where || {});
                 if (!where.sql) throw new HttpError(400, 'updateWhere için filtre gerekli.');
-                const { sql, params } = updateSql(def, pickColumns(m.resource, def, m.data || {}, { partial: true }), where.sql);
+                const data = pickColumns(m.resource, def, m.data || {}, { partial: true });
+                applyResourceRules(m.resource, data);
+                const { sql, params } = updateSql(def, data, where.sql, await supportsVersion(def));
                 const [r] = await conn.query(sql, [...params, ...where.params]);
                 results.push({ op: m.op, resource: m.resource, changes: (r as any)?.affectedRows ?? 0 });
                 break;
               }
               case 'delete': {
                 if (m.id === undefined || m.id === null) throw new HttpError(400, 'delete için id gerekli.');
-                await assertNoDependents(m.resource, m.id);
+                await assertNoDependents(m.resource, m.id, conn);
                 const [r] = await conn.query(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [
                   coerce(def, def.primaryKey, m.id),
                 ]);
@@ -1120,6 +1237,7 @@ export function createApiRouter(): Router {
           const data = withPrimaryKey(def, pickColumns(resource, def, row, { partial: false }), row?.[def.primaryKey]);
           if (def.timestamps.includes('createdAt') && !data.createdAt) data.createdAt = new Date();
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
+          applyResourceRules(resource, data);
           if (!Object.keys(data).length) {
             const [r] = await conn.query(`INSERT INTO \`${def.table}\` () VALUES ()`);
             created.push((r as any).insertId);
@@ -1157,12 +1275,30 @@ export function createApiRouter(): Router {
       if (def.timestamps.includes('updatedAt')) data.updatedAt = new Date();
       if (!Object.keys(data).length) throw new HttpError(400, 'Güncellenecek alan yok.');
 
+      applyResourceRules(resource, data);
       // Parola gövde alanı yazma öncesi doğrulanır (yarım kalmış güncelleme olmasın).
       await assertUserPasswordChange(req, resource, req.body, req.params.id);
 
-      const { sql, params } = updateSql(def, data, `WHERE \`${def.primaryKey}\` = ?`);
-      const result = await execute(sql, [...params, coerce(def, def.primaryKey, req.params.id)]);
-      if (!result.affectedRows) throw new HttpError(404, 'Kayıt bulunamadı.');
+      const pk = coerce(def, def.primaryKey, req.params.id);
+      const withVersion = await supportsVersion(def);
+      const expected = expectedVersion(req);
+      if (expected !== null && !withVersion) {
+        throw new HttpError(400, 'Bu kurulumda iyimser kilitleme etkin değil (version kolonu yok). `npm run db:migrate` çalıştırın.', 'MIGRATION_REQUIRED');
+      }
+      const { sql, params } = updateSql(
+        def,
+        data,
+        expected === null
+          ? `WHERE \`${def.primaryKey}\` = ?`
+          : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
+        withVersion,
+      );
+      const result = await execute(sql, expected === null ? [...params, pk] : [...params, pk, expected]);
+      if (!result.affectedRows) {
+        // Sürüm koşulu verildiyse 404 mü 409 mu olduğunu ayırt et.
+        if (expected !== null) await assertVersionMatch(def, pk, expected);
+        throw new HttpError(404, 'Kayıt bulunamadı.');
+      }
 
       await applyUserSecuritySideEffects(resource, req.params.id, data, req.body, requestToken(req));
       broadcast(resource, 'update', [req.params.id]);
@@ -1186,9 +1322,26 @@ export function createApiRouter(): Router {
 
       if (existing) {
         if (!Object.keys(data).length) throw new HttpError(400, 'Güncellenecek alan yok.');
+        applyResourceRules(resource, data);
         await assertUserPasswordChange(req, resource, req.body, req.params.id);
-        const { sql, params } = updateSql(def, data, `WHERE \`${def.primaryKey}\` = ?`);
-        await execute(sql, [...params, id]);
+        const withVersion = await supportsVersion(def);
+        const expected = expectedVersion(req);
+        if (expected !== null && !withVersion) {
+          throw new HttpError(400, 'Bu kurulumda iyimser kilitleme etkin değil (version kolonu yok). `npm run db:migrate` çalıştırın.', 'MIGRATION_REQUIRED');
+        }
+        const { sql, params } = updateSql(
+          def,
+          data,
+          expected === null
+            ? `WHERE \`${def.primaryKey}\` = ?`
+            : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
+          withVersion,
+        );
+        const updated = await execute(sql, expected === null ? [...params, id] : [...params, id, expected]);
+        if (!updated.affectedRows) {
+          if (expected !== null) await assertVersionMatch(def, id, expected);
+          throw new HttpError(404, 'Kayıt bulunamadı.');
+        }
         await applyUserSecuritySideEffects(resource, req.params.id, data, req.body, requestToken(req));
         broadcast(resource, 'update', [req.params.id]);
         res.json({ data: { id: req.params.id, created: false } });
@@ -1203,6 +1356,7 @@ export function createApiRouter(): Router {
           id
         );
         if (def.timestamps.includes('createdAt') && !insertData.createdAt) insertData.createdAt = new Date();
+        applyResourceRules(resource, insertData);
         const { sql, params } = insertSql(def, insertData);
         await execute(sql, params);
         if (resource === 'users' && req.body?.password) {
@@ -1237,11 +1391,17 @@ export function createApiRouter(): Router {
           const data = withPrimaryKey(def, pickColumns(resource, def, row, { partial: false }), pk);
           if (def.timestamps.includes('createdAt') && !data.createdAt) data.createdAt = new Date();
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
+          applyResourceRules(resource, data);
 
           if (body?.mode === 'upsert' && pk !== undefined && pk !== null && pk !== '') {
             const keys = Object.keys(data).filter((k) => k !== def.primaryKey);
             if (keys.length) {
-              const { sql, params } = updateSql(def, data, `WHERE \`${def.primaryKey}\` = ?`);
+              const { sql, params } = updateSql(
+                def,
+                data,
+                `WHERE \`${def.primaryKey}\` = ?`,
+                await supportsVersion(def),
+              );
               const [r] = await conn.query(sql, [...params, coerce(def, def.primaryKey, pk)]);
               if ((r as any).affectedRows) {
                 created.push(pk);

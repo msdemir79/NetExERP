@@ -1,25 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { 
-  Users, 
-  Calendar, 
-  Search, 
-  Printer, 
-  FileDown, 
-  Filter, 
-  DollarSign, 
-  CreditCard, 
-  ShieldCheck, 
+import {
+  Users,
+  Calendar,
+  Search,
+  Printer,
+  FileDown,
+  DollarSign,
+  ShieldCheck,
   ShieldAlert,
   Building2,
   Clock,
-  ArrowUpRight,
-  CheckCircle2,
-  AlertCircle
+  CheckCircle2
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
-import { exportToCsv, exportPayrollToExcel, exportPayrollToCsv } from '../../lib/exportService';
+import { exportPayrollToExcel, exportPayrollToCsv } from '../../lib/exportService';
 import { erpService } from '../../services/erpService';
 import { cn } from '../../lib/utils';
 import { FileSpreadsheet } from 'lucide-react';
@@ -145,6 +142,45 @@ export default function HRReport() {
     if (filteredPayrolls.length === 0) return;
     exportPayrollToCsv(selectedMonth, selectedYear, filteredPayrolls, employees);
   };
+
+  const payrollColumns: GridColumn<PayrollRecord>[] = [
+    { key: 'employeeCode', title: 'Kod', render: (p) => <span className="font-mono font-bold text-slate-500 dark:text-slate-400 text-[11px]">{p.employeeCode}</span> },
+    { key: 'employeeName', title: 'Personel', render: (p) => <span className="font-black text-slate-900 dark:text-slate-100">{p.employeeName}</span> },
+    { key: 'department', title: 'Departman', render: (p) => <span className="text-slate-600 font-medium">{p.department}</span> },
+    {
+      key: 'sgkStatus', title: 'Statü', render: (p) => p.sgkStatus === 'sgk_li' ? (
+        <StatusPill tone="green"><ShieldCheck className="w-3 h-3" />SGK'lı</StatusPill>
+      ) : (
+        <StatusPill tone="amber"><ShieldAlert className="w-3 h-3" />Yevmiyeli</StatusPill>
+      ),
+      filterValue: (p) => p.sgkStatus === 'sgk_li' ? 'SGK\'lı' : 'Yevmiyeli'
+    },
+    { key: 'daysWorked', title: 'Gün', align: 'center', render: (p) => <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{p.daysWorked}</span> },
+    { key: 'overtimeHours', title: 'Mesai', align: 'center', render: (p) => <span className="font-mono font-semibold text-slate-600">{p.overtimeHours > 0 ? `${p.overtimeHours} sa` : '-'}</span>, filterValue: (p) => p.overtimeHours > 0 ? `${p.overtimeHours} sa` : '' },
+    { key: 'totalGrossPay', title: 'Brüt Kazanç', align: 'right', render: (p) => <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₺{p.totalGrossPay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String(p.totalGrossPay) },
+    { key: 'sgkDeduction', title: 'SGK Kesintisi', align: 'right', render: (p) => <span className="font-mono font-medium text-slate-600">₺{((p.employeeSgkShare || 0) + (p.employeeUnemploymentShare || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String((p.employeeSgkShare || 0) + (p.employeeUnemploymentShare || 0)) },
+    { key: 'taxes', title: 'Vergiler', align: 'right', render: (p) => <span className="font-mono font-medium text-slate-600">₺{((p.incomeTax || 0) + (p.stampTax || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String((p.incomeTax || 0) + (p.stampTax || 0)) },
+    { key: 'advanceDeduction', title: 'Avans Kes.', align: 'right', render: (p) => p.advanceDeduction > 0 ? <span className="font-mono font-medium text-rose-600">-₺{p.advanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> : <span className="font-mono font-medium text-slate-300">-</span>, filterValue: (p) => p.advanceDeduction > 0 ? String(p.advanceDeduction) : '' },
+    { key: 'netSalary', title: 'Net Ödenen', align: 'right', render: (p) => <span className="font-mono font-black text-emerald-700">₺{p.netSalary.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String(p.netSalary) },
+    { key: 'employerSgk', title: 'İşveren SGK', align: 'right', render: (p) => <span className="font-mono font-medium text-slate-600">₺{((p.employerSgkShare || 0) + (p.employerUnemploymentShare || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String((p.employerSgkShare || 0) + (p.employerUnemploymentShare || 0)) },
+    { key: 'totalEmployerCost', title: 'Toplam Maliyet', align: 'right', render: (p) => <span className="font-mono font-black text-purple-900">₺{p.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (p) => String(p.totalEmployerCost) },
+    {
+      key: 'paymentStatus', title: 'Ödeme', align: 'center', render: (p) => p.paymentStatus === 'paid' ? (
+        <StatusPill tone="green"><CheckCircle2 className="w-3 h-3" />Ödendi</StatusPill>
+      ) : (
+        <StatusPill tone="amber"><Clock className="w-3 h-3" />Bekliyor</StatusPill>
+      ),
+      filterValue: (p) => p.paymentStatus === 'paid' ? 'Ödendi' : 'Bekliyor'
+    },
+    {
+      key: 'accounting', title: 'Muhasebe', align: 'center', render: (p) => p.isAccounted ? (
+        <StatusPill tone="blue">Fiş: #{p.journalEntryId || 'OK'}</StatusPill>
+      ) : (
+        <StatusPill tone="slate">Bekliyor</StatusPill>
+      ),
+      filterValue: (p) => p.isAccounted ? `Fiş #${p.journalEntryId || 'OK'}` : 'Bekliyor'
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -314,162 +350,42 @@ export default function HRReport() {
       </div>
 
       {/* Bordro İcmal Tablosu */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-              <Users className="w-4 h-4" />
+      <DataGrid<PayrollRecord>
+        columns={payrollColumns}
+        data={filteredPayrolls}
+        rowKey="id"
+        emptyMessage="Seçili dönem ve filtrelere uygun bordro kaydı bulunamadı."
+        toolbar={
+          <>
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                <Users className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                  Personel Bordro & Maliyet İcmal Tablosu
+                </h3>
+                <p className="text-[10px] text-slate-400 font-semibold">Resmi ve gayriresmi ücret tahakkuku ve şirket maliyeti</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                Personel Bordro & Maliyet İcmal Tablosu
-              </h3>
-              <p className="text-[10px] text-slate-400 font-semibold">Resmi ve gayriresmi ücret tahakkuku ve şirket maliyeti</p>
-            </div>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
+              {filteredPayrolls.length} Kayıt Listeleniyor
+            </span>
+          </>
+        }
+        footer={filteredPayrolls.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-black uppercase text-[10px] tracking-wider text-slate-600 dark:text-slate-300">
+            <span>Genel İcmal Toplamı:</span>
+            <span>Brüt <span className="font-mono text-xs normal-case text-slate-900 dark:text-slate-100">₺{stats.totalGross.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>SGK <span className="font-mono text-xs normal-case text-slate-700 dark:text-slate-200">₺{filteredPayrolls.reduce((s, p) => s + (p.employeeSgkShare || 0) + (p.employeeUnemploymentShare || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>Vergi <span className="font-mono text-xs normal-case text-slate-700 dark:text-slate-200">₺{filteredPayrolls.reduce((s, p) => s + (p.incomeTax || 0) + (p.stampTax || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>Avans <span className="font-mono text-xs normal-case text-rose-700">-₺{stats.totalAdvanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>Net <span className="font-mono text-xs normal-case text-emerald-800">₺{stats.totalNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>İşv. SGK <span className="font-mono text-xs normal-case text-slate-700 dark:text-slate-200">₺{stats.totalEmployerSgk.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
+            <span>Maliyet <span className="font-mono text-xs normal-case text-purple-900">₺{stats.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span></span>
           </div>
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-            {filteredPayrolls.length} Kayıt Listeleniyor
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                <th className="py-3 px-3">Kod</th>
-                <th className="py-3 px-3">Personel</th>
-                <th className="py-3 px-3">Departman</th>
-                <th className="py-3 px-3">Statü</th>
-                <th className="py-3 px-2 text-center">Gün</th>
-                <th className="py-3 px-2 text-center">Mesai</th>
-                <th className="py-3 px-3 text-right">Brüt Kazanç</th>
-                <th className="py-3 px-3 text-right">SGK Kesintisi</th>
-                <th className="py-3 px-3 text-right">Vergiler</th>
-                <th className="py-3 px-3 text-right">Avans Kes.</th>
-                <th className="py-3 px-3 text-right text-emerald-800 bg-emerald-50/50">Net Ödenen</th>
-                <th className="py-3 px-3 text-right">İşveren SGK</th>
-                <th className="py-3 px-3 text-right text-purple-900 bg-purple-50/50">Toplam Maliyet</th>
-                <th className="py-3 px-3 text-center">Ödeme</th>
-                <th className="py-3 px-3 text-center">Muhasebe</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredPayrolls.length === 0 ? (
-                <tr>
-                  <td colSpan={15} className="py-12 text-center text-slate-400 font-bold">
-                    Seçili dönem ve filtrelere uygun bordro kaydı bulunamadı.
-                  </td>
-                </tr>
-              ) : (
-                filteredPayrolls.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                    <td className="py-3 px-3 font-mono font-bold text-slate-500 dark:text-slate-400 text-[11px]">
-                      {p.employeeCode}
-                    </td>
-                    <td className="py-3 px-3 font-black text-slate-900 dark:text-slate-100">
-                      {p.employeeName}
-                    </td>
-                    <td className="py-3 px-3 text-slate-600 font-medium">
-                      {p.department}
-                    </td>
-                    <td className="py-3 px-3">
-                      {p.sgkStatus === 'sgk_li' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <ShieldCheck className="w-3 h-3" /> SGK'lı
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          <ShieldAlert className="w-3 h-3" /> Yevmiyeli
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-center font-mono font-bold text-slate-700 dark:text-slate-200">
-                      {p.daysWorked}
-                    </td>
-                    <td className="py-3 px-2 text-center font-mono font-semibold text-slate-600">
-                      {p.overtimeHours > 0 ? `${p.overtimeHours} sa` : '-'}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                      ₺{p.totalGrossPay.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-medium text-slate-600">
-                      ₺{((p.employeeSgkShare || 0) + (p.employeeUnemploymentShare || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-medium text-slate-600">
-                      ₺{((p.incomeTax || 0) + (p.stampTax || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-medium text-rose-600">
-                      {p.advanceDeduction > 0 ? `-₺${p.advanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-black text-emerald-700 bg-emerald-50/40">
-                      ₺{p.netSalary.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-medium text-slate-600">
-                      ₺{((p.employerSgkShare || 0) + (p.employerUnemploymentShare || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-black text-purple-900 bg-purple-50/40">
-                      ₺{p.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      {p.paymentStatus === 'paid' ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                          <CheckCircle2 className="w-3 h-3" /> Ödendi
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
-                          <Clock className="w-3 h-3" /> Bekliyor
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      {p.isAccounted ? (
-                        <span className="inline-block text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                          Fiş: #{p.journalEntryId || 'OK'}
-                        </span>
-                      ) : (
-                        <span className="inline-block text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
-                          Bekliyor
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {filteredPayrolls.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-100 dark:bg-slate-800/90 font-black text-slate-900 dark:text-slate-100 border-t-2 border-slate-300">
-                  <td colSpan={6} className="py-3.5 px-3 text-right uppercase text-[10px] tracking-wider text-slate-600">
-                    Genel İcmal Toplamı:
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono">
-                    ₺{stats.totalGross.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200">
-                    ₺{filteredPayrolls.reduce((s, p) => s + (p.employeeSgkShare || 0) + (p.employeeUnemploymentShare || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200">
-                    ₺{filteredPayrolls.reduce((s, p) => s + (p.incomeTax || 0) + (p.stampTax || 0), 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-rose-700">
-                    -₺{stats.totalAdvanceDeduction.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-emerald-800 bg-emerald-100/60">
-                    ₺{stats.totalNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-slate-700 dark:text-slate-200">
-                    ₺{stats.totalEmployerSgk.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-3.5 px-3 text-right font-mono text-purple-900 bg-purple-100/60">
-                    ₺{stats.totalEmployerCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td colSpan={2}></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
+        ) : undefined}
+      />
 
     </div>
   );

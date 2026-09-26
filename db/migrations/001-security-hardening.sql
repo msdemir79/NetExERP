@@ -8,33 +8,27 @@
 --   sessionToken     : oturum belirteci artık sunucu belleğinde tutulur
 --   sessionExpiresAt : oturum ömrü sunucu tarafından yönetilir
 --
--- Kullanım:
---   mysql -u proerp -p proerp < db/migrations/001-security-hardening.sql
+-- Kullanım: npm run db:migrate
 --
 -- Not: passwordHash/passwordSalt kolonları KORUNUR. Eski sha256 kayıtları,
 -- kullanıcının ilk başarılı girişinde sunucu tarafından scrypt biçimine
 -- yükseltilir; bu nedenle veri kaybı olmaz.
 -- ============================================================================
 
-DROP PROCEDURE IF EXISTS proerp_drop_column_if_exists;
+-- MySQL 8 `DROP COLUMN IF EXISTS` desteklemediği için varlık kontrolü
+-- information_schema üzerinden yapılır.
 
-DELIMITER //
-CREATE PROCEDURE proerp_drop_column_if_exists(IN tbl VARCHAR(64), IN col VARCHAR(64))
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = tbl AND COLUMN_NAME = col
-  ) THEN
-    SET @ddl = CONCAT('ALTER TABLE `', tbl, '` DROP COLUMN `', col, '`');
-    PREPARE stmt FROM @ddl;
-    EXECUTE stmt;
-    DEALLOCATE PREPARE stmt;
-  END IF;
-END //
-DELIMITER ;
+SET @exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'pinCode');
+SET @sql = IF(@exists > 0, 'ALTER TABLE `users` DROP COLUMN `pinCode`', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-CALL proerp_drop_column_if_exists('users', 'pinCode');
-CALL proerp_drop_column_if_exists('users', 'sessionToken');
-CALL proerp_drop_column_if_exists('users', 'sessionExpiresAt');
+SET @exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'sessionToken');
+SET @sql = IF(@exists > 0, 'ALTER TABLE `users` DROP COLUMN `sessionToken`', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-DROP PROCEDURE IF EXISTS proerp_drop_column_if_exists;
+SET @exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'sessionExpiresAt');
+SET @sql = IF(@exists > 0, 'ALTER TABLE `users` DROP COLUMN `sessionExpiresAt`', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

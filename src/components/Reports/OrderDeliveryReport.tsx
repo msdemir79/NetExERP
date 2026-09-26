@@ -1,20 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { 
-  ShoppingCart, 
-  Truck, 
-  Search, 
-  Printer, 
-  FileDown, 
-  Filter, 
-  Calendar, 
-  CheckCircle2, 
-  Clock, 
+import {
+  ShoppingCart,
+  Truck,
+  Search,
+  Printer,
+  FileDown,
+  CheckCircle2,
+  Clock,
   AlertTriangle,
-  Receipt,
-  ArrowRight
+  Receipt
 } from 'lucide-react';
+import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 import { cn } from '../../lib/utils';
@@ -230,6 +228,154 @@ export default function OrderDeliveryReport() {
     }
   };
 
+  type FulfillmentRow = (typeof filteredOrders)[number];
+  type PendingWaybillRow = (typeof pendingWaybills)[number];
+
+  const fulfillmentColumns: GridColumn<FulfillmentRow>[] = [
+    {
+      key: 'orderNumber',
+      title: 'Sipariş No',
+      render: (o) => (
+        <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{o.orderNumber}</span>
+      ),
+    },
+    {
+      key: 'date',
+      title: 'Tarih',
+      render: (o) => (
+        <span className="text-slate-600 font-medium">{new Date(o.date).toLocaleDateString('tr-TR')}</span>
+      ),
+      filterValue: (o) => new Date(o.date).toLocaleDateString('tr-TR'),
+    },
+    {
+      key: 'customerName',
+      title: 'Müşteri',
+      render: (o) => (
+        <span className="font-bold text-slate-900 dark:text-slate-100">{o.customerName}</span>
+      ),
+    },
+    {
+      key: 'totalOrderedPairs',
+      title: 'Sipariş (Çift)',
+      align: 'right',
+      render: (o) => (
+        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{o.totalOrderedPairs}</span>
+      ),
+    },
+    {
+      key: 'totalShippedPairs',
+      title: 'Sevk Edilen',
+      align: 'right',
+      render: (o) => (
+        <span className="font-mono font-black text-emerald-700">{o.totalShippedPairs}</span>
+      ),
+    },
+    {
+      key: 'remainingPairs',
+      title: 'Kalan Çift',
+      align: 'right',
+      render: (o) => (
+        <span className="font-mono font-bold text-amber-700">{o.remainingPairs > 0 ? o.remainingPairs : '-'}</span>
+      ),
+    },
+    {
+      key: 'fulfillmentRate',
+      title: 'Karşılama',
+      width: '9rem',
+      render: (o) => (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full",
+                o.fulfillmentRate === 100 ? "bg-emerald-600" : "bg-indigo-600"
+              )}
+              style={{ width: `${o.fulfillmentRate}%` }}
+            />
+          </div>
+          <span className="font-mono text-[10px] font-bold text-slate-600 w-8">
+            %{o.fulfillmentRate}
+          </span>
+        </div>
+      ),
+      filterValue: (o) => `%${o.fulfillmentRate}`,
+    },
+    {
+      key: 'grandTotal',
+      title: 'Tutar',
+      align: 'right',
+      render: (o) => (
+        <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+          ₺{o.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+    },
+  ];
+
+  const pendingWaybillColumns: GridColumn<PendingWaybillRow>[] = [
+    {
+      key: 'waybillNumber',
+      title: 'İrsaliye No',
+      render: (w) => (
+        <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{w.waybillNumber}</span>
+      ),
+    },
+    {
+      key: 'date',
+      title: 'Düzenleme Tarihi',
+      render: (w) => (
+        <span className="text-slate-600 font-medium">{new Date(w.date).toLocaleDateString('tr-TR')}</span>
+      ),
+      filterValue: (w) => new Date(w.date).toLocaleDateString('tr-TR'),
+    },
+    {
+      key: 'customerName',
+      title: 'Müşteri',
+      render: (w) => (
+        <span className="font-bold text-slate-900 dark:text-slate-100">{w.customerName}</span>
+      ),
+    },
+    {
+      key: 'totalQuantity',
+      title: 'Sevk Miktarı',
+      align: 'right',
+      render: (w) => (
+        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{w.totalQuantity} Çift</span>
+      ),
+      filterValue: (w) => `${w.totalQuantity}`,
+    },
+    {
+      key: 'grandTotal',
+      title: 'Tutar',
+      align: 'right',
+      render: (w) => (
+        <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+          ₺{w.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+    },
+    {
+      key: 'diffDays',
+      title: 'Geçen Gün',
+      align: 'center',
+      render: (w) => (
+        <span className="font-mono font-bold">{w.diffDays} gün</span>
+      ),
+      filterValue: (w) => `${w.diffDays}`,
+    },
+    {
+      key: 'legalStatus',
+      title: 'Yasal Durum',
+      align: 'center',
+      render: (w) => w.diffDays > 7 ? (
+        <StatusPill tone="red"><AlertTriangle className="w-3 h-3" /> 7 Günü Aştı!</StatusPill>
+      ) : (
+        <StatusPill tone="green"><CheckCircle2 className="w-3 h-3" /> {7 - w.diffDays} gün süresi var</StatusPill>
+      ),
+      filterValue: (w) => w.diffDays > 7 ? '7 Günü Aştı' : 'Süre İçinde',
+    },
+  ];
+
   return (
     <div className="space-y-6">
       
@@ -340,13 +486,16 @@ export default function OrderDeliveryReport() {
 
       {/* Tab 1: Sipariş Karşılama */}
       {activeTab === 'fulfillment' && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-          
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+        <DataGrid<FulfillmentRow>
+          columns={fulfillmentColumns}
+          data={filteredOrders}
+          rowKey="id"
+          emptyMessage="Kayıtlı sipariş bulunamadı."
+          toolbar={
+            <>
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input 
+                <input
                   type="text"
                   placeholder="Sipariş no veya müşteri ara..."
                   value={searchTerm}
@@ -381,168 +530,41 @@ export default function OrderDeliveryReport() {
                   Bekleyen
                 </button>
               </div>
-            </div>
 
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {filteredOrders.length} Sipariş Listeleniyor
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-3 px-3">Sipariş No</th>
-                  <th className="py-3 px-3">Tarih</th>
-                  <th className="py-3 px-3">Müşteri</th>
-                  <th className="py-3 px-3 text-right">Sipariş (Çift)</th>
-                  <th className="py-3 px-3 text-right">Sevk Edilen</th>
-                  <th className="py-3 px-3 text-right">Kalan Çift</th>
-                  <th className="py-3 px-3">Karşılama</th>
-                  <th className="py-3 px-3 text-right">Tutar</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-10 text-center text-slate-400 font-bold">
-                      Kayıtlı sipariş bulunamadı.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredOrders.map(o => (
-                    <tr key={o.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                      <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-200">
-                        {o.orderNumber}
-                      </td>
-                      <td className="py-3 px-3 text-slate-600 font-medium">
-                        {new Date(o.date).toLocaleDateString('tr-TR')}
-                      </td>
-                      <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                        {o.customerName}
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {o.totalOrderedPairs}
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-emerald-700">
-                        {o.totalShippedPairs}
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-amber-700">
-                        {o.remainingPairs > 0 ? o.remainingPairs : '-'}
-                      </td>
-                      <td className="py-3 px-3 w-36">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                            <div 
-                              className={cn(
-                                "h-full rounded-full",
-                                o.fulfillmentRate === 100 ? "bg-emerald-600" : "bg-indigo-600"
-                              )} 
-                              style={{ width: `${o.fulfillmentRate}%` }} 
-                            />
-                          </div>
-                          <span className="font-mono text-[10px] font-bold text-slate-600 w-8">
-                            %{o.fulfillmentRate}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                        ₺{o.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-        </div>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-auto">
+                {filteredOrders.length} Sipariş Listeleniyor
+              </span>
+            </>
+          }
+        />
       )}
 
       {/* Tab 2: Açık İrsaliyeler */}
       {activeTab === 'pending_invoices' && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-          
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
-                <Truck className="w-4 h-4" />
+        <DataGrid<PendingWaybillRow>
+          columns={pendingWaybillColumns}
+          data={pendingWaybills}
+          rowKey="id"
+          emptyMessage="Faturalaşmayı bekleyen açık sevk irsaliyesi bulunmuyor. Tüm irsaliyeler faturalandırılmış!"
+          toolbar={
+            <>
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                    Faturalaşmamış Açık Sevk İrsaliyeleri
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-semibold">VUK 231/5 gereği sevk irsaliyesi düzenlendikten sonra en geç 7 gün içinde faturası kesilmelidir.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                  Faturalaşmamış Açık Sevk İrsaliyeleri
-                </h3>
-                <p className="text-[10px] text-slate-400 font-semibold">VUK 231/5 gereği sevk irsaliyesi düzenlendikten sonra en geç 7 gün içinde faturası kesilmelidir.</p>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              {pendingWaybills.length} Açık İrsaliye
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">
-                  <th className="py-3 px-3">İrsaliye No</th>
-                  <th className="py-3 px-3">Düzenleme Tarihi</th>
-                  <th className="py-3 px-3">Müşteri</th>
-                  <th className="py-3 px-3 text-right">Sevk Miktarı</th>
-                  <th className="py-3 px-3 text-right">Tutar</th>
-                  <th className="py-3 px-3 text-center">Geçen Gün</th>
-                  <th className="py-3 px-3 text-center">Yasal Durum</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {pendingWaybills.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-10 text-center text-slate-400 font-bold">
-                      Faturalaşmayı bekleyen açık sevk irsaliyesi bulunmuyor. Tüm irsaliyeler faturalandırılmış!
-                    </td>
-                  </tr>
-                ) : (
-                  pendingWaybills.map(w => {
-                    const isOverdue = w.diffDays > 7;
-                    return (
-                      <tr key={w.id} className="hover:bg-slate-50 dark:bg-slate-800/50/80 transition-colors">
-                        <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-200">
-                          {w.waybillNumber}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 font-medium">
-                          {new Date(w.date).toLocaleDateString('tr-TR')}
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-100">
-                          {w.customerName}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {w.totalQuantity} Çift
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                          ₺{w.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3 px-3 text-center font-mono font-bold">
-                          {w.diffDays} gün
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          {isOverdue ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                              <AlertTriangle className="w-3 h-3" /> 7 Günü Aştı!
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
-                              <CheckCircle2 className="w-3 h-3" /> {7 - w.diffDays} gün süresi var
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-        </div>
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-auto">
+                {pendingWaybills.length} Açık İrsaliye
+              </span>
+            </>
+          }
+        />
       )}
 
     </div>

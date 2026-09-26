@@ -1005,6 +1005,85 @@ export interface AuditLog {
   timestamp: Date;
 }
 
+// ==========================================
+// SUNUCU TARAFLI İŞLEM SÖZLEŞMELERİ
+// (Atomik stok hareketi, reçete sarfiyatı, cari bakiye)
+// ==========================================
+
+export type StockMovementType = 'in' | 'out' | 'production_in' | 'production_out';
+
+/** Tek transaction içinde uygulanan stok hareketi girdisi. */
+export interface StockMovementInput {
+  productId: number;
+  /** Hareketin büyüklüğü (işaret yön belirlemez, `type` belirler). */
+  quantity: number;
+  type: StockMovementType;
+  description: string;
+  variant?: { color?: string; size?: string };
+  /** Girişlerde ağırlıklı ortalama maliyet (AOM) hesabı için birim maliyet. */
+  unitCost?: number;
+  /** true ise stok negatife düşebilir (varsayılan: 0'da sabitlenir). */
+  allowNegative?: boolean;
+}
+
+export interface StockMovementResult {
+  productId: number;
+  productName: string;
+  type: StockMovementType;
+  quantity: number;
+  stock: number;
+  previousStock: number;
+  variantStock: number | null;
+  unitCost: number | null;
+  /** Stok yetersizliği nedeniyle 0'da sabitlendiyse kapatılan miktar. */
+  shortfall: number;
+  clamped: boolean;
+  logId: number;
+}
+
+export interface RecipeConsumptionParams {
+  productId: number;
+  quantity: number;
+  color?: string;
+  size?: string;
+  operator?: string;
+  notes?: string;
+  orderBarcode?: string;
+}
+
+export interface RecipeConsumptionLine {
+  productId: number;
+  name: string;
+  code: string;
+  unit: string;
+  quantityPerPair: number;
+  totalConsumed: number;
+  remainingStock: number;
+  details: string;
+}
+
+export interface RecipeConsumptionResult {
+  success: boolean;
+  finishedProduct: {
+    productId: number;
+    name: string;
+    code: string;
+    quantityAdded: number;
+    newStock: number;
+  };
+  consumedIngredients: RecipeConsumptionLine[];
+  reference?: { orderBarcode: string | null; operator: string | null; notes: string | null; actor: string };
+  timestamp: string;
+}
+
+export interface ContactBalanceResult {
+  contactId: number;
+  balance: number;
+  debit: number;
+  credit: number;
+  actor?: string;
+}
+
 export interface AccountStatementItem {
   id?: number;
   date: Date | string;
