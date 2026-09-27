@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, Save, Check, Database, Download, Upload, AlertTriangle, RefreshCw, FileText, Image as ImageIcon, Trash2, UploadCloud, RotateCcw, CheckCircle2, X } from 'lucide-react';
 import { api, commit, reseedDatabase, type Mutation } from '../../api/client';
-import { erpService } from '../../services/erpService';
+import { invoiceService } from '../../services/invoiceService';
 import { useAuth } from '../../context/AuthContext';
 import Modal from '../Modal';
 import type { AppSettings, CompanySettings as CompanySettingsType } from '../../types';
@@ -49,7 +49,7 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
   const executeResetExceptToday = async () => {
     setIsClearingMovements(true);
     try {
-      const res = await erpService.resetExceptTodayOrders({ clearWorkOrders: true });
+      const res = await invoiceService.resetExceptTodayOrders({ clearWorkOrders: true });
       setIsResetConfirmOpen(false);
       setFeedbackNotice({
         type: 'success',

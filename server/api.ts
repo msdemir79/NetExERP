@@ -27,7 +27,9 @@ import {
   verifyPassword,
   type AuthContext,
 } from './auth.js';
-import { writeAudit } from './audit.js';
+import { writeAudit, writeAuditInTx, resourceAuditEntry, AUDITED_RESOURCES } from './audit.js';
+import type { PoolConnection } from 'mysql2/promise';
+import { broadcast, sseHandler } from './sse.js';
 import { createBusinessOpsRouter } from './businessOps.js';
 import { versionSupported } from './schema.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
@@ -92,11 +94,17 @@ function pickColumns(
   body: any,
   opts: { partial: boolean },
 ): Record<string, any> {
-  const protectedColumns = new Set(getMeta(resource).protectedColumns || []);
+  const meta = getMeta(resource);
+  const protectedColumns = new Set(meta.protectedColumns || []);
+  // Türetilmiş/bakiye kolonları yalnızca INSERT'te (açılış değeri) yazılabilir;
+  // UPDATE yollarında (partial) istemci gövdesinden soyulur — bunlar sadece
+  // kontrollü op'larda satır kilidi + hareket/muhasebe kaydıyla güncellenir.
+  const derivedColumns = opts.partial ? new Set(meta.derivedColumns || []) : new Set<string>();
   const out: Record<string, any> = {};
   for (const [key, value] of Object.entries(body || {})) {
     if (key === def.primaryKey) continue;
     if (protectedColumns.has(key)) continue;
+    if (derivedColumns.has(key)) continue;
     if (SERVER_ONLY_COLUMNS.has(key)) continue;
     const col = def.columns.find((c) => c.name === key);
     if (!col) continue;
@@ -239,51 +247,8 @@ function stripHiddenRows(resource: string, rows: any[]): any[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Canlı güncelleme (SSE)                                              */
+/* Canlı güncelleme (SSE) — server/sse.ts'e taşındı                   */
 /* ------------------------------------------------------------------ */
-
-type SseClient = { id: number; res: Response };
-
-const sseClients = new Set<SseClient>();
-let sseSeq = 0;
-
-export function broadcast(resource: string, action: 'create' | 'update' | 'delete' | 'seed' | 'refresh', ids: (number | string)[] = []) {
-  const payload = `data: ${JSON.stringify({ resource, action, ids, at: Date.now() })}\n\n`;
-  for (const client of sseClients) {
-    try {
-      client.res.write(payload);
-    } catch {
-      sseClients.delete(client);
-    }
-  }
-}
-
-export function sseHandler(req: Request, res: Response) {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-  res.write(`retry: 3000\n\n`);
-  res.write(`data: ${JSON.stringify({ resource: '*', action: 'refresh', ids: [], at: Date.now() })}\n\n`);
-
-  const client: SseClient = { id: ++sseSeq, res };
-  sseClients.add(client);
-
-  const ping = setInterval(() => {
-    try {
-      res.write(': ping\n\n');
-    } catch {
-      /* kapanmış bağlantı */
-    }
-  }, 25000);
-
-  req.on('close', () => {
-    clearInterval(ping);
-    sseClients.delete(client);
-  });
-}
 
 /* ------------------------------------------------------------------ */
 /* Referans kontrolü (silme güvenliği)                                 */
@@ -566,55 +531,23 @@ function assertSuperAdmin(auth: AuthContext | undefined, message: string): void 
   if (!isSuper) throw new HttpError(403, message, 'SUPER_ADMIN_REQUIRED');
 }
 
-const AUDIT_ACTIONS = new Set([
-  'create',
-  'update',
-  'delete',
-  'login',
-  'logout',
-  'export',
-  'approve',
-  'status_change',
-  'permission_change',
-  'system',
-]);
-
-function auditActionForMethod(method: string): string {
-  switch (method.toUpperCase()) {
-    case 'POST':
-      return 'create';
-    case 'PUT':
-    case 'PATCH':
-      return 'update';
-    case 'DELETE':
-      return 'delete';
-    default:
-      return 'update';
-  }
-}
-
-/** users/roles kayıtlarındaki değişiklikleri sunucu tarafında denetim izine yazar. */
-function auditSecurityMutations(req: Request, res: Response, next: any) {
-  const resource = String(req.params.resource || '');
-  if (!['users', 'roles'].includes(resource) || req.method.toUpperCase() === 'GET') {
-    next();
-    return;
-  }
-  res.on('finish', () => {
-    if (res.statusCode < 200 || res.statusCode >= 300) return;
-    const id = req.params.id ? ` (id: ${req.params.id})` : '';
-    void writeAudit(
-      {
-        action: auditActionForMethod(req.method),
-        module: 'users',
-        entityId: req.params.id ?? null,
-        description: `${resource === 'users' ? 'Kullanıcı' : 'Rol'} kaydı ${auditActionForMethod(req.method) === 'create' ? 'oluşturuldu' : auditActionForMethod(req.method) === 'update' ? 'güncellendi' : 'silindi'}${id}`,
-        details: req.body && typeof req.body === 'object' ? `Alanlar: ${Object.keys(req.body).filter((k) => k !== 'password').join(', ') || '-'}` : null,
-      },
-      { auth: req.auth, ip: clientIp(req) },
-    );
-  });
-  next();
+/**
+ * Kritik kaynakların generic REST yazımlarını, asıl işlemle AYNI transaction
+ * içinde denetim izine yazar. Kimlik/rol/IP/zaman sunucudan üretilir; istemci
+ * denetim kaydı uyduramaz. Yalnızca AUDITED_RESOURCES listesindeki kaynaklar
+ * ve başarılı (satır etkileyen) işlemler kaydedilir.
+ */
+async function auditResourceInTx(
+  conn: PoolConnection,
+  resource: string,
+  action: 'create' | 'update' | 'delete',
+  id: string | number | null,
+  req: Request,
+  body?: unknown,
+): Promise<void> {
+  const entry = resourceAuditEntry(resource, action, id, body);
+  if (!entry) return;
+  await writeAuditInTx(conn, entry, { auth: req.auth, ip: clientIp(req) });
 }
 
 /* ------------------------------------------------------------------ */
@@ -919,48 +852,6 @@ export function createApiRouter(): Router {
   router.use('/ops', createBusinessOpsRouter());
 
   /* ---------------------------------------------------------------- */
-  /* Denetim izi: istemci yalnızca açıklama gönderir, kimlik sunucudan */
-  /* yazılır; temizleme yıkıcı işlem olarak Süper Admin'e kapalıdır.   */
-  /* ---------------------------------------------------------------- */
-  router.post('/ops/audit', async (req, res, next) => {
-    try {
-      const action = String(req.body?.action ?? '');
-      const module = String(req.body?.module ?? 'system');
-      const description = String(req.body?.description ?? '').slice(0, 1000);
-      if (!AUDIT_ACTIONS.has(action)) throw new HttpError(400, `Geçersiz denetim eylemi: ${action || '(boş)'}`);
-      if (!description) throw new HttpError(400, 'Denetim kaydı açıklaması zorunludur.');
-
-      await writeAudit(
-        {
-          action,
-          module,
-          description,
-          details: req.body?.details ? String(req.body.details).slice(0, 1000) : null,
-          entityId: req.body?.entityId ?? null,
-        },
-        { auth: req.auth, ip: clientIp(req) },
-      );
-      res.status(201).json({ data: { ok: true } });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.post('/ops/audit-clear', requireSuperAdmin, async (req, res, next) => {
-    try {
-      const result = await execute('DELETE FROM `auditLogs`');
-      broadcast('auditLogs', 'delete', []);
-      await writeAudit(
-        { action: 'system', module: 'system', description: 'Denetim izi geçmişi temizlendi.', details: `Silinen kayıt: ${result.affectedRows ?? 0}` },
-        { auth: req.auth, ip: clientIp(req) },
-      );
-      res.json({ data: { deleted: result.affectedRows ?? 0 } });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  /* ---------------------------------------------------------------- */
   /* Demo verilerine sıfırlama: yalnızca Süper Admin ve üretim dışında */
   /* ---------------------------------------------------------------- */
   router.post('/ops/reseed', requireSuperAdmin, async (req, res, next) => {
@@ -1021,6 +912,22 @@ export function createApiRouter(): Router {
         if (!getDef(m.resource)) throw new HttpError(400, `Bilinmeyen kaynak: ${m.resource}`);
         if (meta.readOnly) {
           throw new HttpError(403, `"${m.resource}" kaynağı yalnızca okunabilir.`, 'READ_ONLY_RESOURCE');
+        }
+        // Hareket defteri tabloları toplu işlemde yalnızca `clear` (Süper Admin) ile yazılabilir.
+        if (meta.movementTable && m.op !== 'clear') {
+          throw new HttpError(
+            403,
+            `"${m.resource}" bir hareket defteridir; doğrudan toplu yazım kapalıdır. Kontrollü işlemleri (ops) kullanın.`,
+            'MOVEMENT_TABLE',
+          );
+        }
+        // Transactional kayıtlar toplu işlemde hard-delete edilemez (clear hariç).
+        if (meta.noHardDelete && (m.op === 'delete' || m.op === 'deleteWhere') ) {
+          throw new HttpError(
+            403,
+            `"${m.resource}" transactional bir kayıttır; doğrudan silme kapalıdır. Kontrollü işlemleri (ops) kullanın.`,
+            'TRANSACTIONAL_NO_DELETE',
+          );
         }
         const action = MUTATION_ACTIONS[m.op];
         if (!action) throw new HttpError(400, `Desteklenmeyen işlem: ${(m as any).op}`);
@@ -1141,24 +1048,26 @@ export function createApiRouter(): Router {
         } finally {
           if (disableFkChecks) await conn.query('SET FOREIGN_KEY_CHECKS = 1');
         }
+
+        // Yıkıcı toplu işlemler aynı transaction içinde denetim izine yazılır.
+        const destructive = mutations.filter((m) => m.op === 'clear' || m.op === 'deleteWhere');
+        if (destructive.length) {
+          await writeAuditInTx(
+            conn,
+            {
+              action: 'delete',
+              module: 'system',
+              description: `Toplu veri silme işlemi uygulandı (${destructive.length} kaynak).`,
+              details: destructive.map((m) => `${m.resource}:${m.op}`).join(', ').slice(0, 1000),
+            },
+            { auth: req.auth, ip: clientIp(req) },
+          );
+        }
       });
 
       if (touched.has('users') || touched.has('roles')) invalidateUserCache();
 
       for (const resource of touched) broadcast(resource, 'update', []);
-
-      const destructive = mutations.filter((m) => m.op === 'clear' || m.op === 'deleteWhere');
-      if (destructive.length) {
-        await writeAudit(
-          {
-            action: 'delete',
-            module: 'system',
-            description: `Toplu veri silme işlemi uygulandı (${destructive.length} kaynak).`,
-            details: destructive.map((m) => `${m.resource}:${m.op}`).join(', ').slice(0, 1000),
-          },
-          { auth: req.auth, ip: clientIp(req) },
-        );
-      }
 
       res.json({ data: { results } });
     } catch (err) {
@@ -1176,6 +1085,30 @@ export function createApiRouter(): Router {
       const resource = String(req.params.resource || '');
       if (!getDef(resource)) throw new HttpError(404, `Bilinmeyen kaynak: ${resource}`);
       assertResourcePermission(resource, req.method, req.auth);
+      // Hareket defteri tablolarında (ör. inventoryLogs) generic satır yazımı kapalıdır;
+      // yalnızca kontrollü op'lar yazar. `clear` ise mevcut Süper Admin kapısıyla kalır.
+      const meta = getMeta(resource);
+      const isWrite = req.method.toUpperCase() !== 'GET';
+      const isClear = req.path.endsWith('/clear');
+      if (meta.movementTable && isWrite && !isClear) {
+        throw new HttpError(
+          403,
+          `"${resource}" bir hareket defteridir; doğrudan kayıt ekleme/düzenleme/silme kapalıdır. Stok hareketleri kontrollü işlemler (ops) üzerinden yapılır.`,
+          'MOVEMENT_TABLE',
+        );
+      }
+      // Transactional kayıtlarda (fatura, cari hareket, yevmiye fişi, tahsilat/tediye
+      // makbuzu) generic hard-delete kapalıdır; iptal/ters kayıt kontrollü op'larla
+      // yapılır. `clear` (Süper Admin, fabrika sıfırlama/yedek geri yükleme) muaftır.
+      const isBulkDelete = req.path.endsWith('/bulk-delete') || req.path.endsWith('/delete-where');
+      const isDelete = req.method.toUpperCase() === 'DELETE' || isBulkDelete;
+      if (meta.noHardDelete && isDelete && !isClear) {
+        throw new HttpError(
+          403,
+          `"${resource}" transactional bir kayıttır; doğrudan silme kapalıdır. İptal/ters kayıt için kontrollü işlemleri (ops) kullanın.`,
+          'TRANSACTIONAL_NO_DELETE',
+        );
+      }
       next();
     } catch (err) {
       next(err);
@@ -1214,7 +1147,7 @@ export function createApiRouter(): Router {
   });
 
   // ---- Oluştur (tek veya toplu) ----
-  router.post('/:resource', resourceAccess, auditSecurityMutations, async (req, res, next) => {
+  router.post('/:resource', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
       const def = getDef(resource)!;
@@ -1247,6 +1180,8 @@ export function createApiRouter(): Router {
           const [r] = await conn.query(sql, params);
           created.push(data[def.primaryKey] ?? (r as any).insertId);
         }
+        // Kritik kaynak oluşturulmaları aynı transaction içinde auditlenir.
+        for (const id of created) await auditResourceInTx(conn, resource, 'create', id, req, rows[0]);
         return created;
       });
 
@@ -1266,7 +1201,7 @@ export function createApiRouter(): Router {
   });
 
   // ---- Kısmi güncelleme ----
-  router.patch('/:resource/:id', resourceAccess, auditSecurityMutations, async (req, res, next) => {
+  router.patch('/:resource/:id', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
       const def = getDef(resource)!;
@@ -1293,8 +1228,15 @@ export function createApiRouter(): Router {
           : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
         withVersion,
       );
-      const result = await execute(sql, expected === null ? [...params, pk] : [...params, pk, expected]);
-      if (!result.affectedRows) {
+      const affected = await withTransaction(async (conn) => {
+        const [r] = await conn.query(sql, expected === null ? [...params, pk] : [...params, pk, expected]);
+        const changes = (r as any)?.affectedRows ?? 0;
+        if (!changes) return 0;
+        // Kritik kaynak güncellemeleri aynı transaction içinde auditlenir.
+        await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body);
+        return changes;
+      });
+      if (!affected) {
         // Sürüm koşulu verildiyse 404 mü 409 mu olduğunu ayırt et.
         if (expected !== null) await assertVersionMatch(def, pk, expected);
         throw new HttpError(404, 'Kayıt bulunamadı.');
@@ -1302,14 +1244,14 @@ export function createApiRouter(): Router {
 
       await applyUserSecuritySideEffects(resource, req.params.id, data, req.body, requestToken(req));
       broadcast(resource, 'update', [req.params.id]);
-      res.json({ data: { id: req.params.id, changes: result.affectedRows } });
+      res.json({ data: { id: req.params.id, changes: affected } });
     } catch (err) {
       next(err);
     }
   });
 
   // ---- Tam değiştirme (Dexie put karşılığı) ----
-  router.put('/:resource/:id', resourceAccess, auditSecurityMutations, async (req, res, next) => {
+  router.put('/:resource/:id', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
       const def = getDef(resource)!;
@@ -1337,8 +1279,14 @@ export function createApiRouter(): Router {
             : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
           withVersion,
         );
-        const updated = await execute(sql, expected === null ? [...params, id] : [...params, id, expected]);
-        if (!updated.affectedRows) {
+        const affected = await withTransaction(async (conn) => {
+          const [r] = await conn.query(sql, expected === null ? [...params, id] : [...params, id, expected]);
+          const changes = (r as any)?.affectedRows ?? 0;
+          if (!changes) return 0;
+          await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body);
+          return changes;
+        });
+        if (!affected) {
           if (expected !== null) await assertVersionMatch(def, id, expected);
           throw new HttpError(404, 'Kayıt bulunamadı.');
         }
@@ -1358,7 +1306,10 @@ export function createApiRouter(): Router {
         if (def.timestamps.includes('createdAt') && !insertData.createdAt) insertData.createdAt = new Date();
         applyResourceRules(resource, insertData);
         const { sql, params } = insertSql(def, insertData);
-        await execute(sql, params);
+        await withTransaction(async (conn) => {
+          await conn.query(sql, params);
+          await auditResourceInTx(conn, resource, 'create', req.params.id, req, req.body);
+        });
         if (resource === 'users' && req.body?.password) {
           await setUserPassword(Number(id), String(req.body.password));
           invalidateUserCache();
@@ -1394,11 +1345,15 @@ export function createApiRouter(): Router {
           applyResourceRules(resource, data);
 
           if (body?.mode === 'upsert' && pk !== undefined && pk !== null && pk !== '') {
-            const keys = Object.keys(data).filter((k) => k !== def.primaryKey);
+            // UPDATE dalında türetilmiş/bakiye kolonları (balance, stock, ...) soyulur:
+            // bunlar yalnızca kontrollü op'larda satır kilidi + hareket/muhasebe kaydıyla
+            // güncellenebilir. INSERT (açılış değeri) için `data` türetilmiş kolonları korur.
+            const updateData = pickColumns(resource, def, row, { partial: true });
+            const keys = Object.keys(updateData).filter((k) => k !== def.primaryKey);
             if (keys.length) {
               const { sql, params } = updateSql(
                 def,
-                data,
+                updateData,
                 `WHERE \`${def.primaryKey}\` = ?`,
                 await supportsVersion(def),
               );
@@ -1413,6 +1368,19 @@ export function createApiRouter(): Router {
           const [r] = await conn.query(sql, params);
           created.push(data[def.primaryKey] ?? (r as any).insertId);
         }
+        // Kritik kaynakların toplu yazımları tek özet kayıt olarak auditlenir.
+        if (AUDITED_RESOURCES[resource]) {
+          await writeAuditInTx(
+            conn,
+            {
+              action: body?.mode === 'upsert' ? 'update' : 'create',
+              module: AUDITED_RESOURCES[resource].module,
+              description: `${AUDITED_RESOURCES[resource].label} toplu ${body?.mode === 'upsert' ? 'güncelleme' : 'ekleme'}: ${created.length} kayıt`,
+              details: `ID'ler: ${created.slice(0, 50).join(', ')}`.slice(0, 1000),
+            },
+            { auth: req.auth, ip: clientIp(req) },
+          );
+        }
         return created;
       });
 
@@ -1425,7 +1393,7 @@ export function createApiRouter(): Router {
   });
 
   // ---- Sil ----
-  router.delete('/:resource/:id', resourceAccess, auditSecurityMutations, async (req, res, next) => {
+  router.delete('/:resource/:id', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
       const def = getDef(resource)!;
@@ -1434,8 +1402,14 @@ export function createApiRouter(): Router {
       const hasGuards = Boolean((getMeta(resource).guards || []).length);
       if (hasGuards) await assertNoDependents(resource, id);
 
-      const result = await execute(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [id]);
-      if (!result.affectedRows) throw new HttpError(404, 'Kayıt bulunamadı.');
+      const deleted = await withTransaction(async (conn) => {
+        const [r] = await conn.query(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [id]);
+        const changes = (r as any)?.affectedRows ?? 0;
+        if (!changes) return 0;
+        await auditResourceInTx(conn, resource, 'delete', req.params.id, req);
+        return changes;
+      });
+      if (!deleted) throw new HttpError(404, 'Kayıt bulunamadı.');
 
       if (resource === 'roles') invalidateUserCache();
       if (resource === 'users') {
@@ -1444,7 +1418,7 @@ export function createApiRouter(): Router {
       }
 
       broadcast(resource, 'delete', [req.params.id]);
-      res.json({ data: { id: req.params.id, deleted: result.affectedRows } });
+      res.json({ data: { id: req.params.id, deleted } });
     } catch (err) {
       next(err);
     }
@@ -1465,16 +1439,32 @@ export function createApiRouter(): Router {
       }
 
       const marks = ids.map(() => '?').join(', ');
-      const result = await execute(
-        `DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` IN (${marks})`,
-        ids.map((id) => coerce(def, def.primaryKey, id))
-      );
+      const deletedCount = await withTransaction(async (conn) => {
+        const [r] = await conn.query(
+          `DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` IN (${marks})`,
+          ids.map((id) => coerce(def, def.primaryKey, id))
+        );
+        const changes = (r as any)?.affectedRows ?? 0;
+        if (changes && AUDITED_RESOURCES[resource]) {
+          await writeAuditInTx(
+            conn,
+            {
+              action: 'delete',
+              module: AUDITED_RESOURCES[resource].module,
+              description: `${AUDITED_RESOURCES[resource].label} toplu silme: ${changes} kayıt`,
+              details: `ID'ler: ${ids.slice(0, 50).join(', ')}`.slice(0, 1000),
+            },
+            { auth: req.auth, ip: clientIp(req) },
+          );
+        }
+        return changes;
+      });
 
       if (resource === 'users' || resource === 'roles') invalidateUserCache();
       if (resource === 'users') for (const id of ids) destroyUserSessions(Number(id));
 
       broadcast(resource, 'delete', ids);
-      res.json({ data: { deleted: result.affectedRows } });
+      res.json({ data: { deleted: deletedCount } });
     } catch (err) {
       next(err);
     }

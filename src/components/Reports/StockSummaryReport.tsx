@@ -1,7 +1,7 @@
 import React from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { erpService } from '../../services/erpService';
+import { inventoryService } from '../../services/inventoryService';
 import { Search, AlertTriangle, Printer, FileDown, Palette } from 'lucide-react';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { cn } from '../../lib/utils';
@@ -33,7 +33,7 @@ export default function StockSummaryReport() {
 
   // Varyant stoklarını ürün stoğuyla eşitle (detay raporu ile aynı davranış)
   React.useEffect(() => {
-    erpService.syncProductVariantStocks().catch(err => console.error('Stok senkronizasyon hatası:', err));
+    inventoryService.syncProductVariantStocks().catch(err => console.error('Stok senkronizasyon hatası:', err));
   }, []);
 
   const rows = React.useMemo<SummaryRow[]>(() => {

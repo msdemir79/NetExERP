@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Printer, X, ExternalLink, CheckCircle2, AlertCircle, RotateCcw } from 'lucide-react';
 import { printHtml, openPrintWindow } from '../../lib/printService';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import type { MizanRow } from '../../services/accountingService';
 
 interface Props {
@@ -23,7 +23,7 @@ export default function MizanPrintModal({ isOpen, onClose, mizanRows, options }:
   useEffect(() => {
     async function loadSettings() {
       if (isOpen) {
-        const sysSettings = await erpService.getSystemSettings();
+        const sysSettings = await settingsService.getSystemSettings();
         if (sysSettings?.company) {
           setCompanySettings(sysSettings.company);
         }

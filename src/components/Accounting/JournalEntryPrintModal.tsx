@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Printer, X, ExternalLink } from 'lucide-react';
 import { printHtml, openPrintWindow } from '../../lib/printService';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import type { JournalEntry } from '../../types';
 
 interface Props {
@@ -16,7 +16,7 @@ export default function JournalEntryPrintModal({ entry, onClose }: Props) {
 
   useEffect(() => {
     async function loadSettings() {
-      const sysSettings = await erpService.getSystemSettings();
+      const sysSettings = await settingsService.getSystemSettings();
       if (sysSettings?.company) {
         setCompanySettings(sysSettings.company);
       }

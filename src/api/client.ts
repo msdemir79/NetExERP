@@ -360,6 +360,47 @@ export async function callOp<T = any>(op: string, payload: any = {}): Promise<T>
 }
 
 /* ------------------------------------------------------------------ */
+/* Yönetici panosu özeti (sunucu tarafı agregasyon)                    */
+/* ------------------------------------------------------------------ */
+
+export interface DashboardCategoryStats { finished: number; semi_finished: number; raw_material: number; accessory: number; }
+export interface DashboardStageCounts { kesim: number; dikim: number; montaj: number; finisaj: number; }
+export interface DashboardLowStockProduct { id: number; code: string; name: string; stock: number; minStock: number; unit: string; }
+export interface DashboardCashFlowDay { name: string; gelir: number; gider: number; }
+export interface DashboardRecentTransaction { id: number; type: 'income' | 'expense'; amount: number; date: string; description: string | null; }
+export interface DashboardRecentOrder { id: number; orderNumber: string; date: string; grandTotal: number; }
+
+export interface DashboardStats {
+  income: number; expense: number; profit: number;
+  cashBalance: number; bankBalance: number; totalLiquidAssets: number;
+  customerChecksCount: number; customerChecksTotal: number; issuedChecksTotal: number;
+  activeEmployeesCount: number; sgkEmployees: number; dailyEmployees: number;
+  totalNetPayroll: number; totalEmployerCost: number; unpaidPayrollsCount: number; unaccountedPayrollsCount: number;
+  pendingAdvancesCount: number; pendingAdvanceTotal: number;
+  totalJournals: number; unbalancedJournals: number; netKdvDifference: number; kdv191Debit: number; kdv391Credit: number;
+  openSalesInvoicesCount: number; openSalesTotal: number; openPurchaseTotal: number;
+  uninvoicedWaybillsCount: number;
+  lowStockProducts: DashboardLowStockProduct[]; lowStockCount: number;
+  salesOrdersCount: number; totalOrderQty: number; totalShippedQty: number; remainingToShip: number;
+  activeWorkOrdersCount: number; totalProducedQty: number; totalInProductionQty: number;
+  stageCounts: DashboardStageCounts; categoryStats: DashboardCategoryStats;
+}
+
+export interface DashboardSummary {
+  stats: DashboardStats;
+  productCount: number;
+  recentTransactions: DashboardRecentTransaction[];
+  recentOrders: DashboardRecentOrder[];
+  cashFlowByDay: DashboardCashFlowDay[];
+}
+
+/** Pano özetini tek istekte, sunucuda agregatlanmış olarak çeker. */
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  const res = await http<{ data: DashboardSummary }>(`/ops/dashboard-summary`, { method: 'GET' });
+  return res.data;
+}
+
+/* ------------------------------------------------------------------ */
 /* Atomik toplu yazma                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -492,21 +533,5 @@ export const authApi = {
 
   async changePassword(input: { userId?: number; currentPassword?: string; newPassword: string }): Promise<void> {
     await http('/auth/password', { method: 'POST', body: JSON.stringify(input) });
-  },
-
-  /** Denetim kaydı: kimlik/zaman sunucu tarafından yazılır. */
-  async audit(entry: {
-    action: string;
-    module: string;
-    description: string;
-    details?: string;
-    entityId?: string | number;
-  }): Promise<void> {
-    await http('/ops/audit', { method: 'POST', body: JSON.stringify(entry) });
-  },
-
-  async clearAuditLogs(): Promise<number> {
-    const res = await http<{ data: { deleted: number } }>('/ops/audit-clear', { method: 'POST' });
-    return res.data?.deleted ?? 0;
   },
 };

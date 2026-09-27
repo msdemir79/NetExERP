@@ -24,7 +24,7 @@ import {
 import Modal from '../Modal';
 import { BarcodeSvg } from '../BarcodeSvg';
 import type { WorkOrder, Product, ProductionStage, Recipe, Contact } from '../../types';
-import { erpService } from '../../services/erpService';
+import { productionService } from '../../services/productionService';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import html2canvas from 'html2canvas-pro';
@@ -257,7 +257,7 @@ export default function ProductionRefakatKartiModal({
     if (!workOrder.id) return;
     setUpdatingStage(stageKey);
     try {
-      await erpService.advanceWorkOrderStage(workOrder.id, stageKey, {
+      await productionService.advanceWorkOrderStage(workOrder.id, stageKey, {
         operator: 'Refakat Kartı Onaylayıcı'
       });
       if (onStageUpdated) onStageUpdated();

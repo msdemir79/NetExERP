@@ -11,7 +11,7 @@ import {
   CreditCard
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { erpService } from '../../services/erpService';
+import { contactService } from '../../services/contactService';
 
 interface TransactionDeleteModalProps {
   isOpen: boolean;
@@ -37,7 +37,7 @@ export default function TransactionDeleteModal({
     try {
       setLoading(true);
       setError(null);
-      await erpService.deleteTransaction(transaction.id!);
+      await contactService.deleteTransaction(transaction.id!);
       if (onSuccess) onSuccess('Finansal hareket kaydı silindi ve cari bakiye güncellendi.');
       onClose();
     } catch (err: any) {

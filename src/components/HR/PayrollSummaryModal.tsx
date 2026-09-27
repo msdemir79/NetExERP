@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import { hrService } from '../../services/hrService';
 import { X, Printer, Download, Landmark, Banknote, ShieldCheck, Receipt } from 'lucide-react';
 import type { Employee, PayrollRecord, HRModuleSettings } from '../../types';
@@ -49,7 +49,7 @@ export default function PayrollSummaryModal({
   useEffect(() => {
     async function loadSettings() {
       if (isOpen) {
-        const sysSettings = await erpService.getSystemSettings();
+        const sysSettings = await settingsService.getSystemSettings();
         if (sysSettings?.company) {
           setCompanySettings(sysSettings.company);
         }

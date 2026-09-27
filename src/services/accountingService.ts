@@ -1,11 +1,10 @@
-import { api, equalsIgnoreCase } from '../api/client';
+import { api, callOp, equalsIgnoreCase } from '../api/client';
 import type { 
   Account, 
   JournalEntry, 
   JournalEntryLine, 
   JournalEntryType,
-  Invoice,
-  CollectionReceipt
+  Invoice
 } from '../types';
 import { assertBalancedJournalEntry } from '../lib/accountingValidator';
 import { assertServicePermission } from './authGuard';
@@ -316,10 +315,18 @@ export const accountingService = {
     });
   },
 
-  async deleteJournalEntry(id: number) {
+  /**
+   * Yevmiye fişini iptal eder. Onaylı fişler SİLİNMEZ; borç/alacak yer değiştirmiş
+   * bir ters kayıt üretilir (orijinal korunur). Yalnızca taslak fişler kalıcı silinir.
+   * Otomatik üretilen fişler (fatura/çek/makbuz) ilgili belgenin op'u ile iptal edilir.
+   */
+  async reverseJournalEntry(id: number, reason?: string) {
     // Servis Katmanı Yetki Kontrolü
     await assertServicePermission('accounting', 'delete', true);
-    return await api.journalEntries.remove(id);
+    return await callOp<{ journalEntryId: number; entryNumber: string; deleted: boolean; reversed: boolean; reversalEntryId?: number | null }>(
+      'reverse-journal',
+      { journalEntryId: id, reason },
+    );
   },
 
   // Helper to infer Account Type from TDHP Code
@@ -866,138 +873,6 @@ export const accountingService = {
     }
 
     return { processedCount, errors };
-  },
-
-  // Automatic TDHP Accounting for Collection / Disbursement Receipt
-  async createReceiptJournalEntry(receiptId: number): Promise<number | null> {
-    const receipt = await api.collectionReceipts.get(receiptId);
-    if (!receipt) return null;
-
-    if (receipt.journalEntryId) {
-      const existing = await api.journalEntries.get(receipt.journalEntryId);
-      if (existing) return existing.id!;
-    }
-
-    const lines: JournalEntryLine[] = [];
-    const amount = Number(receipt.amount.toFixed(2));
-
-    // Determine Asset Account (100 Kasa, 102 Banka, 101 Alınan Çek, 108 Kredi Kartı)
-    let assetAccountCode = '100.01';
-    let assetAccountName = 'Merkez TL Kasası';
-
-    if (receipt.instrument === 'bank') {
-      assetAccountCode = '102.01';
-      assetAccountName = 'Garanti BBVA Vadesiz TL Hesabı';
-      if (receipt.bankAccountId) {
-        const bank = await api.bankAccounts.get(receipt.bankAccountId);
-        if (bank) {
-          assetAccountCode = bank.accountCode || '102.01';
-          assetAccountName = `${bank.bankName} (${bank.iban})`;
-        }
-      }
-    } else if (receipt.instrument === 'check') {
-      assetAccountCode = receipt.type === 'collection' ? '101.01' : '103.01';
-      assetAccountName = receipt.type === 'collection' ? 'Portföydeki Alınan Çekler' : 'Verilen Firma Çekleri';
-    } else if (receipt.instrument === 'credit_card') {
-      assetAccountCode = '108.01';
-      assetAccountName = 'Kredi Kartı Slip Alacakları';
-    } else {
-      if (receipt.cashBoxId) {
-        const cash = await api.cashBoxes.get(receipt.cashBoxId);
-        if (cash) {
-          assetAccountCode = cash.accountCode || '100.01';
-          assetAccountName = cash.name;
-        }
-      }
-    }
-
-    // Resolve Contact Account Code dynamically
-    let contactAccountCode = receipt.type === 'collection' ? '120.01' : '320.01';
-    let contactAccountName = receipt.type === 'collection' 
-      ? `Yurtiçi Müşteriler Cari Hesabı (${receipt.contactName})` 
-      : `Yurtiçi Mal ve Hizmet Tedarikçileri (${receipt.contactName})`;
-
-    if (receipt.contactId) {
-      const contact = await api.contacts.get(receipt.contactId);
-      if (contact) {
-        if (contact.accountCode?.trim()) {
-          contactAccountCode = contact.accountCode.trim();
-        }
-        contactAccountName = await this.ensureAccountExists(
-          contactAccountCode,
-          `${receipt.type === 'collection' ? 'Alıcılar' : 'Satıcılar'} - ${contact.name}`,
-          receipt.type === 'collection' ? 'asset' : 'liability'
-        );
-      }
-    }
-
-    if (receipt.type === 'collection') {
-      // TAHSİLAT (Kasaya/Bankaya Para Girişi):
-      // BORÇ: Kasa/Banka (100 / 102 / 101)
-      // ALACAK: Alıcılar (120 veya tanımlı cari hesabı)
-      lines.push({
-        id: `line-${Date.now()}-1`,
-        accountCode: assetAccountCode,
-        accountName: assetAccountName,
-        description: `Tahsilat (${receipt.receiptNumber}): ${receipt.description || receipt.contactName}`,
-        debit: amount,
-        credit: 0
-      });
-
-      lines.push({
-        id: `line-${Date.now()}-2`,
-        accountCode: contactAccountCode,
-        accountName: contactAccountName,
-        description: `Müşteri Tahsilatı - Makbuz No: ${receipt.receiptNumber}`,
-        debit: 0,
-        credit: amount,
-        contactId: receipt.contactId
-      });
-    } else {
-      // TEDİYE (Kasadan/Bankadan Para Çıkışı - Tedarikçiye Ödeme):
-      // BORÇ: Satıcılar (320 veya tanımlı cari hesabı)
-      // ALACAK: Kasa/Banka (100 / 102 / 103)
-      lines.push({
-        id: `line-${Date.now()}-1`,
-        accountCode: contactAccountCode,
-        accountName: contactAccountName,
-        description: `Tedarikçi Ödemesi - Makbuz No: ${receipt.receiptNumber}`,
-        debit: amount,
-        credit: 0,
-        contactId: receipt.contactId
-      });
-
-      lines.push({
-        id: `line-${Date.now()}-2`,
-        accountCode: assetAccountCode,
-        accountName: assetAccountName,
-        description: `Tediye (${receipt.receiptNumber}): ${receipt.description || receipt.contactName}`,
-        debit: 0,
-        credit: amount
-      });
-    }
-
-    const entryType: JournalEntryType = receipt.instrument === 'cash' 
-      ? (receipt.type === 'collection' ? 'tahsil' : 'tediye')
-      : 'mahsup';
-
-    const entryId = await this.createJournalEntry({
-      entryType,
-      date: new Date(receipt.date),
-      description: `${receipt.type === 'collection' ? 'Tahsilat' : 'Tediye'} Fişi: ${receipt.contactName} (${receipt.receiptNumber})`,
-      documentType: receipt.type === 'collection' ? 'collection' : 'disbursement',
-      documentId: receipt.id,
-      documentNumber: receipt.receiptNumber,
-      lines,
-      status: 'approved'
-    });
-
-    await api.collectionReceipts.update(receiptId, {
-      journalEntryId: entryId,
-      isAccounted: true
-    });
-
-    return entryId;
   },
 
   // --- Trial Balance (Mizan Raporu) ---

@@ -16,6 +16,28 @@ export interface ResourceMeta {
   readAuthOnly?: boolean;
   /** İstemci hiçbir zaman yazamaz (yalnızca sunucu tarafı işlemler yazar). */
   protectedColumns?: string[];
+  /**
+   * Türetilmiş/bakiye kolonları: generic CRUD ve /ops/commit UPDATE yollarında
+   * istemci gövdesinden SOYULUR (INSERT'te açılış değeri olarak yazılabilir).
+   * Bu alanlar yalnızca kontrollü iş uçlarında (ops) satır kilidi altında,
+   * karşılık gelen hareket + muhasebe kaydıyla birlikte güncellenir.
+   */
+  derivedColumns?: string[];
+  /**
+   * Hareket defteri tabloları (ör. inventoryLogs): generic satır yazımı
+   * (insert/update/delete/bulk/delete-where) HERKESE kapalıdır; yalnızca
+   * sunucu tarafı ops yazar. `clear` mevcut Süper Admin kapısıyla kalır.
+   */
+  movementTable?: boolean;
+  /**
+   * Transactional kayıtlar (fatura, cari hareket, yevmiye fişi, tahsilat/tediye
+   * makbuzu): generic hard-delete (DELETE, bulk-delete, delete-where, commit
+   * delete/deleteWhere) HERKESE kapalıdır. Silme/iptal yalnızca kontrollü op'lar
+   * (cancel-invoice, reverse-journal, contact-transaction delete vb.) üzerinden,
+   * ilgili bakiye/muhasebe geri alımı ve audit ile yapılır. `clear` (Süper Admin,
+   * fabrika sıfırlama/yedek geri yükleme) bu kısıttan muaftır.
+   */
+  noHardDelete?: boolean;
   /** Kayıtlar istemciye gönderilmeden önce çıkarılan kolonlar. */
   hidden?: string[];
 }
@@ -30,6 +52,8 @@ export const META: Record<string, ResourceMeta> = {
     readAuthOnly: true,
     searchable: ['code', 'name', 'companyTitle', 'contactPerson', 'phone', 'mobile', 'email', 'taxNumber'],
     defaultOrder: 'name ASC',
+    /** Cari bakiyesi yalnızca kontrollü finans uçlarında (fatura, tahsilat/tediye, açılış, reset) değişir. */
+    derivedColumns: ['balance'],
     guards: [
       { table: 'orders', column: 'contactId', message: 'Bu cariye bağlı siparişler var. Önce siparişleri silin.' },
       { table: 'invoices', column: 'contactId', message: 'Bu cariye bağlı faturalar var. Önce faturaları silin.' },
@@ -48,6 +72,12 @@ export const META: Record<string, ResourceMeta> = {
     readAuthOnly: true,
     searchable: ['code', 'name', 'barcode', 'moldCode', 'moldGroup', 'subType', 'brand', 'category', 'documentNo'],
     defaultOrder: 'name ASC',
+    /**
+     * Stok ve varyant stoğu yalnızca kontrollü uçlarda (stok hareketi, fatura/irsaliye
+     * stok düşümü, varyant senkronu, reset) satır kilidi altında ve inventoryLogs
+     * kaydıyla birlikte güncellenir.
+     */
+    derivedColumns: ['stock', 'variantBarcodes'],
     guards: [
       { table: 'orderItems', column: 'productId', message: 'Bu ürüne bağlı sipariş kalemleri var.' },
       { table: 'waybillItems', column: 'productId', message: 'Bu ürüne bağlı irsaliye kalemleri var.' },
@@ -66,8 +96,8 @@ export const META: Record<string, ResourceMeta> = {
     searchable: ['barcode', 'orderNumber', 'customerName', 'documentNo', 'moldCode', 'moldGroup', 'color'],
     defaultOrder: 'id DESC',
   },
-  inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC' },
-  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC' },
+  inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC', movementTable: true },
+  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC', noHardDelete: true },
   /** Firma künyesi/logo gibi kabuk ayarları arayüzün her yerinde okunur. */
   settings: { module: 'settings', searchable: [], defaultOrder: 'id ASC', readAuthOnly: true },
   orders: {
@@ -84,6 +114,9 @@ export const META: Record<string, ResourceMeta> = {
     module: 'invoices',
     searchable: ['invoiceNumber', 'orderNumber', 'waybillNumber', 'ettn', 'notes'],
     defaultOrder: 'id DESC',
+    /** Ödeme durumu ve ödenen tutar yalnızca tahsilat/tediye op'unda (satır kilidi + muhasebe) değişir. */
+    derivedColumns: ['paidAmount', 'paymentStatus'],
+    noHardDelete: true,
     guards: [{ table: 'invoiceItems', column: 'invoiceId', message: 'Fatura kalemleri silinmeden fatura silinemez.' }],
   },
   invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
@@ -91,6 +124,8 @@ export const META: Record<string, ResourceMeta> = {
     module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
     defaultOrder: 'id DESC',
+    /** Fatura bağı yalnızca create/issue/cancel/delete-invoice op'larında (satır kilidi altında) değişir. */
+    derivedColumns: ['invoicedStatus', 'invoiceId', 'invoiceNumber'],
     guards: [{ table: 'waybillItems', column: 'waybillId', message: 'İrsaliye kalemleri silinmeden irsaliye silinemez.' }],
   },
   waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
@@ -99,15 +134,19 @@ export const META: Record<string, ResourceMeta> = {
     module: 'accounting',
     searchable: ['entryNumber', 'description', 'documentNumber', 'documentType'],
     defaultOrder: 'id DESC',
+    /** Yevmiye defteri immutable: onaylı fiş generic silinemez, reverse-journal ile ters kayıt üretilir. */
+    noHardDelete: true,
   },
-  cashBoxes: { module: 'finance', searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC' },
-  bankAccounts: { module: 'finance', searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC' },
+  cashBoxes: { module: 'finance', searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC', derivedColumns: ['balance'] },
+  bankAccounts: { module: 'finance', searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC', derivedColumns: ['balance'] },
   checks: {
     module: 'finance',
     searchable: ['portfolioNumber', 'serialNumber', 'bankName', 'drawer', 'contactName'],
     defaultOrder: 'dueDate ASC',
+    /** Çek durumu yalnızca /ops/check-status ucunda (kasa/banka/cari + muhasebe ile) değişir. */
+    derivedColumns: ['status', 'statusChangeDate', 'endorsedToContactId', 'endorsedToContactName'],
   },
-  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC' },
+  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', derivedColumns: ['isAccounted', 'journalEntryId'], noHardDelete: true },
   employees: {
     module: 'hr',
     searchable: ['employeeCode', 'name', 'tcNo', 'department', 'position', 'phone'],

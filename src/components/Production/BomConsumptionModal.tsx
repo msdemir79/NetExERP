@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { api } from '../../api/client';
-import { erpService } from '../../services/erpService';
+import { productionService } from '../../services/productionService';
 import type { Product, Recipe } from '../../types';
 
 interface BomConsumptionModalProps {
@@ -90,7 +90,7 @@ export default function BomConsumptionModal({
       setIsLoadingPreview(true);
       setError(null);
       try {
-        const result = await erpService.previewRecipeConsumption({
+        const result = await productionService.previewRecipeConsumption({
           productId: targetProductId,
           quantity,
           color: selectedColor,
@@ -116,7 +116,7 @@ export default function BomConsumptionModal({
     setError(null);
 
     try {
-      const res = await erpService.consumeRecipeMaterialsDirectly({
+      const res = await productionService.consumeRecipeMaterialsDirectly({
         productId: targetProductId,
         quantity,
         color: selectedColor,

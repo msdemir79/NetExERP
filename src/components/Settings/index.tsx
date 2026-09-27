@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import { 
   Settings as SettingsIcon, 
   Package, 
@@ -53,7 +53,7 @@ export default function SettingsHub() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const data = await erpService.getSystemSettings();
+        const data = await settingsService.getSystemSettings();
         setSettings(data);
       } catch (err) {
         console.error('Ayarlar yüklenirken hata:', err);
@@ -65,7 +65,7 @@ export default function SettingsHub() {
   }, []);
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
-    await erpService.updateSystemSettings(newSettings);
+    await settingsService.updateSystemSettings(newSettings);
     setSettings(newSettings);
   };
 

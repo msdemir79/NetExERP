@@ -99,7 +99,7 @@ Veriler yerel MySQL veritabanında saklanır. Sunucu ilk açılışta boş tablo
 - **Saf hesaplamalar:** `src/lib/` (accountingValidator, payrollCalculator, inventoryCalculator, turkishUtils)
 - **Sunucu:** Express, geliştirmede Vite middleware, üretimde statik dosya sunumu
 - **Kimlik doğrulama:** `server/auth.ts` — scrypt parola saklama, bellekte oturum deposu, kaynak→modül/eylem izin denetimi, giriş hız sınırlayıcı. Oturum `httpOnly` çerez ile taşınır (`Authorization: Bearer <token>` de desteklenir)
-- **Denetim izi:** `server/audit.ts` — kimlik/IP/zaman sunucudan yazılır; istemci yalnızca `POST /api/ops/audit` ile açıklama gönderir
+- **Denetim izi:** `server/audit.ts` — tüm kayıtlar sunucu tarafında, asıl işlemle **aynı transaction** içinde üretilir (kimlik/rol/IP/zaman sunucudan). Kritik kaynakların (kullanıcı/rol/cari/ürün/fatura/kasa/banka/çek/makbuz/fiş/sipariş/irsaliye/iş emri/bordro/ayar) generic yazımları ve tüm kontrollü `ops` işlemleri otomatik auditlenir. `auditLogs` salt-okunur ve değiştirilemezdir: istemcinin denetim kaydı üretmesine veya geçmişi silmesine izin verilmez
 - **Yetki matrisi:** Kaynak→modül eşlemesi `server/registry.ts` içindeki `module` alanındadır. `settings`, `contacts` ve `products` oturum sahibi herkesin okuyabildiği ortak referans verileridir; yazma her zaman modül iznine bağlıdır
 - **Yetki simülasyonu:** Süper admin, `POST /api/auth/impersonate` ile bir kullanıcının yetkileriyle oturum açabilir. `impersonate/stop` kendi oturumuna döner; her geçiş denetim izine kaydedilir ve arayüzde bildirilir
 - **Yazdırma / PDF:** iframe tabanlı yazdırma servisi, html2canvas + jsPDF

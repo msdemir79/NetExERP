@@ -15,7 +15,7 @@ import {
   Tag
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { erpService } from '../../services/erpService';
+import { contactService } from '../../services/contactService';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 
@@ -152,10 +152,10 @@ export default function TransactionModal({
       };
 
       if (isEditMode && transactionToEdit?.id) {
-        await erpService.updateTransaction(transactionToEdit.id, payload);
+        await contactService.updateTransaction(transactionToEdit.id, payload);
         if (onSuccess) onSuccess('Finansal hareket ve cari bakiyesi başarıyla güncellendi.');
       } else {
-        await erpService.addTransaction(payload as Transaction);
+        await contactService.addTransaction(payload as Transaction);
         if (onSuccess) onSuccess('Yeni finansal hareket başarıyla kaydedildi.');
       }
 

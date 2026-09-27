@@ -15,7 +15,8 @@ import {
 import type { Account, JournalEntry } from '../../types';
 import { exportToCsv } from '../../lib/exportService';
 import { cn } from '../../lib/utils';
-import DataGrid, { StatusPill, type PillTone } from '../Common/DataGrid';
+import DataGrid, { StatusPill } from '../Common/DataGrid';
+import { LEVEL_META, getAccountGroup } from './chartOfAccountsMeta';
 
 interface ChartOfAccountsProps {
   accounts: Account[];
@@ -25,80 +26,6 @@ interface ChartOfAccountsProps {
   onOpenKebir: (accountCode: string) => void;
   onDeleteAccount?: (account: Account) => void;
 }
-
-// Map class digit to Account Group name (matching standard TDHP)
-const GROUP_NAMES: Record<string, string> = {
-  '1': '1 DÖNEN VARLIKLAR',
-  '2': '2 DURAN VARLIKLAR',
-  '3': '3 KISA VADELİ YABANCI KAYNAKLAR',
-  '4': '4 UZUN VADELİ YABANCI KAYNAKLAR',
-  '5': '5 ÖZKAYNAKLAR',
-  '6': '6 GELİR TABLOSU HESAPLARI',
-  '7': '7 MALİYET HESAPLARI (7/A SEÇENEĞİ)',
-  '8': '8 SERBEST HESAPLAR',
-  '9': '9 NAZIM HESAPLARI',
-};
-
-// Map 2-digit to Main Group description
-const MAIN_GROUPS: Record<string, string> = {
-  '10': '10 HAZIR DEĞERLER',
-  '11': '11 MENKUL KIYMETLER',
-  '12': '12 TİCARİ ALACAKLAR',
-  '13': '13 DİĞER ALACAKLAR',
-  '15': '15 STOKLAR',
-  '17': '17 YILLARA YAYGIN İNŞAAT VE ONARIM',
-  '18': '18 GELECEK AYLARA AİT GİDERLER',
-  '19': '19 DİĞER DÖNEN VARLIKLAR',
-  '22': '22 TİCARİ ALACAKLAR',
-  '24': '24 MALİ DURAN VARLIKLAR',
-  '25': '25 MADDİ DURAN VARLIKLAR',
-  '26': '26 MADDİ OLMAYAN DURAN VARLIKLAR',
-  '27': '27 ÖZEL TÜKENMEYE TABİ VARLIKLAR',
-  '28': '28 GELECEK YILLARA AİT GİDERLER',
-  '29': '29 DİĞER DURAN VARLIKLAR',
-  '30': '30 MALİ BORÇLAR',
-  '32': '32 TİCARİ BORÇLAR',
-  '33': '33 DİĞER BORÇLAR',
-  '34': '34 ALINAN AVANSLAR',
-  '36': '36 ÖDENECEK VERGİ VE YÜKÜMLÜLÜKLER',
-  '37': '37 BORÇ VE GİDER KARŞILIKLARI',
-  '38': '38 GELECEK AYLARA AİT GELİRLER',
-  '39': '39 DİĞER KISA VADELİ BORÇLAR',
-  '40': '40 MALİ BORÇLAR',
-  '42': '42 TİCARİ BORÇLAR',
-  '50': '50 ÖDENMİŞ SERMAYE',
-  '52': '52 SERMAYE YEDEKLERİ',
-  '54': '54 KÂR YEDEKLERİ',
-  '57': '57 GEÇMİŞ YILLAR KÂRLARI',
-  '58': '58 GEÇMİŞ YILLAR ZARARLARI (-)',
-  '59': '59 DÖNEM NET KÂRI (ZARARI)',
-  '60': '60 BRÜT SATIŞLAR',
-  '61': '61 SATIŞ İNDİRİMLERİ (-)',
-  '62': '62 SATIŞLARIN MALİYETİ (-)',
-  '63': '63 FAALİYET GİDERLERİ (-)',
-  '64': '64 DİĞER FAALİYETLERDEN OLAĞAN GELİR',
-  '65': '65 DİĞER FAALİYETLERDEN OLAĞAN GİDER (-)',
-  '66': '66 FİNANSMAN GİDERLERİ (-)',
-  '70': '70 MALİYET MUHASEBESİ BAĞLANTI',
-  '71': '71 DİREKT İLK MADDE VE MALZEME',
-  '72': '72 DİREKT İŞÇİLİK GİDERLERİ',
-  '73': '73 GENEL ÜRETİM GİDERLERİ',
-  '74': '74 HİZMET ÜRETİM MALİYETİ',
-  '75': '75 ARAŞTIRMA VE GELİŞTİRME',
-  '76': '76 PAZARLAMA SATIŞ VE DAĞITIM',
-  '77': '77 GENEL YÖNETİM GİDERLERİ',
-  '78': '78 FİNANSMAN GİDERLERİ',
-  '90': '90 NAZIM HESAPLAR',
-  '99': '99 DİĞER NAZIM HESAPLAR'
-};
-
-const LEVEL_META: Record<number, { tone: PillTone; label: string }> = {
-  1: { tone: 'slate', label: '1: Sınıf' },
-  2: { tone: 'cyan', label: '2: Grup' },
-  3: { tone: 'green', label: '3: Ana' },
-  4: { tone: 'violet', label: '4: Alt' },
-  5: { tone: 'amber', label: '5: Muavin' },
-};
 
 export default function ChartOfAccounts({
   accounts,
@@ -445,28 +372,6 @@ export default function ChartOfAccounts({
     creditBalance: 0,
     hasActivity: false
   };
-
-  // Helper: Get Account Group name
-  const getAccountGroup = useCallback((acc: Account): string => {
-    const firstChar = acc.code.charAt(0);
-    if (GROUP_NAMES[firstChar]) return GROUP_NAMES[firstChar];
-    return acc.type === 'asset' ? '1 DÖNEN VARLIKLAR' :
-           acc.type === 'liability' ? '3 KISA VADELİ YABANCI KAYNAKLAR' :
-           acc.type === 'equity' ? '5 ÖZKAYNAKLAR' :
-           acc.type === 'revenue' ? '6 GELİR TABLOSU' :
-           acc.type === 'cost' ? '7 MALİYET HESAPLARI' : 'DİĞER';
-  }, []);
-
-  // Helper: Get Main Group
-  const getMainGroup = useCallback((acc: Account): string => {
-    const cleanCode = acc.code.replace(/\D/g, '');
-    if (cleanCode.length >= 2) {
-      const prefix2 = cleanCode.slice(0, 2);
-      if (MAIN_GROUPS[prefix2]) return MAIN_GROUPS[prefix2];
-      return prefix2;
-    }
-    return acc.code;
-  }, []);
 
   // Export to Excel / CSV with all balances
   const handleExportCsv = () => {

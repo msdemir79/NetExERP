@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { compareAccountCodes } from '../../services/accountingService';
-import { getNextContactCode } from '../../services/erpService';
+import { getNextContactCode } from '../../services/contactService';
 import Modal from '../Modal';
 
 interface ContactFormModalProps {

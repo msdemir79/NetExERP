@@ -5,7 +5,6 @@ import type {
   AuditLog,
   AppModule,
   PermissionAction,
-  AuditActionType,
   UserStatus
 } from '../types';
 import { INITIAL_ROLES } from '../data/initialRoles';
@@ -79,14 +78,6 @@ class UserService {
       updatedAt: new Date()
     } as AppUser);
 
-    await this.logAudit(
-      'create',
-      'users',
-      `Yeni kullanıcı hesabı oluşturuldu: ${user.fullName} (${user.username})`,
-      `Rol: ${roleName || user.roleCode}, Departman: ${user.department || '-'}`,
-      newId as number
-    );
-
     return newId as number;
   }
 
@@ -118,14 +109,6 @@ class UserService {
 
     await api.users.update(id, payload);
 
-    await this.logAudit(
-      'update',
-      'users',
-      `Kullanıcı bilgileri güncellendi: ${updates.fullName || existing.fullName}`,
-      `Kullanıcı Adı: ${updates.username || existing.username}${payload.password ? ', parola yenilendi' : ''}`,
-      id
-    );
-
     // Notify listeners if active user was updated
     if (this.getCachedUserId() === id) {
       await this.refreshSession();
@@ -138,14 +121,6 @@ class UserService {
     if (!user?.id) throw new Error('Aktif oturum bulunamadı.');
 
     await authApi.changePassword({ currentPassword, newPassword });
-
-    await this.logAudit(
-      'update',
-      'users',
-      `Parola değiştirildi: ${user.fullName}`,
-      'Diğer cihazlardaki oturumlar kapatıldı.',
-      user.id
-    );
   }
 
   async deleteUser(id: number): Promise<void> {
@@ -162,14 +137,6 @@ class UserService {
 
     await api.users.remove(id);
 
-    await this.logAudit(
-      'delete',
-      'users',
-      `Kullanıcı hesabı silindi: ${user.fullName} (${user.username})`,
-      `Silinen Rol: ${user.roleName || user.roleCode}`,
-      id
-    );
-
     if (this.getCachedUserId() === id) {
       await this.logout();
     }
@@ -180,14 +147,6 @@ class UserService {
     if (!user) return;
 
     await api.users.update(id, { status, updatedAt: new Date() });
-
-    await this.logAudit(
-      'status_change',
-      'users',
-      `Kullanıcı durumu değiştirildi: ${user.fullName} -> ${status.toUpperCase()}`,
-      status === 'active' ? undefined : 'Açık oturumlar sunucu tarafında kapatıldı.',
-      id
-    );
 
     if (this.getCachedUserId() === id) {
       await this.refreshSession();
@@ -222,14 +181,6 @@ class UserService {
       updatedAt: new Date()
     } as Role);
 
-    await this.logAudit(
-      'create',
-      'users',
-      `Yeni rol tanımlandı: ${role.name} (${role.code})`,
-      role.description,
-      newId as number
-    );
-
     return newId as number;
   }
 
@@ -252,14 +203,6 @@ class UserService {
       }
     }
 
-    await this.logAudit(
-      'permission_change',
-      'users',
-      `Rol yetki ve bilgileri güncellendi: ${updates.name || role.name}`,
-      `Rol Kodu: ${role.code}`,
-      id
-    );
-
     await this.refreshSession();
   }
 
@@ -278,14 +221,6 @@ class UserService {
     }
 
     await api.roles.remove(id);
-
-    await this.logAudit(
-      'delete',
-      'users',
-      `Özel rol silindi: ${role.name} (${role.code})`,
-      undefined,
-      id
-    );
   }
 
   async resetRolesToDefaults(): Promise<void> {
@@ -304,13 +239,6 @@ class UserService {
         await api.roles.create(initRole);
       }
     }
-
-    await this.logAudit(
-      'system',
-      'system',
-      'Sistem rolleri ve yetki matrisleri fabrika varsayılan ayarlarına sıfırlandı.',
-      '7 temel sistem rolü yeniden yapılandırıldı.'
-    );
 
     await this.refreshSession();
   }
@@ -342,11 +270,8 @@ class UserService {
   }
 
   async logout(): Promise<void> {
-    const user = this.session.user;
     try {
-      if (user) {
-        await this.logAudit('logout', 'auth', `Oturum kapatıldı: ${user.fullName}`);
-      }
+      // Çıkış kaydı sunucu tarafında (/auth/logout) denetim izine yazılır.
       await authApi.logout();
     } finally {
       this.setSession(null);
@@ -439,23 +364,9 @@ class UserService {
   // =========================================================================
 
   /**
-   * Denetim kaydı yazar. Kullanıcı kimliği, rolü, IP ve zaman damgası
-   * sunucu tarafından eklenir; istemci yalnızca açıklama gönderir.
+   * Denetim kayıtları yalnızca sunucu tarafında, asıl işlemle aynı transaction
+   * içinde üretilir ve sonradan değiştirilemez/silinemez. İstemci sadece okur.
    */
-  async logAudit(
-    action: AuditActionType,
-    module: AppModule | 'auth' | 'system',
-    description: string,
-    details?: string,
-    entityId?: string | number
-  ): Promise<void> {
-    try {
-      await authApi.audit({ action, module, description, details, entityId });
-    } catch (err) {
-      console.warn('Denetim günlüğü kaydedilemedi:', err);
-    }
-  }
-
   async getAuditLogs(options?: {
     module?: string;
     action?: string;
@@ -491,16 +402,6 @@ class UserService {
     }
 
     return logs;
-  }
-
-  /** Denetim izini temizler (yalnızca Süper Admin). */
-  async clearAuditLogs(): Promise<void> {
-    await authApi.clearAuditLogs();
-    await this.logAudit(
-      'system',
-      'system',
-      'İşlem denetim izi (audit log) geçmişi temizlendi.'
-    );
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { api } from '../api/client';
 import {
@@ -15,7 +15,6 @@ import {
   Building2,
   TrendingUp,
   CreditCard,
-  X,
   Edit3,
   Trash2,
   BarChart3,
@@ -24,7 +23,6 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { financeService } from '../services/financeService';
-import { accountingService } from '../services/accountingService';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill, type PillTone } from './Common/DataGrid';
 import EditCashBoxModal from './Finance/EditCashBoxModal';
@@ -36,6 +34,12 @@ import CheckHistoryModal from './Finance/CheckHistoryModal';
 import FinanceReport from './Reports/FinanceReport';
 import { AgingAnalysisTab } from './Finance/AgingAnalysisTab';
 import ContactStatementModal from './Contacts/ContactStatementModal';
+import ReceiptFormModal from './Finance/ReceiptFormModal';
+import VirmanModal from './Finance/VirmanModal';
+import CheckActionModal from './Finance/CheckActionModal';
+import NewCashBoxModal from './Finance/NewCashBoxModal';
+import NewBankAccountModal from './Finance/NewBankAccountModal';
+import ReceiptPrintPreviewModal from './Finance/ReceiptPrintPreviewModal';
 import type { 
   CollectionReceipt, 
   CashBox, 
@@ -66,7 +70,6 @@ export default function Finance() {
   const [isVirmanModalOpen, setIsVirmanModalOpen] = useState(false);
   const [isCashBoxModalOpen, setIsCashBoxModalOpen] = useState(false);
   const [isBankAccountModalOpen, setIsBankAccountModalOpen] = useState(false);
-  const [isCheckModalOpen, setIsCheckModalOpen] = useState(false);
   const [selectedReceiptForPrint, setSelectedReceiptForPrint] = useState<CollectionReceipt | null>(null);
 
   // Statement & History Modals
@@ -87,10 +90,6 @@ export default function Finance() {
   // Check Action Modal
   const [selectedCheckForAction, setSelectedCheckForAction] = useState<CheckNote | null>(null);
   const [checkActionType, setCheckActionType] = useState<'collect' | 'endorse' | 'bank_collection' | 'bounce'>('collect');
-  const [checkTargetBankId, setCheckTargetBankId] = useState<number | ''>('');
-  const [checkTargetCashId, setCheckTargetCashId] = useState<number | ''>('');
-  const [checkEndorseContactId, setCheckEndorseContactId] = useState<number | ''>('');
-  const [checkActionNotes, setCheckActionNotes] = useState('');
 
   // Filters
   const [filterReceiptType, setFilterReceiptType] = useState<'all' | 'collection' | 'disbursement'>('all');
@@ -100,60 +99,6 @@ export default function Finance() {
 
   // Form State for Receipt
   const [receiptContactId, setReceiptContactId] = useState<number | ''>('');
-  const [receiptInstrument, setReceiptInstrument] = useState<PaymentInstrument>('cash');
-  const [receiptCashBoxId, setReceiptCashBoxId] = useState<number | ''>('');
-  const [receiptBankAccountId, setReceiptBankAccountId] = useState<number | ''>('');
-  const [receiptAmount, setReceiptAmount] = useState<string>('');
-  const [receiptDescription, setReceiptDescription] = useState<string>('');
-  const [receiptDate, setReceiptDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [receiptInvoiceId, setReceiptInvoiceId] = useState<number | ''>('');
-
-  // Form State for Check in Receipt or standalone Check
-  const [checkSerial, setCheckSerial] = useState('');
-  const [checkBank, setCheckBank] = useState('');
-  const [checkBranch, setCheckBranch] = useState('');
-  const [checkDrawer, setCheckDrawer] = useState('');
-  const [checkDueDate, setCheckDueDate] = useState('');
-  const [checkIssueDate, setCheckIssueDate] = useState(new Date().toISOString().split('T')[0]);
-  const [checkNotes, setCheckNotes] = useState('');
-
-  // Form State for Virman
-  const [virmanFromType, setVirmanFromType] = useState<'cash' | 'bank'>('cash');
-  const [virmanFromId, setVirmanFromId] = useState<number | ''>('');
-  const [virmanToType, setVirmanToType] = useState<'cash' | 'bank'>('bank');
-  const [virmanToId, setVirmanToId] = useState<number | ''>('');
-  const [virmanAmount, setVirmanAmount] = useState<string>('');
-  const [virmanDesc, setVirmanDesc] = useState<string>('');
-
-  // Form State for New Cash Box
-  const [newCashCode, setNewCashCode] = useState('');
-  const [newCashName, setNewCashName] = useState('');
-  const [newCashAccountCode, setNewCashAccountCode] = useState('100.01');
-  const [newCashCurrency, setNewCashCurrency] = useState('TRY');
-  const [newCashBalance, setNewCashBalance] = useState('0');
-  const [newCashPerson, setNewCashPerson] = useState('');
-
-  // Form State for New Bank Account
-  const [newBankName, setNewBankName] = useState('');
-  const [newBankBranch, setNewBankBranch] = useState('');
-  const [newBankAccountNo, setNewBankAccountNo] = useState('');
-  const [newBankIban, setNewBankIban] = useState('');
-  const [newBankAccountCode, setNewBankAccountCode] = useState('102.01');
-  const [newBankCurrency, setNewBankCurrency] = useState('TRY');
-  const [newBankBalance, setNewBankBalance] = useState('0');
-
-  // Selected contact details
-  const selectedContact = contacts.find(c => c.id === Number(receiptContactId));
-
-  // Set default cash box or bank when opening modal
-  useEffect(() => {
-    if (cashBoxes.length > 0 && !receiptCashBoxId) {
-      setReceiptCashBoxId(cashBoxes[0].id!);
-    }
-    if (bankAccounts.length > 0 && !receiptBankAccountId) {
-      setReceiptBankAccountId(bankAccounts[0].id!);
-    }
-  }, [cashBoxes, bankAccounts, receiptCashBoxId, receiptBankAccountId]);
 
   // Overall Financial Stats
   const totalCashBalance = cashBoxes.reduce((sum, c) => sum + (c.balance || 0), 0);
@@ -179,171 +124,6 @@ export default function Finance() {
     return true;
   });
 
-  // Handle Receipt Submission
-  const handleSaveReceipt = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!receiptContactId) {
-      alert('Lütfen bir cari hesap seçiniz.');
-      return;
-    }
-    const amount = Number(receiptAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert('Lütfen geçerli bir tutar giriniz.');
-      return;
-    }
-
-    try {
-      await financeService.addReceipt({
-        type: receiptType,
-        contactId: Number(receiptContactId),
-        amount,
-        instrument: receiptInstrument,
-        cashBoxId: receiptInstrument === 'cash' ? Number(receiptCashBoxId) : undefined,
-        bankAccountId: receiptInstrument === 'bank' ? Number(receiptBankAccountId) : undefined,
-        checkData: receiptInstrument === 'check' ? {
-          serialNumber: checkSerial || 'ÇEK-' + Math.floor(Math.random() * 10000),
-          bankName: checkBank,
-          branchName: checkBranch,
-          drawer: checkDrawer || selectedContact?.name || '',
-          issueDate: new Date(checkIssueDate),
-          dueDate: new Date(checkDueDate || checkIssueDate),
-          notes: checkNotes
-        } : undefined,
-        description: receiptDescription,
-        date: new Date(receiptDate),
-        invoiceId: receiptInvoiceId ? Number(receiptInvoiceId) : undefined
-      });
-
-      setIsReceiptModalOpen(false);
-      resetReceiptForm();
-      alert('Makbuz başarıyla kaydedildi ve Tek Düzen Hesap Planına (TDHP) muhasebeleştirildi.');
-    } catch (err: any) {
-      alert(`Hata: ${err.message}`);
-    }
-  };
-
-  const resetReceiptForm = () => {
-    setReceiptContactId('');
-    setReceiptAmount('');
-    setReceiptDescription('');
-    setCheckSerial('');
-    setCheckBank('');
-    setCheckBranch('');
-    setCheckDrawer('');
-    setCheckDueDate('');
-    setCheckNotes('');
-    setReceiptInvoiceId('');
-  };
-
-  // Handle Virman
-  const handleSaveVirman = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = Number(virmanAmount);
-    if (!virmanFromId || !virmanToId || isNaN(amount) || amount <= 0) {
-      alert('Lütfen kaynak, hedef ve geçerli bir tutar seçiniz.');
-      return;
-    }
-    if (virmanFromType === virmanToType && virmanFromId === virmanToId) {
-      alert('Kaynak ve hedef hesap aynı olamaz.');
-      return;
-    }
-
-    try {
-      await financeService.transferFunds({
-        fromType: virmanFromType,
-        fromId: Number(virmanFromId),
-        toType: virmanToType,
-        toId: Number(virmanToId),
-        amount,
-        description: virmanDesc || 'Hesaplar arası virman transferi'
-      });
-      setIsVirmanModalOpen(false);
-      setVirmanAmount('');
-      setVirmanDesc('');
-      alert('Virman işlemi başarıyla tamamlandı ve muhasebeleştirildi.');
-    } catch (err: any) {
-      alert(`Virman hatası: ${err.message}`);
-    }
-  };
-
-  // Handle New Cash Box
-  const handleSaveCashBox = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCashName) return;
-    try {
-      const cashCode = newCashCode || `KAS-${cashBoxes.length + 1}`;
-      const accCode = newCashAccountCode || '100.01';
-      await api.cashBoxes.create({
-        code: cashCode,
-        name: newCashName,
-        accountCode: accCode,
-        currency: newCashCurrency,
-        balance: Number(newCashBalance) || 0,
-        responsiblePerson: newCashPerson,
-        createdAt: new Date()
-      });
-
-      // Otomatik TDHP Kasa Hesabı Açılışı
-      await accountingService.registerAccountFromCode({
-        code: accCode,
-        name: `${cashCode} - ${newCashName}`,
-        type: 'asset',
-        currency: newCashCurrency,
-        sourceModule: 'finance',
-        description: `Kasa Hesabı (${cashCode})`
-      });
-
-      setIsCashBoxModalOpen(false);
-      setNewCashName('');
-      setNewCashCode('');
-      setNewCashBalance('0');
-      setNewCashPerson('');
-    } catch (err: any) {
-      alert(`Kasa ekleme hatası: ${err.message}`);
-    }
-  };
-
-  // Handle New Bank Account
-  const handleSaveBankAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBankName || !newBankIban) {
-      alert('Lütfen banka adı ve IBAN giriniz.');
-      return;
-    }
-    try {
-      const accCode = newBankAccountCode || '102.01';
-      await api.bankAccounts.create({
-        bankName: newBankName,
-        branchName: newBankBranch,
-        accountNumber: newBankAccountNo,
-        iban: newBankIban,
-        accountCode: accCode,
-        currency: newBankCurrency,
-        balance: Number(newBankBalance) || 0,
-        createdAt: new Date()
-      });
-
-      // Otomatik TDHP Banka Hesabı Açılışı
-      await accountingService.registerAccountFromCode({
-        code: accCode,
-        name: `${newBankName} (${newBankBranch || 'Merkez'})`,
-        type: 'asset',
-        currency: newBankCurrency,
-        sourceModule: 'finance',
-        description: `Banka Hesabı - IBAN: ${newBankIban}`
-      });
-
-      setIsBankAccountModalOpen(false);
-      setNewBankName('');
-      setNewBankBranch('');
-      setNewBankAccountNo('');
-      setNewBankIban('');
-      setNewBankBalance('0');
-    } catch (err: any) {
-      alert(`Banka hesabı ekleme hatası: ${err.message}`);
-    }
-  };
-
   // Handle Delete Cash Box or Bank Account
   const handleConfirmDelete = async (force: boolean) => {
     if (!deleteTarget?.target.id) return;
@@ -351,32 +131,6 @@ export default function Finance() {
       await financeService.deleteCashBox(deleteTarget.target.id, force);
     } else {
       await financeService.deleteBankAccount(deleteTarget.target.id, force);
-    }
-  };
-
-  // Handle Check Action (Collect, Endorse, etc.)
-  const handleSaveCheckAction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCheckForAction?.id) return;
-
-    try {
-      let targetStatus: CheckStatus = 'collected';
-      if (checkActionType === 'collect') targetStatus = 'collected';
-      else if (checkActionType === 'endorse') targetStatus = 'endorsed';
-      else if (checkActionType === 'bank_collection') targetStatus = 'bank_collection';
-      else if (checkActionType === 'bounce') targetStatus = 'bounced';
-
-      await financeService.updateCheckStatus(selectedCheckForAction.id, targetStatus, {
-        targetBankAccountId: checkTargetBankId ? Number(checkTargetBankId) : undefined,
-        targetCashBoxId: checkTargetCashId ? Number(checkTargetCashId) : undefined,
-        endorsedToContactId: checkEndorseContactId ? Number(checkEndorseContactId) : undefined,
-        notes: checkActionNotes
-      });
-
-      setSelectedCheckForAction(null);
-      alert('Çek işlem kaydı güncellendi ve muhasebe yevmiye fişi oluşturuldu.');
-    } catch (err: any) {
-      alert(`Çek işlemi hatası: ${err.message}`);
     }
   };
 
@@ -908,755 +662,56 @@ export default function Finance() {
       )}
 
       {/* MODAL: Yeni Tahsilat / Tediye Makbuzu */}
-      {isReceiptModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-xl w-full p-6 space-y-5 my-8">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                {receiptType === 'collection' ? (
-                  <>
-                    <ArrowDownLeft className="w-5 h-5 text-emerald-600" />
-                    Yeni Tahsilat Makbuzu (Müşteri)
-                  </>
-                ) : (
-                  <>
-                    <ArrowUpRight className="w-5 h-5 text-rose-600" />
-                    Yeni Tediye Makbuzu (Tedarikçi Ödemesi)
-                  </>
-                )}
-              </h2>
-              <button
-                onClick={() => setIsReceiptModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveReceipt} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    İşlem Tarihi
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={receiptDate}
-                    onChange={(e) => setReceiptDate(e.target.value)}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Ödeme Aracı
-                  </label>
-                  <select
-                    value={receiptInstrument}
-                    onChange={(e) => setReceiptInstrument(e.target.value as any)}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                  >
-                    <option value="cash">Nakit (Kasa)</option>
-                    <option value="bank">Banka (Havale / EFT)</option>
-                    <option value="check">Çek / Senet</option>
-                    <option value="credit_card">Kredi Kartı</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Cari Hesap Seçimi */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Cari Hesap (Müşteri / Tedarikçi) *
-                </label>
-                <select
-                  required
-                  value={receiptContactId}
-                  onChange={(e) => setReceiptContactId(Number(e.target.value))}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                >
-                  <option value="">Cari Hesap Seçiniz...</option>
-                  {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri & Tedarikçi'}) - Bakiye: ₺{c.balance.toLocaleString('tr-TR')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Kasa veya Banka Seçimi */}
-              {receiptInstrument === 'cash' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    İşlem Yapılacak Kasa
-                  </label>
-                  <select
-                    value={receiptCashBoxId}
-                    onChange={(e) => setReceiptCashBoxId(Number(e.target.value))}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                  >
-                    {cashBoxes.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.accountCode}) - Bakiye: ₺{b.balance.toLocaleString('tr-TR')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {receiptInstrument === 'bank' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    İşlem Yapılacak Banka Hesabı
-                  </label>
-                  <select
-                    value={receiptBankAccountId}
-                    onChange={(e) => setReceiptBankAccountId(Number(e.target.value))}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                  >
-                    {bankAccounts.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.bankName} ({b.iban}) - Bakiye: ₺{b.balance.toLocaleString('tr-TR')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Çek Bilgileri */}
-              {receiptInstrument === 'check' && (
-                <div className="bg-gray-50 p-3.5 rounded-lg border border-gray-200 space-y-3">
-                  <p className="text-xs font-bold text-gray-800">Çek / Senet Detayları</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-0.5">Çek Seri No *</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Örn: 948271"
-                        value={checkSerial}
-                        onChange={(e) => setCheckSerial(e.target.value)}
-                        className="w-full text-xs border border-gray-300 rounded p-2"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-0.5">Vade Tarihi *</label>
-                      <input
-                        type="date"
-                        required
-                        value={checkDueDate}
-                        onChange={(e) => setCheckDueDate(e.target.value)}
-                        className="w-full text-xs border border-gray-300 rounded p-2"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-0.5">Banka Adı</label>
-                      <input
-                        type="text"
-                        placeholder="Örn: Akbank"
-                        value={checkBank}
-                        onChange={(e) => setCheckBank(e.target.value)}
-                        className="w-full text-xs border border-gray-300 rounded p-2"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-0.5">Keşideci</label>
-                      <input
-                        type="text"
-                        placeholder={selectedContact ? selectedContact.name : 'Keşideci Firma/Kişi'}
-                        value={checkDrawer}
-                        onChange={(e) => setCheckDrawer(e.target.value)}
-                        className="w-full text-xs border border-gray-300 rounded p-2"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tutar ve Açıklama */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    İşlem Tutarı (₺) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="0.00"
-                    value={receiptAmount}
-                    onChange={(e) => setReceiptAmount(e.target.value)}
-                    className="w-full text-sm font-bold border border-gray-300 rounded-lg p-2.5"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    İlişkili Fatura (Opsiyonel)
-                  </label>
-                  <select
-                    value={receiptInvoiceId}
-                    onChange={(e) => setReceiptInvoiceId(e.target.value ? Number(e.target.value) : '')}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900 truncate"
-                  >
-                    <option value="">Fatura Bağımsız</option>
-                    {invoices
-                      .filter(inv => !receiptContactId || inv.contactId === Number(receiptContactId))
-                      .map((inv) => (
-                        <option key={inv.id} value={inv.id}>
-                          {inv.invoiceNumber} - Kalan: ₺{(inv.grandTotal - (inv.paidAmount || 0)).toLocaleString('tr-TR')}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Açıklama / Not
-                </label>
-                <input
-                  type="text"
-                  placeholder="İşleme ait açıklama..."
-                  value={receiptDescription}
-                  onChange={(e) => setReceiptDescription(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2.5"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => setIsReceiptModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  className={`px-5 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${
-                    receiptType === 'collection' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
-                  }`}
-                >
-                  Makbuzu Kaydet & Muhasebeleştir
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ReceiptFormModal
+        isOpen={isReceiptModalOpen}
+        type={receiptType}
+        contacts={contacts}
+        cashBoxes={cashBoxes}
+        bankAccounts={bankAccounts}
+        invoices={invoices}
+        contactId={receiptContactId}
+        onContactChange={setReceiptContactId}
+        onClose={() => setIsReceiptModalOpen(false)}
+      />
 
       {/* MODAL: Virman Transferi */}
-      {isVirmanModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-lg w-full p-6 space-y-5">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <ArrowRightLeft className="w-5 h-5 text-indigo-600" />
-                Hesaplar Arası Virman (Transfer)
-              </h2>
-              <button
-                onClick={() => setIsVirmanModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveVirman} className="space-y-4">
-              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-                <span className="text-xs font-bold text-gray-700">Kaynak Hesap (Paranın Çıkacağı)</span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Tür</label>
-                    <select
-                      value={virmanFromType}
-                      onChange={(e) => {
-                        setVirmanFromType(e.target.value as any);
-                        setVirmanFromId('');
-                      }}
-                      className="w-full text-xs border border-gray-300 rounded p-2 bg-white dark:bg-slate-900"
-                    >
-                      <option value="cash">Kasa (Nakit)</option>
-                      <option value="bank">Banka Hesabı</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Hesap Seçimi</label>
-                    <select
-                      required
-                      value={virmanFromId}
-                      onChange={(e) => setVirmanFromId(Number(e.target.value))}
-                      className="w-full text-xs border border-gray-300 rounded p-2 bg-white dark:bg-slate-900"
-                    >
-                      <option value="">Seçiniz...</option>
-                      {virmanFromType === 'cash' ? (
-                        cashBoxes.map(b => (
-                          <option key={b.id} value={b.id}>{b.name} (₺{b.balance.toLocaleString('tr-TR')})</option>
-                        ))
-                      ) : (
-                        bankAccounts.map(b => (
-                          <option key={b.id} value={b.id}>{b.bankName} (₺{b.balance.toLocaleString('tr-TR')})</option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-                <span className="text-xs font-bold text-gray-700">Hedef Hesap (Paranın Giriş Yapacağı)</span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Tür</label>
-                    <select
-                      value={virmanToType}
-                      onChange={(e) => {
-                        setVirmanToType(e.target.value as any);
-                        setVirmanToId('');
-                      }}
-                      className="w-full text-xs border border-gray-300 rounded p-2 bg-white dark:bg-slate-900"
-                    >
-                      <option value="bank">Banka Hesabı</option>
-                      <option value="cash">Kasa (Nakit)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Hesap Seçimi</label>
-                    <select
-                      required
-                      value={virmanToId}
-                      onChange={(e) => setVirmanToId(Number(e.target.value))}
-                      className="w-full text-xs border border-gray-300 rounded p-2 bg-white dark:bg-slate-900"
-                    >
-                      <option value="">Seçiniz...</option>
-                      {virmanToType === 'cash' ? (
-                        cashBoxes.map(b => (
-                          <option key={b.id} value={b.id}>{b.name} (₺{b.balance.toLocaleString('tr-TR')})</option>
-                        ))
-                      ) : (
-                        bankAccounts.map(b => (
-                          <option key={b.id} value={b.id}>{b.bankName} (₺{b.balance.toLocaleString('tr-TR')})</option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Transfer Tutarı (₺) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="0.00"
-                  value={virmanAmount}
-                  onChange={(e) => setVirmanAmount(e.target.value)}
-                  className="w-full text-sm font-bold border border-gray-300 rounded-lg p-2.5"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Açıklama
-                </label>
-                <input
-                  type="text"
-                  placeholder="Örn: Günlük hasılatın bankaya yatırılması"
-                  value={virmanDesc}
-                  onChange={(e) => setVirmanDesc(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2.5"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => setIsVirmanModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
-                >
-                  Virman İşlemini Tamamla
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <VirmanModal
+        isOpen={isVirmanModalOpen}
+        cashBoxes={cashBoxes}
+        bankAccounts={bankAccounts}
+        onClose={() => setIsVirmanModalOpen(false)}
+      />
 
       {/* MODAL: Çek Durum Değiştirme (Tahsilat / Ciro) */}
       {selectedCheckForAction && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-5">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-lg font-bold text-gray-900">
-                Çek Durum İşlemi: {selectedCheckForAction.portfolioNumber}
-              </h2>
-              <button
-                onClick={() => setSelectedCheckForAction(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs space-y-1">
-              <p><span className="font-semibold text-gray-700">Keşideci:</span> {selectedCheckForAction.drawer}</p>
-              <p><span className="font-semibold text-gray-700">Tutar:</span> ₺{selectedCheckForAction.amount.toLocaleString('tr-TR')}</p>
-              <p><span className="font-semibold text-gray-700">Vade:</span> {new Date(selectedCheckForAction.dueDate).toLocaleDateString('tr-TR')}</p>
-            </div>
-
-            <form onSubmit={handleSaveCheckAction} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Yapılacak İşlem *
-                </label>
-                <select
-                  value={checkActionType}
-                  onChange={(e) => setCheckActionType(e.target.value as any)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                >
-                  <option value="collect">Tahsil Et (Nakit veya Bankaya Yatır)</option>
-                  <option value="endorse">Ciro Et (Tedarikçiye Devret)</option>
-                  <option value="bank_collection">Bankaya Tahsile Ver (Beklemede)</option>
-                  <option value="bounce">Karşılıksız / Protesto Kaydı</option>
-                </select>
-              </div>
-
-              {checkActionType === 'collect' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Tahsil Edilecek Banka Hesabı
-                  </label>
-                  <select
-                    value={checkTargetBankId}
-                    onChange={(e) => setCheckTargetBankId(Number(e.target.value))}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                  >
-                    <option value="">Banka Seçiniz...</option>
-                    {bankAccounts.map(b => (
-                      <option key={b.id} value={b.id}>{b.bankName} ({b.iban})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {checkActionType === 'endorse' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Ciro Edilecek Tedarikçi *
-                  </label>
-                  <select
-                    required
-                    value={checkEndorseContactId}
-                    onChange={(e) => setCheckEndorseContactId(Number(e.target.value))}
-                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-                  >
-                    <option value="">Tedarikçi Seçiniz...</option>
-                    {contacts.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
-                      <option key={c.id} value={c.id}>{c.name} (Bakiye: ₺{c.balance.toLocaleString('tr-TR')})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  İşlem Notu
-                </label>
-                <input
-                  type="text"
-                  placeholder="İsteğe bağlı not..."
-                  value={checkActionNotes}
-                  onChange={(e) => setCheckActionNotes(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2.5"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => setSelectedCheckForAction(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
-                >
-                  Onayla & TDHP'ye İşle
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CheckActionModal
+          check={selectedCheckForAction}
+          initialActionType={checkActionType}
+          bankAccounts={bankAccounts}
+          contacts={contacts}
+          onClose={() => setSelectedCheckForAction(null)}
+        />
       )}
 
       {/* MODAL: Yeni Kasa Tanımlama */}
-      {isCashBoxModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-lg font-bold text-gray-900">Yeni Kasa Tanımla</h2>
-              <button onClick={() => setIsCashBoxModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveCashBox} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Kasa Kodu</label>
-                <input
-                  type="text"
-                  placeholder="Örn: KAS-04"
-                  value={newCashCode}
-                  onChange={(e) => setNewCashCode(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Kasa Adı *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Örn: Atölye / Fabrika Kasası"
-                  value={newCashName}
-                  onChange={(e) => setNewCashName(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">TDHP Hesap Kodu</label>
-                <input
-                  type="text"
-                  value={newCashAccountCode}
-                  onChange={(e) => setNewCashAccountCode(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Açılış Bakiyesi (₺)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newCashBalance}
-                  onChange={(e) => setNewCashBalance(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Sorumlu Kişi</label>
-                <input
-                  type="text"
-                  value={newCashPerson}
-                  onChange={(e) => setNewCashPerson(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t">
-                <button
-                  type="button"
-                  onClick={() => setIsCashBoxModalOpen(false)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700"
-                >
-                  Kasayı Kaydet
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <NewCashBoxModal
+        isOpen={isCashBoxModalOpen}
+        existingCount={cashBoxes.length}
+        onClose={() => setIsCashBoxModalOpen(false)}
+      />
 
       {/* MODAL: Yeni Banka Hesabı Tanımlama */}
-      {isBankAccountModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-lg font-bold text-gray-900">Yeni Banka Hesabı Tanımla</h2>
-              <button onClick={() => setIsBankAccountModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveBankAccount} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Banka Adı *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Örn: Akbank T.A.Ş."
-                  value={newBankName}
-                  onChange={(e) => setNewBankName(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Şube Adı</label>
-                <input
-                  type="text"
-                  placeholder="Örn: Merter Şubesi"
-                  value={newBankBranch}
-                  onChange={(e) => setNewBankBranch(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">IBAN Numarası *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="TR00 0000 0000 0000 0000 0000 00"
-                  value={newBankIban}
-                  onChange={(e) => setNewBankIban(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">TDHP Hesap Kodu</label>
-                <input
-                  type="text"
-                  value={newBankAccountCode}
-                  onChange={(e) => setNewBankAccountCode(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Açılış Bakiyesi (₺)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newBankBalance}
-                  onChange={(e) => setNewBankBalance(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg p-2"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t">
-                <button
-                  type="button"
-                  onClick={() => setIsBankAccountModalOpen(false)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700"
-                >
-                  Hesabı Kaydet
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <NewBankAccountModal
+        isOpen={isBankAccountModalOpen}
+        onClose={() => setIsBankAccountModalOpen(false)}
+      />
 
       {/* PRINT PREVIEW MODAL: Makbuz Yazdır */}
-      {selectedReceiptForPrint && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full p-8 space-y-6 my-8 print:p-0 print:m-0 print:shadow-none">
-            <div className="flex items-center justify-between border-b pb-4 print:hidden">
-              <span className="text-sm font-semibold text-gray-500">Resmi Makbuz Çıktısı</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 shadow-sm"
-                >
-                  <Printer className="w-4 h-4" />
-                  Yazdır
-                </button>
-                <button
-                  onClick={() => setSelectedReceiptForPrint(null)}
-                  className="p-1 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Printable Receipt Canvas */}
-            <div className="border-2 border-gray-800 p-6 space-y-6 rounded">
-              <div className="flex justify-between items-start border-b-2 border-gray-800 pb-4 gap-4">
-                <div className="flex items-center gap-3">
-                  {companySettings?.logo ? (
-                    <div className="w-12 h-12 rounded bg-white dark:bg-slate-900 border border-gray-300 p-0.5 flex items-center justify-center shrink-0 overflow-hidden">
-                      <img src={companySettings.logo} alt={companySettings.companyName} className="max-w-full max-h-full object-contain" />
-                    </div>
-                  ) : null}
-                  <div>
-                    <h2 className="text-xl font-black text-gray-900 uppercase tracking-wide">
-                      {companySettings?.companyTitle || companySettings?.companyName || 'PRO ERP AYAKKABI SAN. TİC. LTD. ŞTİ.'}
-                    </h2>
-                    <p className="text-xs text-gray-600 mt-1">{companySettings?.address || 'İkitelli OSB Aykosan Sanayi Sitesi 4. Ada B Blok No:12 Başakşehir / İstanbul'}</p>
-                    <p className="text-xs text-gray-600">Vergi Dairesi: {companySettings?.taxOffice || 'İkitelli V.D.'} - Vergi No: {companySettings?.taxNumber || '7320491820'}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="inline-block border-2 border-gray-800 px-3 py-1 text-sm font-black uppercase">
-                    {selectedReceiptForPrint.type === 'collection' ? 'TAHSİLAT MAKBUZU' : 'TEDİYE MAKBUZU'}
-                  </div>
-                  <p className="text-xs font-mono font-bold mt-2">Makbuz No: {selectedReceiptForPrint.receiptNumber}</p>
-                  <p className="text-xs text-gray-600">Tarih: {new Date(selectedReceiptForPrint.date).toLocaleDateString('tr-TR')}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="space-y-1.5 border border-gray-300 p-3 rounded">
-                  <span className="font-bold text-gray-700 uppercase">Cari Bilgileri</span>
-                  <p className="text-sm font-bold text-gray-900">{selectedReceiptForPrint.contactName}</p>
-                  <p className="text-gray-600">Ödeme Aracı: {selectedReceiptForPrint.instrument === 'cash' ? 'Nakit Kasa' : selectedReceiptForPrint.instrument === 'bank' ? 'Banka EFT/Havale' : selectedReceiptForPrint.instrument === 'check' ? 'Çek / Senet' : 'Kredi Kartı'}</p>
-                </div>
-
-                <div className="space-y-1.5 border border-gray-300 p-3 rounded flex flex-col justify-center">
-                  <span className="font-bold text-gray-700 uppercase">Tutar Bilgisi</span>
-                  <p className="text-2xl font-black text-gray-900">
-                    ₺{selectedReceiptForPrint.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-gray-600">Para Birimi: {selectedReceiptForPrint.currency || 'TRY'}</p>
-                </div>
-              </div>
-
-              <div className="border border-gray-300 p-3 rounded text-xs space-y-1">
-                <span className="font-bold text-gray-700">Açıklama:</span>
-                <p className="text-gray-800">{selectedReceiptForPrint.description || 'Cari hesap mahsuben tahsilat/tediye bedeli.'}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-8 pt-8 border-t border-gray-300 text-center text-xs">
-                <div>
-                  <p className="font-bold text-gray-800">Teslim Eden</p>
-                  <div className="h-16 mt-2 border-b border-dashed border-gray-400"></div>
-                  <p className="text-gray-500 mt-1">İmza / Kaşe</p>
-                </div>
-                <div>
-                  <p className="font-bold text-gray-800">Teslim Alan (Tahsil Eden)</p>
-                  <div className="h-16 mt-2 border-b border-dashed border-gray-400"></div>
-                  <p className="text-gray-500 mt-1">İmza / Kaşe</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ReceiptPrintPreviewModal
+        receipt={selectedReceiptForPrint}
+        companySettings={companySettings}
+        onClose={() => setSelectedReceiptForPrint(null)}
+      />
 
       {/* MODAL: Kasa Düzenleme */}
       <EditCashBoxModal

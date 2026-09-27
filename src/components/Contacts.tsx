@@ -39,7 +39,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import Modal from './Modal';
-import { erpService } from '../services/erpService';
+import { contactService } from '../services/contactService';
 import ContactStatementModal from './Contacts/ContactStatementModal';
 import ContactFormModal from './Contacts/ContactFormModal';
 import QuickPaymentModal from './Contacts/QuickPaymentModal';
@@ -214,9 +214,9 @@ export default function Contacts() {
 
   const handleSaveContact = async (data: Partial<Contact>) => {
     if (editingContact?.id) {
-      await erpService.updateContact(editingContact.id, data);
+      await contactService.updateContact(editingContact.id, data);
     } else {
-      await erpService.addContact(data as any);
+      await contactService.addContact(data as any);
     }
   };
 
@@ -235,7 +235,7 @@ export default function Contacts() {
     if (!deleteConfirmContact?.id) return;
     setActionError(null);
     try {
-      await erpService.deleteContact(deleteConfirmContact.id);
+      await contactService.deleteContact(deleteConfirmContact.id);
       setDeleteConfirmContact(null);
     } catch (err: any) {
       setActionError(err.message || 'Cari silinirken bir hata meydana geldi.');

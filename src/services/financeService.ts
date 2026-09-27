@@ -1,4 +1,4 @@
-import { api, commit, type Mutation } from '../api/client';
+import { api, callOp } from '../api/client';
 import type { 
   CollectionReceipt, 
   CashBox, 
@@ -6,8 +6,7 @@ import type {
   CheckNote, 
   CheckStatus, 
   PaymentInstrument, 
-  ReceiptType,
-  JournalEntryLine
+  ReceiptType
 } from '../types';
 import { accountingService } from './accountingService';
 import { turkishIncludes } from '../lib/turkishUtils';
@@ -54,148 +53,39 @@ export const financeService = {
     const contact = await api.contacts.get(data.contactId);
     if (!contact) throw new Error('Cari hesap bulunamadı');
 
-    const receiptNumber = await this.generateReceiptNumber(data.type);
-    const receiptDate = data.date ? new Date(data.date) : new Date();
-    const amount = Number(data.amount);
-
-    let checkId: number | undefined;
-    const mutations: Mutation[] = [];
-
-    // 1. Handle Check Creation if instrument is check
-    if (data.instrument === 'check') {
-      if (!data.checkData) throw new Error('Çek/Senet bilgileri girilmelidir.');
-      const checkType = data.type === 'collection' ? 'received_check' : 'given_check';
-      const portfolioNumber = await this.generateCheckPortfolioNumber(checkType);
-
-      // not: kimlik zinciri nedeniyle iki adımlı yazma
-      checkId = await api.checks.create({
-        type: checkType,
-        portfolioNumber,
-        serialNumber: data.checkData.serialNumber,
-        bankName: data.checkData.bankName,
-        branchName: data.checkData.branchName,
-        drawer: data.checkData.drawer || contact.name,
-        contactId: contact.id!,
-        contactName: contact.name,
-        issueDate: new Date(data.checkData.issueDate || receiptDate),
-        dueDate: new Date(data.checkData.dueDate),
-        amount,
-        currency: data.currency || 'TRY',
-        status: 'portfolio',
-        accountCode: checkType === 'received_check' ? '101.01' : '103.01',
-        notes: data.checkData.notes,
-        createdAt: new Date()
-      });
-    }
-
-    // 2. Update CashBox or BankAccount balance
-    if (data.instrument === 'cash' && data.cashBoxId) {
-      const cash = await api.cashBoxes.get(data.cashBoxId);
-      if (cash) {
-        const newBal = data.type === 'collection' ? cash.balance + amount : cash.balance - amount;
-        mutations.push({ op: 'update', resource: 'cashBoxes', id: data.cashBoxId, data: { balance: Number(newBal.toFixed(2)) } });
-      }
-    } else if (data.instrument === 'bank' && data.bankAccountId) {
-      const bank = await api.bankAccounts.get(data.bankAccountId);
-      if (bank) {
-        const newBal = data.type === 'collection' ? bank.balance + amount : bank.balance - amount;
-        mutations.push({ op: 'update', resource: 'bankAccounts', id: data.bankAccountId, data: { balance: Number(newBal.toFixed(2)) } });
+    // Muhasebe fişinin cari hesabı için TDHP kaydını önceden garanti et
+    // (ana veri hazırlığı; asıl finansal işlem sunucuda tek transaction'dır).
+    const contactAccountCode = contact.accountCode?.trim();
+    if (contactAccountCode) {
+      try {
+        await accountingService.ensureAccountExists(
+          contactAccountCode,
+          `${data.type === 'collection' ? 'Alıcılar' : 'Satıcılar'} - ${contact.name}`,
+          data.type === 'collection' ? 'asset' : 'liability'
+        );
+      } catch (e) {
+        console.warn('Cari hesabı TDHP kaydı hazırlanamadı:', e);
       }
     }
 
-    // 3. Update Contact Balance:
-    // Customer: collection decreases balance (reduces debt to us)
-    // Supplier: disbursement increases balance towards 0 (reduces our payable)
-    let newContactBalance = contact.balance;
-    if (contact.type === 'customer') {
-      newContactBalance = data.type === 'collection' ? contact.balance - amount : contact.balance + amount;
-    } else if (contact.type === 'supplier') {
-      newContactBalance = data.type === 'disbursement' ? contact.balance + amount : contact.balance - amount;
-    } else {
-      newContactBalance = data.type === 'collection' ? contact.balance - amount : contact.balance + amount;
-    }
-
-    mutations.push({
-      op: 'update',
-      resource: 'contacts',
-      id: contact.id!,
-      data: {
-        balance: Number(newContactBalance.toFixed(2)),
-        updatedAt: new Date()
-      }
+    // Çek portföy kaydı + kasa/banka/cari bakiyeleri + makbuz + transaction
+    // + muhasebe fişi + denetim kaydı sunucuda TEK transaction içinde yazılır.
+    const result = await callOp<{ receiptId: number; receiptNumber: string; checkId: number | null; journalEntryId: number }>('receipt', {
+      type: data.type,
+      contactId: data.contactId,
+      amount: data.amount,
+      currency: data.currency,
+      instrument: data.instrument,
+      cashBoxId: data.cashBoxId,
+      bankAccountId: data.bankAccountId,
+      checkData: data.checkData,
+      description: data.description,
+      date: data.date,
+      invoiceId: data.invoiceId,
+      invoiceNumber: data.invoiceNumber
     });
 
-    // 4. Update Invoice payment status if linked
-    if (data.invoiceId) {
-      const inv = await api.invoices.get(data.invoiceId);
-      if (inv) {
-        const prevPaid = inv.paidAmount || 0;
-        const newPaid = prevPaid + amount;
-        const status = newPaid >= inv.grandTotal ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
-        mutations.push({
-          op: 'update',
-          resource: 'invoices',
-          id: data.invoiceId,
-          data: {
-            paidAmount: Number(newPaid.toFixed(2)),
-            paymentStatus: status,
-            updatedAt: new Date()
-          }
-        });
-      }
-    }
-
-    // 5. Add to Transactions table for backward compatibility
-    mutations.push({
-      op: 'insert',
-      resource: 'transactions',
-      data: {
-        contactId: contact.id,
-        type: data.type === 'collection' ? 'income' : 'expense',
-        amount,
-        description: data.description || `${data.type === 'collection' ? 'Tahsilat' : 'Tediye'} - Makbuz No: ${receiptNumber}`,
-        category: data.type === 'collection' ? 'Tahsilat' : 'Ödeme',
-        paymentMethod: data.instrument === 'cash' ? 'cash' : data.instrument === 'bank' ? 'bank_transfer' : data.instrument === 'check' ? 'check' : 'credit_card',
-        documentNo: receiptNumber,
-        date: receiptDate
-      }
-    });
-
-    // 6. Save Collection Receipt record
-    mutations.push({
-      op: 'insert',
-      resource: 'collectionReceipts',
-      data: {
-        receiptNumber,
-        type: data.type,
-        date: receiptDate,
-        contactId: contact.id!,
-        contactName: contact.name,
-        instrument: data.instrument,
-        cashBoxId: data.cashBoxId,
-        bankAccountId: data.bankAccountId,
-        checkId,
-        amount,
-        currency: data.currency || 'TRY',
-        description: data.description,
-        invoiceId: data.invoiceId,
-        invoiceNumber: data.invoiceNumber,
-        isAccounted: false,
-        createdAt: new Date()
-      }
-    });
-
-    const results = await commit(mutations);
-    const receiptId = results[results.length - 1].id as number;
-
-    // 7. Auto-Account in TDHP Journal Entries
-    try {
-      await accountingService.createReceiptJournalEntry(receiptId);
-    } catch (e) {
-      console.error('TDHP muhasebeleştirme hatası:', e);
-    }
-
-    return receiptId;
+    return result.receiptId;
   },
 
   // --- Fund Transfers (Virman) ---
@@ -208,82 +98,18 @@ export const financeService = {
     description: string;
     date?: Date;
   }) {
-    const amount = Number(params.amount);
-    const transferDate = params.date ? new Date(params.date) : new Date();
-
-    let fromName = '';
-    let fromAccountCode = '';
-    let toName = '';
-    let toAccountCode = '';
-
-    const mutations: Mutation[] = [];
-
-    // Deduct from source
-    if (params.fromType === 'cash') {
-      const cash = await api.cashBoxes.get(params.fromId);
-      if (!cash) throw new Error('Kaynak kasa bulunamadı');
-      if (cash.balance < amount) throw new Error('Kaynak kasada yeterli bakiye bulunmamaktadır.');
-      mutations.push({ op: 'update', resource: 'cashBoxes', id: params.fromId, data: { balance: Number((cash.balance - amount).toFixed(2)) } });
-      fromName = cash.name;
-      fromAccountCode = cash.accountCode || '100.01';
-    } else {
-      const bank = await api.bankAccounts.get(params.fromId);
-      if (!bank) throw new Error('Kaynak banka hesabı bulunamadı');
-      if (bank.balance < amount) throw new Error('Kaynak banka hesabında yeterli bakiye bulunmamaktadır.');
-      mutations.push({ op: 'update', resource: 'bankAccounts', id: params.fromId, data: { balance: Number((bank.balance - amount).toFixed(2)) } });
-      fromName = `${bank.bankName} (${bank.iban})`;
-      fromAccountCode = bank.accountCode || '102.01';
-    }
-
-    // Add to target
-    if (params.toType === 'cash') {
-      const cash = await api.cashBoxes.get(params.toId);
-      if (!cash) throw new Error('Hedef kasa bulunamadı');
-      mutations.push({ op: 'update', resource: 'cashBoxes', id: params.toId, data: { balance: Number((cash.balance + amount).toFixed(2)) } });
-      toName = cash.name;
-      toAccountCode = cash.accountCode || '100.01';
-    } else {
-      const bank = await api.bankAccounts.get(params.toId);
-      if (!bank) throw new Error('Hedef banka hesabı bulunamadı');
-      mutations.push({ op: 'update', resource: 'bankAccounts', id: params.toId, data: { balance: Number((bank.balance + amount).toFixed(2)) } });
-      toName = `${bank.bankName} (${bank.iban})`;
-      toAccountCode = bank.accountCode || '102.01';
-    }
-
-    await commit(mutations);
-
-    // Create Journal Entry for Virman:
-    // BORÇ: Hedef Hesap (Kasa veya Banka)
-    // ALACAK: Kaynak Hesap (Kasa veya Banka)
-    const lines: JournalEntryLine[] = [
-      {
-        id: `line-${Date.now()}-1`,
-        accountCode: toAccountCode,
-        accountName: toName,
-        description: `Virman Girişi: ${params.description || `${fromName} -> ${toName}`}`,
-        debit: amount,
-        credit: 0
-      },
-      {
-        id: `line-${Date.now()}-2`,
-        accountCode: fromAccountCode,
-        accountName: fromName,
-        description: `Virman Çıkışı: ${params.description || `${fromName} -> ${toName}`}`,
-        debit: 0,
-        credit: amount
-      }
-    ];
-
-    const entryId = await accountingService.createJournalEntry({
-      entryType: 'mahsup',
-      date: transferDate,
-      description: `Hesaplar Arası Virman: ${fromName} -> ${toName} (₺${amount.toLocaleString('tr-TR')})`,
-      documentType: 'manual',
-      lines,
-      status: 'approved'
+    // Bakiye kontrolü, kasa/banka güncellemeleri ve virman fişi sunucuda
+    // tek transaction + satır kilidi altında uygulanır.
+    const result = await callOp<{ entryId: number; fromName: string; toName: string; amount: number }>('transfer', {
+      fromType: params.fromType,
+      fromId: params.fromId,
+      toType: params.toType,
+      toId: params.toId,
+      amount: params.amount,
+      description: params.description,
+      date: params.date
     });
-
-    return entryId;
+    return result.entryId;
   },
 
   // --- Check & Note Status Lifecycle ---
@@ -298,157 +124,17 @@ export const financeService = {
       date?: Date;
     }
   ) {
-    const check = await api.checks.get(checkId);
-    if (!check) throw new Error('Çek/Senet kaydı bulunamadı');
-
-    const actionDate = options?.date ? new Date(options.date) : new Date();
-    const amount = check.amount;
-    const targetBank = options?.targetBankAccountId ? await api.bankAccounts.get(options.targetBankAccountId) : undefined;
-    const targetCash = options?.targetCashBoxId ? await api.cashBoxes.get(options.targetCashBoxId) : undefined;
-    const endorsedTarget = options?.endorsedToContactId ? await api.contacts.get(options.endorsedToContactId) : undefined;
-    const mutations: Mutation[] = [];
-
-    let destAccountCode = '102.01';
-    let destAccountName = 'Bankalar';
-
-    // 1. Alınan Çek Tahsil Edildi (Portföy -> Banka veya Kasa)
-    if (check.type === 'received_check' && newStatus === 'collected') {
-      if (options?.targetBankAccountId) {
-        if (targetBank) {
-          mutations.push({ op: 'update', resource: 'bankAccounts', id: targetBank.id!, data: { balance: Number((targetBank.balance + amount).toFixed(2)) } });
-          destAccountCode = targetBank.accountCode || '102.01';
-          destAccountName = `${targetBank.bankName} (${targetBank.iban})`;
-        }
-      } else if (options?.targetCashBoxId) {
-        if (targetCash) {
-          mutations.push({ op: 'update', resource: 'cashBoxes', id: targetCash.id!, data: { balance: Number((targetCash.balance + amount).toFixed(2)) } });
-          destAccountCode = targetCash.accountCode || '100.01';
-          destAccountName = targetCash.name;
-        }
-      }
-    }
-
-    // 2. Alınan Çek Ciro Edildi (Tedarikçiye verildi)
-    if (check.type === 'received_check' && newStatus === 'endorsed' && endorsedTarget) {
-      // Reduces supplier payable (contact.balance increases towards 0)
-      const newBalance = endorsedTarget.balance + amount;
-      mutations.push({ op: 'update', resource: 'contacts', id: endorsedTarget.id!, data: { balance: Number(newBalance.toFixed(2)) } });
-    }
-
-    // 3. Verilen Çek Bankadan Ödendi (collected)
-    if (check.type === 'given_check' && newStatus === 'collected' && targetBank) {
-      mutations.push({ op: 'update', resource: 'bankAccounts', id: targetBank.id!, data: { balance: Number((targetBank.balance - amount).toFixed(2)) } });
-    }
-
-    // Update check record
-    let endorsedName = check.endorsedToContactName;
-    if (endorsedTarget) endorsedName = endorsedTarget.name;
-
-    mutations.push({
-      op: 'update',
-      resource: 'checks',
-      id: checkId,
-      data: {
-        status: newStatus,
-        statusChangeDate: actionDate,
-        statusNotes: options?.notes || check.statusNotes,
-        endorsedToContactId: options?.endorsedToContactId || check.endorsedToContactId,
-        endorsedToContactName: endorsedName
-      }
+    // Çek kaydı, hedef kasa/banka/cari güncellemeleri ve muhasebe fişleri
+    // sunucuda tek transaction + satır kilidi altında uygulanır.
+    await callOp<{ checkId: number; status: string }>('check-status', {
+      checkId,
+      newStatus,
+      targetBankAccountId: options?.targetBankAccountId,
+      targetCashBoxId: options?.targetCashBoxId,
+      endorsedToContactId: options?.endorsedToContactId,
+      notes: options?.notes,
+      date: options?.date
     });
-
-    await commit(mutations);
-
-    // Journal Entry: BORÇ 102/100, ALACAK 101 (Alınan Çekler)
-    if (check.type === 'received_check' && newStatus === 'collected') {
-      await accountingService.createJournalEntry({
-        entryType: 'mahsup',
-        date: actionDate,
-        description: `Alınan Çek Tahsilatı: ${check.portfolioNumber} (${check.drawer})`,
-        documentType: 'check',
-        documentId: check.id,
-        documentNumber: check.portfolioNumber,
-        lines: [
-          {
-            id: `line-${Date.now()}-1`,
-            accountCode: destAccountCode,
-            accountName: destAccountName,
-            description: `Çek Tahsilat Bedeli - ${check.portfolioNumber}`,
-            debit: amount,
-            credit: 0
-          },
-          {
-            id: `line-${Date.now()}-2`,
-            accountCode: '101.01',
-            accountName: 'Portföydeki Çekler',
-            description: `Tahsil Edilen Çek Çıkışı - ${check.serialNumber}`,
-            debit: 0,
-            credit: amount
-          }
-        ]
-      });
-    }
-
-    // Journal Entry: BORÇ 320 (Satıcılar), ALACAK 101 (Alınan Çekler)
-    if (check.type === 'received_check' && newStatus === 'endorsed' && endorsedTarget) {
-      await accountingService.createJournalEntry({
-        entryType: 'mahsup',
-        date: actionDate,
-        description: `Çek Cirosu: ${check.portfolioNumber} -> ${endorsedTarget.name}`,
-        documentType: 'check',
-        documentId: check.id,
-        documentNumber: check.portfolioNumber,
-        lines: [
-          {
-            id: `line-${Date.now()}-1`,
-            accountCode: '320.01',
-            accountName: `Yurtiçi Mal ve Hizmet Tedarikçileri (${endorsedTarget.name})`,
-            description: `Çek Cirosu ile Borç Ödemesi - ${check.portfolioNumber}`,
-            debit: amount,
-            credit: 0,
-            contactId: endorsedTarget.id
-          },
-          {
-            id: `line-${Date.now()}-2`,
-            accountCode: '101.01',
-            accountName: 'Portföydeki Çekler',
-            description: `Ciro Edilen Çek Çıkışı - ${check.serialNumber}`,
-            debit: 0,
-            credit: amount
-          }
-        ]
-      });
-    }
-
-    // Journal Entry: BORÇ 103 (Verilen Çekler), ALACAK 102 (Bankalar)
-    if (check.type === 'given_check' && newStatus === 'collected' && targetBank) {
-      await accountingService.createJournalEntry({
-        entryType: 'mahsup',
-        date: actionDate,
-        description: `Verilen Çek Bankadan Ödendi: ${check.portfolioNumber} (${targetBank.bankName})`,
-        documentType: 'check',
-        documentId: check.id,
-        documentNumber: check.portfolioNumber,
-        lines: [
-          {
-            id: `line-${Date.now()}-1`,
-            accountCode: '103.01',
-            accountName: 'Verilen Firma Çekleri',
-            description: `Ödenen Çek Kapanışı - ${check.serialNumber}`,
-            debit: amount,
-            credit: 0
-          },
-          {
-            id: `line-${Date.now()}-2`,
-            accountCode: targetBank.accountCode || '102.01',
-            accountName: `${targetBank.bankName} (${targetBank.iban})`,
-            description: `Çek Ödemesi - ${check.portfolioNumber}`,
-            debit: 0,
-            credit: amount
-          }
-        ]
-      });
-    }
   },
 
   // --- Kasa (CashBox) Düzenleme ve Silme İşlemleri ---
@@ -456,10 +142,15 @@ export const financeService = {
     const existing = await api.cashBoxes.get(id);
     if (!existing) throw new Error('Kasa bulunamadı.');
 
-    const result = await api.cashBoxes.update(id, {
-      ...data,
-      balance: data.balance !== undefined ? Number(data.balance) : existing.balance
-    });
+    // balance türetilmiş bir alandır; generic update'te soyulur. Tanım alanları
+    // generic update ile, bakiye değişikliği ise kontrollü açılış-bakiyesi ucuyla yazılır.
+    const { balance: _ignoredBalance, ...definitionData } = data;
+    const result = await api.cashBoxes.update(id, { ...definitionData });
+
+    if (data.balance !== undefined && Number(data.balance) !== Number(existing.balance)) {
+      await callOp('opening-balance', { resource: 'cashBoxes', id, amount: Number(data.balance) });
+      (result as any).balance = Number(data.balance);
+    }
 
     // TDHP Kasa Hesabı Senkronizasyonu
     if (syncAccount && (data.name || data.code || data.accountCode)) {
@@ -510,10 +201,15 @@ export const financeService = {
     const existing = await api.bankAccounts.get(id);
     if (!existing) throw new Error('Banka hesabı bulunamadı.');
 
-    const result = await api.bankAccounts.update(id, {
-      ...data,
-      balance: data.balance !== undefined ? Number(data.balance) : existing.balance
-    });
+    // balance türetilmiş bir alandır; generic update'te soyulur. Tanım alanları
+    // generic update ile, bakiye değişikliği kontrollü açılış-bakiyesi ucuyla yazılır.
+    const { balance: _ignoredBalance, ...definitionData } = data;
+    const result = await api.bankAccounts.update(id, { ...definitionData });
+
+    if (data.balance !== undefined && Number(data.balance) !== Number(existing.balance)) {
+      await callOp('opening-balance', { resource: 'bankAccounts', id, amount: Number(data.balance) });
+      (result as any).balance = Number(data.balance);
+    }
 
     // TDHP Banka Hesabı Senkronizasyonu
     if (syncAccount && (data.bankName || data.branchName || data.iban || data.accountCode)) {

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import Modal from '../Modal';
-import { erpService } from '../../services/erpService';
+import { contactService } from '../../services/contactService';
 
 interface QuickPaymentModalProps {
   isOpen: boolean;
@@ -95,7 +95,7 @@ export default function QuickPaymentModal({
     setError(null);
 
     try {
-      await erpService.recordContactTransaction({
+      await contactService.recordContactTransaction({
         contactId: contact.id!,
         type,
         amount: Number(amount),

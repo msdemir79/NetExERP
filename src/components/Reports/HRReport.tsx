@@ -17,7 +17,7 @@ import {
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { printTabularReport } from '../../lib/printService';
 import { exportPayrollToExcel, exportPayrollToCsv } from '../../lib/exportService';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import { cn } from '../../lib/utils';
 import { FileSpreadsheet } from 'lucide-react';
 import type { PayrollRecord, Employee } from '../../types';
@@ -133,7 +133,7 @@ export default function HRReport() {
   const handleExportExcel = async () => {
     if (filteredPayrolls.length === 0) return;
     const filterTitle = sgkFilter === 'sgk_li' ? 'SGK\'lı Personeller' : sgkFilter === 'sgk_siz' ? 'Yevmiyeli Personeller' : 'Tüm Personeller';
-    const sysSettings = await erpService.getSystemSettings();
+    const sysSettings = await settingsService.getSystemSettings();
     const companyName = sysSettings?.company?.companyTitle || sysSettings?.company?.companyName;
     exportPayrollToExcel(selectedMonth, selectedYear, filteredPayrolls, employees, { filterTitle, companyName });
   };

@@ -20,7 +20,7 @@ import StockDetailReport from './components/Reports/StockDetailReport';
 import StockMovementReport from './components/Reports/StockMovementReport';
 import BrokenSizeReport from './components/Reports/BrokenSizeReport';
 import SettingsHub from './components/Settings';
-import { erpService } from './services/erpService';
+
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { FeedbackHost } from './lib/feedback';

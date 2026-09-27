@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
   FileText,
-  Download,
-  Trash2
+  Download
 } from 'lucide-react';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { userService } from '../../services/userService';
-import { useAuth } from '../../context/AuthContext';
 import { exportToCsv } from '../../lib/exportService';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
 import type { AuditLog, AuditActionType } from '../../types';
@@ -26,7 +24,6 @@ const ACTION_LABELS: Record<AuditActionType, { label: string; tone: PillTone }> 
 };
 
 export default function AuditLogTab() {
-  const { isSuperAdmin } = useAuth();
   const [selectedModule, setSelectedModule] = useState<string>('all');
   const [selectedAction, setSelectedAction] = useState<string>('all');
   const [selectedLogDetail, setSelectedLogDetail] = useState<AuditLog | null>(null);
@@ -147,12 +144,6 @@ export default function AuditLogTab() {
     exportToCsv(`ProERP_Denetim_Izi_${dateStr}.csv`, headers, rows);
   };
 
-  const handleClearLogs = async () => {
-    if (window.confirm('Tüm işlem denetim izi geçmişini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) {
-      await userService.clearAuditLogs();
-    }
-  };
-
   return (
     <div className="space-y-4">
       {/* Filters Toolbar */}
@@ -200,19 +191,6 @@ export default function AuditLogTab() {
             <Download className="w-3.5 h-3.5" />
             Excel'e Aktar
           </button>
-
-          {/* Denetim izini temizlemek yıkıcı bir yönetici işlemidir. */}
-          {isSuperAdmin && (
-            <button
-              type="button"
-              onClick={handleClearLogs}
-              className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors inline-flex items-center gap-1.5"
-              title="Geçmişi temizle (Süper Admin)"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Temizle
-            </button>
-          )}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Hammer, Save, Check, Layers, AlertCircle, Sparkles, Activity } from 'lucide-react';
-import { PRODUCTION_STAGES_CONFIG } from '../../services/erpService';
+import { PRODUCTION_STAGES_CONFIG } from '../../services/productionService';
 import type { AppSettings } from '../../types';
 
 interface ProductionSettingsProps {

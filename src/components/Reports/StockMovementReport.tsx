@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
-import { erpService } from '../../services/erpService';
+import { inventoryService } from '../../services/inventoryService';
 import { ArrowUpRight, ArrowDownLeft, Search, Calendar, Package, Printer, Trash2, RotateCcw, AlertTriangle, X, Check, FileDown } from 'lucide-react';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { cn } from '../../lib/utils';
@@ -42,7 +42,7 @@ export default function StockMovementReport() {
   const handleClearLogs = async () => {
     try {
       setIsClearing(true);
-      await erpService.clearAllStockMovements();
+      await inventoryService.clearAllStockMovements();
       setIsClearing(false);
       setIsClearModalOpen(false);
       setClearSuccess(true);

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { Trash2, Ruler, Barcode } from 'lucide-react';
-import { erpService } from '../../services/erpService';
+import { inventoryService } from '../../services/inventoryService';
 import DataGrid, { GridColumn } from '../Common/DataGrid';
 import { AssortmentTemplate } from '../../types';
 import { BarcodeTemplatesManager } from './BarcodeTemplatesManager';
@@ -36,7 +36,7 @@ export default function Templates() {
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTemplateName || newTemplateItems.length === 0) return;
-    await erpService.addAssortmentTemplate({
+    await inventoryService.addAssortmentTemplate({
       name: newTemplateName,
       items: newTemplateItems
     });

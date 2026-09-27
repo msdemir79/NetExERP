@@ -15,7 +15,7 @@ import { cn } from '../lib/utils';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { stats, transactions, orders, inventoryLogs, products } = useAppSummary();
+  const { stats, recentTransactions, recentOrders, cashFlowByDay, productCount } = useAppSummary();
 
   const handleNav = (path: string) => navigate(path.startsWith('/') ? path : '/' + path);
 
@@ -27,22 +27,17 @@ export default function Dashboard() {
   const toplamBorc = (stats.issuedChecksTotal || 0) + (stats.openPurchaseTotal || 0);
   const netDurum = stats.totalLiquidAssets + toplamAlacak - toplamBorc;
 
+  // Günlük nakit akışı sunucuda gün bazında agregatlanır; veri olmayan günler
+  // grafik boş kalmasın diye mevcut demo değerleriyle doldurulur.
   const cashFlowChartData = useMemo(() => {
-    const days = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
-    return days.map((day, i) => {
-      const dayTransactions = transactions.filter(t => {
-        const d = new Date(t.date);
-        return (d.getDay() === (i + 1) % 7);
-      });
-      const dayGelir = dayTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-      const dayGider = dayTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-      return {
-        name: day,
-        gelir: dayGelir > 0 ? dayGelir : [16500, 22400, 18000, 29000, 24500, 35000, 19000][i],
-        gider: dayGider > 0 ? dayGider : [9500, 8200, 12400, 11000, 9200, 16800, 6500][i]
-      };
-    });
-  }, [transactions]);
+    const fallbackGelir = [16500, 22400, 18000, 29000, 24500, 35000, 19000];
+    const fallbackGider = [9500, 8200, 12400, 11000, 9200, 16800, 6500];
+    return cashFlowByDay.map((d, i) => ({
+      name: d.name,
+      gelir: d.gelir > 0 ? d.gelir : fallbackGelir[i],
+      gider: d.gider > 0 ? d.gider : fallbackGider[i],
+    }));
+  }, [cashFlowByDay]);
 
   const stockDonutData = useMemo(() => [
     { name: 'Mamul', value: Math.max(1, stats.categoryStats?.finished || 45), color: '#4f46e5' },
@@ -50,9 +45,6 @@ export default function Dashboard() {
     { name: 'Hammadde', value: Math.max(1, stats.categoryStats?.raw_material || 150), color: '#d97706' },
     { name: 'Aksesuar', value: Math.max(1, stats.categoryStats?.accessory || 300), color: '#10b981' }
   ], [stats.categoryStats]);
-
-  const recentTransactions = useMemo(() => [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5), [transactions]);
-  const recentOrders = useMemo(() => [...orders].reverse().slice(0, 5), [orders]);
 
   return (
     <div className="space-y-4 pb-6">
@@ -255,7 +247,7 @@ export default function Dashboard() {
             </ResponsiveContainer>
             {/* Center Text */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{products.length}</span>
+              <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{productCount}</span>
               <span className="text-[10px] text-slate-500 uppercase tracking-widest">Kayıtlı Ürün</span>
             </div>
           </div>
@@ -283,11 +275,11 @@ export default function Dashboard() {
               <AlertTriangle className="w-4 h-4 text-rose-500" /> Kritik Stok Uyarıları
             </h3>
             <span className="px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 text-xs font-bold">
-              {stats.lowStockProducts.length}
+              {stats.lowStockCount}
             </span>
           </div>
           <div className="p-2 flex-1 overflow-y-auto max-h-[280px] custom-scrollbar">
-            {stats.lowStockProducts.length > 0 ? (
+            {stats.lowStockCount > 0 ? (
               <div className="space-y-1">
                 {stats.lowStockProducts.slice(0, 6).map(product => (
                   <div key={product.id} className="p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-xl flex justify-between items-center transition-colors cursor-pointer" onClick={() => handleNav('/inventory')}>

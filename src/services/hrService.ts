@@ -12,7 +12,7 @@ import type {
   HRModuleSettings
 } from '../types';
 import { accountingService } from './accountingService';
-import { erpService } from './erpService';
+import { settingsService } from './settingsService';
 
 // Ayarlar > İK & Bordro Parametreleri ekranında tanımlanmayan alanlar için yasal varsayılanlar
 export const HR_DEFAULT_PARAMS: HRModuleSettings = {
@@ -38,7 +38,7 @@ export const HR_DEFAULT_PARAMS: HRModuleSettings = {
 
 async function loadHRParams(): Promise<HRModuleSettings> {
   try {
-    const settings = await erpService.getSystemSettings();
+    const settings = await settingsService.getSystemSettings();
     return { ...HR_DEFAULT_PARAMS, ...(settings.hr || {}) };
   } catch (err) {
     console.error('İK parametreleri okunamadı, yasal varsayılanlar kullanılıyor:', err);

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { api } from '../../api/client';
-import { erpService } from '../../services/erpService';
+import { inventoryService } from '../../services/inventoryService';
 import { 
   Barcode, 
   Ruler, 
@@ -169,13 +169,13 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
     }
 
     if (editingTemplateId) {
-      await erpService.updateAssortmentTemplate(editingTemplateId, {
+      await inventoryService.updateAssortmentTemplate(editingTemplateId, {
         name: templateName.trim(),
         items: templateItems
       });
       setEditingTemplateId(null);
     } else {
-      await erpService.addAssortmentTemplate({
+      await inventoryService.addAssortmentTemplate({
         name: templateName.trim(),
         items: templateItems
       });
@@ -201,13 +201,13 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
 
   const handleDeleteTemplate = async (id: number) => {
     if (confirm('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
-      await erpService.deleteAssortmentTemplate(id);
+      await inventoryService.deleteAssortmentTemplate(id);
       if (editingTemplateId === id) cancelEditTemplate();
     }
   };
 
   const handleApplyPreset = async (preset: typeof PRESET_TEMPLATES[0]) => {
-    await erpService.addAssortmentTemplate(preset);
+    await inventoryService.addAssortmentTemplate(preset);
   };
 
   const sampleBarcodePreview = `${barcodePrefix}${nextSeq}`;

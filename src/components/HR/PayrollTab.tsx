@@ -20,7 +20,7 @@ import {
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, PayrollRecord, HRModuleSettings } from '../../types';
 import { hrService } from '../../services/hrService';
-import { erpService } from '../../services/erpService';
+import { settingsService } from '../../services/settingsService';
 import { exportPayrollToExcel, exportPayrollToCsv } from '../../lib/exportService';
 import { buildPayrollPaymentSummary } from '../../lib/payrollSummary';
 import PayrollSlipModal from './PayrollSlipModal';
@@ -152,7 +152,7 @@ export default function PayrollTab({ employees, onPayrollUpdated }: PayrollTabPr
       : (sgkFilter === 'sgk_li' ? 'SGK\'lı Personel Bordrosu' : sgkFilter === 'sgk_siz' ? 'Yevmiyeli Personel Bordrosu' : 'Tüm Personeller');
 
     if (format === 'xls') {
-      const sysSettings = await erpService.getSystemSettings();
+      const sysSettings = await settingsService.getSystemSettings();
       const companyName = sysSettings?.company?.companyTitle || sysSettings?.company?.companyName;
       exportPayrollToExcel(selectedMonth, selectedYear, listToExport, employees, { filterTitle: filterScopeTitle, companyName });
       setMessage({ type: 'success', text: `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} bordro icmali Excel (.xls) formatında başarıyla dışa aktarıldı (${listToExport.length} kayıt).` });

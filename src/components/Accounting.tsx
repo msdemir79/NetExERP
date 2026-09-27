@@ -123,8 +123,16 @@ export default function Accounting() {
 
   // Delete Journal Entry
   const handleDeleteEntry = async (id: number) => {
-    if (confirm('Bu yevmiye fişini silmek istediğinize emin misiniz?')) {
-      await accountingService.deleteJournalEntry(id);
+    const entry = journalEntries.find(e => e.id === id);
+    const isDraft = entry?.status === 'draft';
+    const msg = isDraft
+      ? 'Bu taslak yevmiye fişi kalıcı olarak silinecek. Emin misiniz?'
+      : 'Bu onaylı yevmiye fişi silinmez; borç/alacak yer değiştirmiş bir TERS KAYIT oluşturulur (orijinal fiş korunur). Devam edilsin mi?';
+    if (!confirm(msg)) return;
+    try {
+      await accountingService.reverseJournalEntry(id);
+    } catch (e: any) {
+      alert(e?.message || 'Yevmiye fişi iptal edilemedi.');
     }
   };
 
