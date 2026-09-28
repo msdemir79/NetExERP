@@ -205,9 +205,16 @@ export const contactService = {
     return id;
   },
 
-  async deleteTransaction(id: number) {
-    await callOp<{ id: number; deleted: boolean }>('contact-transaction', { mode: 'delete', id });
-    return true;
+  /**
+   * Cari hareketi kalıcı olarak SİLMEZ; iptal eder. Sunucu, orijinal
+   * hareketi 'cancelled' olarak işaretler ve bakiyeyi geri alan bir ters
+   * kayıt (reversal) oluşturur. Böylece finansal geçmiş korunur.
+   */
+  async cancelTransaction(id: number) {
+    return callOp<{ id: number; deleted: boolean; cancelled: boolean; reversalId: number | null }>(
+      'contact-transaction',
+      { mode: 'delete', id },
+    );
   },
 
   /**

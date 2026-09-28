@@ -235,11 +235,16 @@ CREATE TABLE IF NOT EXISTS transactions (
   `documentNo`    VARCHAR(50)     NULL,
   `orderId`       BIGINT UNSIGNED NULL,
   `version`          INT             NOT NULL DEFAULT 1,
+  `status`        ENUM('posted','cancelled') NOT NULL DEFAULT 'posted',
+  `cancelledAt`   DATETIME        NULL,
+  `reversalOfId`  BIGINT UNSIGNED NULL,
   PRIMARY KEY (`id`),
   KEY `idx_transactions_contactId` (`contactId`),
   KEY `idx_transactions_type` (`type`),
   KEY `idx_transactions_date` (`date`),
-  KEY `idx_transactions_category` (`category`)
+  KEY `idx_transactions_category` (`category`),
+  KEY `idx_transactions_status` (`status`),
+  KEY `idx_transactions_reversalOfId` (`reversalOfId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
@@ -260,6 +265,20 @@ CREATE TABLE IF NOT EXISTS settings (
   `hr`                  JSON            NULL,
   `version`          INT             NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- ==========================================================
+-- BELGE/FİŞ NUMARASI SAYAÇLARI (atomik, satır kilitli)
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS documentNumbers (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `scope`      VARCHAR(50)     NOT NULL,
+  `prefix`     VARCHAR(20)     NOT NULL,
+  `year`       INT             NOT NULL,
+  `lastNumber` BIGINT          NOT NULL DEFAULT 0,
+  `updatedAt`  DATETIME        NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_documentNumbers_scope_prefix_year` (`scope`, `prefix`, `year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================

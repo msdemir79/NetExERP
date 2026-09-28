@@ -97,7 +97,7 @@ export const META: Record<string, ResourceMeta> = {
     defaultOrder: 'id DESC',
   },
   inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC', movementTable: true },
-  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC', noHardDelete: true },
+  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC', noHardDelete: true, protectedColumns: ['status', 'cancelledAt', 'reversalOfId'] },
   /** Firma künyesi/logo gibi kabuk ayarları arayüzün her yerinde okunur. */
   settings: { module: 'settings', searchable: [], defaultOrder: 'id ASC', readAuthOnly: true },
   orders: {
@@ -114,8 +114,8 @@ export const META: Record<string, ResourceMeta> = {
     module: 'invoices',
     searchable: ['invoiceNumber', 'orderNumber', 'waybillNumber', 'ettn', 'notes'],
     defaultOrder: 'id DESC',
-    /** Ödeme durumu ve ödenen tutar yalnızca tahsilat/tediye op'unda (satır kilidi + muhasebe) değişir. */
-    derivedColumns: ['paidAmount', 'paymentStatus'],
+    /** Ödeme durumu ve ödenen tutar yalnızca tahsilat/tediye op'unda (satır kilidi + muhasebe) belirlenir; istemci generic INSERT/UPDATE'te yazamaz. */
+    protectedColumns: ['paidAmount', 'paymentStatus'],
     noHardDelete: true,
     guards: [{ table: 'invoiceItems', column: 'invoiceId', message: 'Fatura kalemleri silinmeden fatura silinemez.' }],
   },
@@ -124,8 +124,8 @@ export const META: Record<string, ResourceMeta> = {
     module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
     defaultOrder: 'id DESC',
-    /** Fatura bağı yalnızca create/issue/cancel/delete-invoice op'larında (satır kilidi altında) değişir. */
-    derivedColumns: ['invoicedStatus', 'invoiceId', 'invoiceNumber'],
+    /** Fatura bağı yalnızca create/issue/cancel/delete-invoice op'larında (satır kilidi altında) belirlenir; istemci generic yazımda yazamaz. */
+    protectedColumns: ['invoicedStatus', 'invoiceId', 'invoiceNumber'],
     guards: [{ table: 'waybillItems', column: 'waybillId', message: 'İrsaliye kalemleri silinmeden irsaliye silinemez.' }],
   },
   waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
@@ -143,10 +143,10 @@ export const META: Record<string, ResourceMeta> = {
     module: 'finance',
     searchable: ['portfolioNumber', 'serialNumber', 'bankName', 'drawer', 'contactName'],
     defaultOrder: 'dueDate ASC',
-    /** Çek durumu yalnızca /ops/check-status ucunda (kasa/banka/cari + muhasebe ile) değişir. */
-    derivedColumns: ['status', 'statusChangeDate', 'endorsedToContactId', 'endorsedToContactName'],
+    /** Çek durumu ve ciro bilgileri yalnızca /ops/check-status ucunda (kasa/banka/cari + muhasebe ile) belirlenir; istemci generic yazımda yazamaz. */
+    protectedColumns: ['status', 'statusChangeDate', 'endorsedToContactId', 'endorsedToContactName', 'journalEntryId'],
   },
-  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', derivedColumns: ['isAccounted', 'journalEntryId'], noHardDelete: true },
+  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', protectedColumns: ['isAccounted', 'journalEntryId'], noHardDelete: true },
   employees: {
     module: 'hr',
     searchable: ['employeeCode', 'name', 'tcNo', 'department', 'position', 'phone'],
@@ -161,7 +161,7 @@ export const META: Record<string, ResourceMeta> = {
   attendanceRecords: { module: 'hr', searchable: ['status', 'notes'], defaultOrder: 'date DESC' },
   leaveRequests: { module: 'hr', searchable: ['employeeName', 'leaveType', 'reason'], defaultOrder: 'id DESC' },
   advanceRequests: { module: 'hr', searchable: ['employeeName', 'description'], defaultOrder: 'id DESC' },
-  payrollRecords: { module: 'hr', searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC' },
+  payrollRecords: { module: 'hr', searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC', protectedColumns: ['paymentStatus', 'isAccounted', 'journalEntryId'] },
   periodLocks: { module: 'hr', searchable: [], defaultOrder: 'year DESC, month DESC' },
   /** Roller her oturum sahibi tarafından okunabilir; kendi rolünü çözmek için gerekir. */
   roles: { module: 'users', searchable: ['code', 'name', 'description'], defaultOrder: 'id ASC', readAuthOnly: true },

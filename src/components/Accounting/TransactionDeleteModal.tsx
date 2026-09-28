@@ -37,11 +37,11 @@ export default function TransactionDeleteModal({
     try {
       setLoading(true);
       setError(null);
-      await contactService.deleteTransaction(transaction.id!);
-      if (onSuccess) onSuccess('Finansal hareket kaydı silindi ve cari bakiye güncellendi.');
+      await contactService.cancelTransaction(transaction.id!);
+      if (onSuccess) onSuccess('Finansal hareket iptal edildi, ters kayıt oluşturuldu ve cari bakiye güncellendi.');
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'İşlem silinirken bir hata oluştu.');
+      setError(err?.message || 'İşlem iptal edilirken bir hata oluştu.');
       setLoading(false);
     }
   };
@@ -60,7 +60,7 @@ export default function TransactionDeleteModal({
             </div>
             <div>
               <h3 className="text-base font-black text-rose-950 tracking-tight">
-                {isIncome ? 'Tahsilat Kaydını Sil' : 'Ödeme Kaydını Sil'}
+                {isIncome ? 'Tahsilat Kaydını İptal Et' : 'Ödeme Kaydını İptal Et'}
               </h3>
               <p className="text-xs text-rose-700 mt-0.5">
                 Finansal hareket iptal edilecek
@@ -91,7 +91,7 @@ export default function TransactionDeleteModal({
               Bakiye Düzeltme Uyarısı
             </div>
             <p>
-              Bu {isIncome ? 'tahsilat' : 'ödeme'} kaydını sildiğinizde, varsa ilgili cari hesabın bakiyesi bu işlem öncesindeki durumuna geri döndürülecektir.
+              Bu {isIncome ? 'tahsilat' : 'ödeme'} kaydını iptal ettiğinizde, hareket kalıcı olarak silinmez; bunun yerine bakiyeyi geri alan bir ters kayıt oluşturulur ve ilgili cari hesabın bakiyesi bu işlem öncesindeki durumuna döndürülür.
             </p>
           </div>
 
@@ -160,7 +160,7 @@ export default function TransactionDeleteModal({
             className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-md shadow-rose-200 flex items-center gap-2 disabled:opacity-50"
           >
             <Trash2 className="w-4 h-4" />
-            {loading ? 'Siliniyor...' : 'Evet, Bu Hareketi Sil'}
+            {loading ? 'İptal ediliyor...' : 'Evet, Bu Hareketi İptal Et'}
           </button>
         </div>
       </div>

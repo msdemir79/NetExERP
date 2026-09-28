@@ -33,6 +33,7 @@ import { broadcast, sseHandler } from './sse.js';
 import { createBusinessOpsRouter } from './businessOps.js';
 import { versionSupported } from './schema.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
+import { allocateDocumentNumber, journalPrefixFor } from './numbering.js';
 
 /* ------------------------------------------------------------------ */
 /* Yardımcılar                                                         */
@@ -1171,6 +1172,18 @@ export function createApiRouter(): Router {
           if (def.timestamps.includes('createdAt') && !data.createdAt) data.createdAt = new Date();
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
           applyResourceRules(resource, data);
+          // Yevmiye fiş numarası her zaman sunucuda, kilitli sayaçtan üretilir
+          // (item 8). İstemciden gelen entryNumber yok sayılır; böylece eşzamanlı
+          // isteklerde UNIQUE çakışması (ER_DUP_ENTRY → 500) oluşmaz.
+          if (resource === 'journalEntries') {
+            const year = data.date ? new Date(data.date).getFullYear() : new Date().getFullYear();
+            data.entryNumber = await allocateDocumentNumber(conn, {
+              table: 'journalEntries',
+              prefix: journalPrefixFor(data.entryType),
+              pad: 6,
+              year,
+            });
+          }
           if (!Object.keys(data).length) {
             const [r] = await conn.query(`INSERT INTO \`${def.table}\` () VALUES ()`);
             created.push((r as any).insertId);
@@ -1538,9 +1551,15 @@ export function createApiRouter(): Router {
   // ---- Hata yönetimi ----
   router.use((err: any, _req: Request, res: Response, _next: any) => {
     const status = typeof err?.status === 'number' ? err.status : 500;
-    if (status >= 500) console.error('[API]', err);
+    // 5xx: iç hata detayları (DB, yığın izi) istemciye sızmamalı; sunucu tarafında loglanır.
+    if (status >= 500) {
+      console.error('[API]', err);
+      res.status(status).json({ error: 'Sunucu hatası oluştu. Lütfen tekrar deneyin.' });
+      return;
+    }
+    // 4xx: kontrollü iş kuralı hataları (OpError/HttpError) — mesaj ve kod güvenli.
     res.status(status).json({
-      error: err?.message || 'Sunucu hatası',
+      error: err?.message || 'İstek işlenemedi.',
       code: err?.code,
     });
   });

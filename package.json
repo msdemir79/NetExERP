@@ -14,7 +14,9 @@
     "db:migrate": "node scripts/db-migrate.mjs",
     "user:password": "tsx scripts/set-password.ts",
     "lint": "tsc --noEmit",
-    "test": "tsx src/tests/unitTests.ts"
+    "test": "tsx src/tests/unitTests.ts",
+    "test:integration": "tsx src/tests/integrationTests.ts",
+    "test:load": "tsx src/tests/loadTest.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

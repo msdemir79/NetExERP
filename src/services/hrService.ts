@@ -1,4 +1,4 @@
-import { api } from '../api/client';
+import { api, callOp } from '../api/client';
 import type { 
   Employee, 
   AttendanceRecord, 
@@ -906,8 +906,8 @@ export const hrService = {
       lines
     });
 
-    await api.payrollRecords.update(payrollId, {
-      isAccounted: true,
+    await callOp('account-payroll', {
+      payrollId,
       journalEntryId: journalEntryId as number
     });
   }

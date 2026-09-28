@@ -412,6 +412,11 @@ export interface Transaction {
   paymentMethod?: 'cash' | 'bank_transfer' | 'credit_card' | 'check' | 'other';
   documentNo?: string;
   orderId?: number;
+  /** 'posted' = geçerli, 'cancelled' = iptal edilmiş (ters kaydı vardır). Sunucu belirler. */
+  status?: 'posted' | 'cancelled';
+  cancelledAt?: Date | null;
+  /** Bu hareket bir iptal ters kaydıysa, iptal ettiği orijinal hareketin id'si. */
+  reversalOfId?: number | null;
 }
 
 export type OrderType = 'purchase' | 'sales';

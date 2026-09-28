@@ -250,15 +250,7 @@ export const accountingService = {
   },
 
   // --- Journal Entries ---
-  async generateEntryNumber(type: JournalEntryType = 'mahsup'): Promise<string> {
-    const year = new Date().getFullYear();
-    const count = await api.journalEntries.count();
-    const prefix = type === 'tahsil' ? 'THS' : type === 'tediye' ? 'TDY' : type === 'acilis' ? 'ACL' : type === 'kapanis' ? 'KPN' : 'YEV';
-    return `${prefix}-${year}-${(count + 1).toString().padStart(6, '0')}`;
-  },
-
   async createJournalEntry(entry: {
-    entryNumber?: string;
     entryType: JournalEntryType;
     date: Date;
     description: string;
@@ -274,11 +266,9 @@ export const accountingService = {
     // 2. Dengesiz yevmiye kaydını kesin olarak engelle (TDHP Denge Kuralı)
     const { totalDebit, totalCredit } = assertBalancedJournalEntry(entry.lines, 0.05);
 
-    const entryNumber = entry.entryNumber || await this.generateEntryNumber(entry.entryType);
-
+    // entryNumber sunucuda kilitli sayaçtan üretilir (item 8); istemci göndermez.
     const id = await api.journalEntries.create({
       ...entry,
-      entryNumber,
       totalDebit,
       totalCredit,
       isBalanced: true,
