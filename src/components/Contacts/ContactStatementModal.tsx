@@ -19,7 +19,7 @@ import { LedgerTab, InvoicesTab, OrdersTab, TransactionsTab, DetailsTab, Printab
 import { cn } from '../../lib/utils';
 import Modal from '../Modal';
 import TransactionModal from '../Accounting/TransactionModal';
-import TransactionDeleteModal from '../Accounting/TransactionDeleteModal';
+import DeleteConfirmModal from '../Common/DeleteConfirmModal';
 
 interface ContactStatementModalProps {
   isOpen: boolean;
@@ -500,16 +500,20 @@ export default function ContactStatementModal({
         />
       )}
 
-      {/* Transaction Delete Modal */}
+      {/* Cari hareketi silme: Kademe 2 (gerekçe + parola), ortak silme motoru */}
       {isTxDeleteModalOpen && deletingTx && (
-        <TransactionDeleteModal
-          isOpen={isTxDeleteModalOpen}
+        <DeleteConfirmModal
+          resource="transactions"
+          id={deletingTx.id ?? null}
+          title={deletingTx.type === 'income' ? 'Tahsilat Kaydını Sil' : 'Ödeme Kaydını Sil'}
           onClose={() => {
             setIsTxDeleteModalOpen(false);
             setDeletingTx(null);
           }}
-          transaction={deletingTx}
-          contact={currentContact}
+          onDeleted={() => {
+            setIsTxDeleteModalOpen(false);
+            setDeletingTx(null);
+          }}
         />
       )}
     </Modal>

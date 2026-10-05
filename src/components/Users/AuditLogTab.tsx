@@ -15,6 +15,7 @@ const ACTION_LABELS: Record<AuditActionType, { label: string; tone: PillTone }> 
   create: { label: 'Yeni Kayıt', tone: 'green' },
   update: { label: 'Güncelleme', tone: 'blue' },
   delete: { label: 'Silme / İptal', tone: 'red' },
+  delete_denied: { label: 'Silme Reddedildi', tone: 'amber' },
   login: { label: 'Oturum Açma', tone: 'cyan' },
   logout: { label: 'Çıkış Yapma', tone: 'slate' },
   export: { label: 'Dışa Aktarma', tone: 'amber' },
@@ -61,7 +62,7 @@ export default function AuditLogTab() {
           <div className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">
             {log.userName}
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+          <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono mt-0.5">
             {log.userRole}
           </div>
         </>
@@ -94,7 +95,7 @@ export default function AuditLogTab() {
             {log.description}
           </div>
           {log.details && (
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+            <div className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-1 mt-0.5">
               {log.details}
             </div>
           )}
@@ -107,7 +108,7 @@ export default function AuditLogTab() {
       title: 'İstemci IP',
       align: 'right',
       render: (log) => (
-        <span className="font-mono text-[11px] text-slate-400">{log.ipAddress || '192.168.1.100'}</span>
+        <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">{log.ipAddress || '—'}</span>
       ),
       filterValue: (log) => log.ipAddress ?? '',
     },
@@ -138,7 +139,7 @@ export default function AuditLogTab() {
       ACTION_LABELS[l.action]?.label || l.action,
       l.description,
       l.details || '-',
-      l.ipAddress || '192.168.1.100'
+      l.ipAddress || '-'
     ]);
 
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -210,7 +211,7 @@ export default function AuditLogTab() {
                 Kullanıcı İşlem Hareketleri ({logs.length} Kayıt)
               </h3>
             </div>
-            <span className="ml-auto text-[11px] text-slate-400">
+            <span className="ml-auto text-[11px] text-slate-600 dark:text-slate-400">
               Otomatik kaydedilen gerçek zamanlı denetim izi
             </span>
           </>
@@ -237,25 +238,25 @@ export default function AuditLogTab() {
             <div className="p-5 space-y-3.5 text-xs flex-1 min-h-0 overflow-y-auto">
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Tarih & Saat</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Tarih & Saat</span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
                     {new Date(selectedLogDetail.timestamp).toLocaleString('tr-TR')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">İşlem Türü</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İşlem Türü</span>
                   <span className="font-bold text-indigo-700">
                     {ACTION_LABELS[selectedLogDetail.action]?.label || selectedLogDetail.action}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">İşlemi Yapan</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İşlemi Yapan</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     {selectedLogDetail.userName}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Rolü</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Rolü</span>
                   <span className="font-mono text-slate-700 dark:text-slate-200">
                     {selectedLogDetail.userRole}
                   </span>
@@ -263,7 +264,7 @@ export default function AuditLogTab() {
               </div>
 
               <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Açıklama</span>
+                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Açıklama</span>
                 <p className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100">
                   {selectedLogDetail.description}
                 </p>
@@ -271,7 +272,7 @@ export default function AuditLogTab() {
 
               {selectedLogDetail.details && (
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Ek Detaylar & Parametreler</span>
+                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Ek Detaylar & Parametreler</span>
                   <p className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-200 text-[11px] whitespace-pre-wrap">
                     {selectedLogDetail.details}
                   </p>
@@ -280,7 +281,7 @@ export default function AuditLogTab() {
 
               <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
                 <span>Modül: <strong className="text-slate-800 dark:text-slate-200 uppercase">{selectedLogDetail.module}</strong></span>
-                <span>İstemci: <strong className="text-slate-800 dark:text-slate-200 font-mono">{selectedLogDetail.ipAddress || '192.168.1.100'}</strong></span>
+                <span>İstemci: <strong className="text-slate-800 dark:text-slate-200 font-mono">{selectedLogDetail.ipAddress || '-'}</strong></span>
               </div>
             </div>
 

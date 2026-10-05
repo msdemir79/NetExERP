@@ -12,8 +12,7 @@ import {
 import { cn } from '../../lib/utils';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, SgkStatus } from '../../types';
-import { hrService } from '../../services/hrService';
-import { showToast, confirmDialog } from '../../lib/feedback';
+import DeleteConfirmModal from '../Common/DeleteConfirmModal';
 import EmployeeModal from './EmployeeModal';
 
 interface EmployeeListTabProps {
@@ -30,21 +29,14 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
   // Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [deletingEmp, setDeletingEmp] = useState<Employee | null>(null);
 
   const handleEdit = (emp: Employee) => {
     setEditingEmployee(emp);
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (emp: Employee) => {
-    if (!(await confirmDialog(`${emp.name} isimli personeli silmek istediğinize emin misiniz?`, { confirmText: 'Sil' }))) return;
-    try {
-      await hrService.deleteEmployee(emp.id!);
-      onRefresh();
-    } catch (err: any) {
-      showToast(err?.message || 'Personel silinemedi.', 'error');
-    }
-  };
+  const handleDelete = (emp: Employee) => setDeletingEmp(emp);
 
   const filteredEmployees = employees.filter((emp) => {
     if (statusFilter !== 'all' && emp.status !== statusFilter) return false;
@@ -411,6 +403,19 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
         employee={editingEmployee}
         onSaved={onRefresh}
       />
+
+      {deletingEmp && (
+        <DeleteConfirmModal
+          resource="employees"
+          id={deletingEmp.id ?? null}
+          title="Personel Kartını Sil"
+          onClose={() => setDeletingEmp(null)}
+          onDeleted={() => {
+            setDeletingEmp(null);
+            onRefresh();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@
  *   npm run test:load
  *   LOAD_N=500 LOAD_CONCURRENCY=50 npm run test:load   (Windows: set LOAD_N=500 && ...)
  */
-import { startTestServer, api, runPool, summarizeLatency, type TestServer } from './harness.js';
+import { startTestServer, api, runPool, summarizeLatency, purgeTestResidue, type TestServer } from './harness.js';
 
 const N = Number(process.env.LOAD_N || 150);
 const C = Number(process.env.LOAD_CONCURRENCY || 20);
@@ -85,11 +85,13 @@ async function main(): Promise<void> {
   console.log('======================================================\n');
 
   await srv.close();
+  await purgeTestResidue('Yük testi');
   process.exit(totalErrors === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {
   console.error('LOAD TEST HARİCİ HATA:', err);
   try { await srv?.close(); } catch { /* yoksay */ }
+  await purgeTestResidue('Yük testi');
   process.exit(1);
 });

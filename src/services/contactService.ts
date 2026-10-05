@@ -138,14 +138,9 @@ export const contactService = {
   },
 
   async deleteContact(id: number) {
-    const orderCount = await api.orders.count({ contactId: id });
-    if (orderCount > 0) {
-      throw new Error(`Bu cariye ait ${orderCount} adet sipariş/fatura kaydı bulunmaktadır. Önce siparişleri silmeli veya arşivlemelisiniz.`);
-    }
-    await commit([
-      { op: 'deleteWhere', resource: 'transactions', where: { contactId: id } },
-      { op: 'delete', resource: 'contacts', id }
-    ]);
+    // Silme kararı sunucudaki politika motoruna aittir: bağlı sipariş/fatura/
+    // irsaliye/hareket/makbuz/çek varsa 409 döner, yoksa kart fiziksel silinir.
+    await api.contacts.remove(id);
   },
 
   async recordContactTransaction(data: {
@@ -203,18 +198,6 @@ export const contactService = {
       ...(data.date !== undefined ? { date: new Date(data.date) } : {}),
     });
     return id;
-  },
-
-  /**
-   * Cari hareketi kalıcı olarak SİLMEZ; iptal eder. Sunucu, orijinal
-   * hareketi 'cancelled' olarak işaretler ve bakiyeyi geri alan bir ters
-   * kayıt (reversal) oluşturur. Böylece finansal geçmiş korunur.
-   */
-  async cancelTransaction(id: number) {
-    return callOp<{ id: number; deleted: boolean; cancelled: boolean; reversalId: number | null }>(
-      'contact-transaction',
-      { mode: 'delete', id },
-    );
   },
 
   /**

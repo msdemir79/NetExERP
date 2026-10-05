@@ -30,7 +30,7 @@ interface OrderDetailModalProps {
   isTransferring: boolean;
   onPrint: (orderId: number) => void;
   onEdit: (orderId: number) => void;
-  onRequestDelete: (orderId: number, orderNumber: string, grandTotal?: number, contactName?: string) => void;
+  onRequestDelete: (orderId: number, orderNumber: string) => void;
   onCreateWorkOrders: (orderId: number) => void;
 }
 
@@ -258,13 +258,7 @@ export default function OrderDetailModal({
                         </button>
 
                         <button 
-                          onClick={() => {
-                            const id = selectedOrder.id;
-                            const num = selectedOrder.orderNumber;
-                            const total = selectedOrder.grandTotal;
-                            const cName = contact?.name;
-                            onRequestDelete(id, num, total, cName);
-                          }}
+                          onClick={() => onRequestDelete(selectedOrder.id, selectedOrder.orderNumber)}
                           className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3.5 py-2.5 rounded-xl font-bold text-xs uppercase flex items-center gap-1.5 transition-all cursor-pointer border border-rose-200"
                         >
                           <Trash2 className="w-4 h-4" />

@@ -22,12 +22,11 @@ import {
   FileText
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { financeService } from '../services/financeService';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill, type PillTone } from './Common/DataGrid';
 import EditCashBoxModal from './Finance/EditCashBoxModal';
 import EditBankAccountModal from './Finance/EditBankAccountModal';
-import DeleteFinanceModal from './Finance/DeleteFinanceModal';
+import DeleteConfirmModal from './Common/DeleteConfirmModal';
 import CashStatementModal from './Finance/CashStatementModal';
 import BankStatementModal from './Finance/BankStatementModal';
 import CheckHistoryModal from './Finance/CheckHistoryModal';
@@ -123,16 +122,6 @@ export default function Finance() {
     if (filterCheckStatus !== 'all' && c.status !== filterCheckStatus) return false;
     return true;
   });
-
-  // Handle Delete Cash Box or Bank Account
-  const handleConfirmDelete = async (force: boolean) => {
-    if (!deleteTarget?.target.id) return;
-    if (deleteTarget.type === 'cash') {
-      await financeService.deleteCashBox(deleteTarget.target.id, force);
-    } else {
-      await financeService.deleteBankAccount(deleteTarget.target.id, force);
-    }
-  };
 
   const checkStatusMeta: Record<CheckStatus, { tone: PillTone; label: string }> = {
     portfolio: { tone: 'blue', label: 'Cüzdanda (Portföy)' },
@@ -727,21 +716,14 @@ export default function Finance() {
         bankAccount={editingBankAccount}
       />
 
-      {/* MODAL: Kasa / Banka Silme Onayı */}
-      {deleteTarget && (
-        <DeleteFinanceModal
-          isOpen={!!deleteTarget}
+      {/* MODAL: Kasa / Banka Silme (ortak silme motoru — Kademe 2) */}
+      {deleteTarget?.target?.id && (
+        <DeleteConfirmModal
+          resource={deleteTarget.type === 'cash' ? 'cashBoxes' : 'bankAccounts'}
+          id={deleteTarget.target.id}
+          title={deleteTarget.type === 'cash' ? 'Kasayı Sil' : 'Banka Hesabını Sil'}
           onClose={() => setDeleteTarget(null)}
-          type={deleteTarget?.type || 'cash'}
-          target={deleteTarget?.target || null}
-          receiptCount={
-            deleteTarget?.target?.id
-              ? deleteTarget.type === 'cash'
-                ? receipts.filter(r => r && r.cashBoxId === deleteTarget.target!.id).length
-                : receipts.filter(r => r && r.bankAccountId === deleteTarget.target!.id).length
-              : 0
-          }
-          onConfirm={handleConfirmDelete}
+          onDeleted={() => setDeleteTarget(null)}
         />
       )}
 

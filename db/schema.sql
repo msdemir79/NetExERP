@@ -878,6 +878,7 @@ CREATE TABLE IF NOT EXISTS payrollRecords (
 
 CREATE TABLE IF NOT EXISTS periodLocks (
   `id`       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `scope`    ENUM('hr','accounting') NOT NULL DEFAULT 'hr',
   `month`    INT             NOT NULL,
   `year`     INT             NOT NULL,
   `isLocked` TINYINT(1)      NOT NULL DEFAULT 0,
@@ -886,7 +887,7 @@ CREATE TABLE IF NOT EXISTS periodLocks (
   `notes`    TEXT            NULL,
   `version`          INT             NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_periodLocks_month_year` (`month`, `year`)
+  UNIQUE KEY `uq_periodLocks_scope_month_year` (`scope`, `month`, `year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
@@ -950,6 +951,8 @@ CREATE TABLE IF NOT EXISTS auditLogs (
   `entityId`    VARCHAR(50)     NULL,
   `description` TEXT            NULL,
   `details`     TEXT            NULL,
+  `reason`      TEXT            NULL,
+  `recordSummary` VARCHAR(500)  NULL,
   `ipAddress`   VARCHAR(50)     NULL,
   `timestamp`   DATETIME        NOT NULL,
   `version`          INT             NOT NULL DEFAULT 1,
@@ -957,7 +960,8 @@ CREATE TABLE IF NOT EXISTS auditLogs (
   KEY `idx_auditLogs_userId` (`userId`),
   KEY `idx_auditLogs_action` (`action`),
   KEY `idx_auditLogs_module` (`module`),
-  KEY `idx_auditLogs_timestamp` (`timestamp`)
+  KEY `idx_auditLogs_timestamp` (`timestamp`),
+  KEY `idx_auditLogs_action_timestamp` (`action`, `timestamp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================

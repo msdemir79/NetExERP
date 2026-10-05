@@ -175,28 +175,7 @@ export const financeService = {
     return result;
   },
 
-  async deleteCashBox(id: number, force = false) {
-    const existing = await api.cashBoxes.get(id);
-    if (!existing) throw new Error('Kasa bulunamadı.');
-
-    // Bu kasaya bağlı tahsilat/tediye makbuzu var mı kontrol et
-    let receiptCount = 0;
-    try {
-      receiptCount = await api.collectionReceipts.count({ cashBoxId: id });
-    } catch {
-      const allReceipts = await api.collectionReceipts.list();
-      receiptCount = allReceipts.filter(r => r.cashBoxId === id).length;
-    }
-
-    if (receiptCount > 0 && !force) {
-      throw new Error(`Bu kasaya bağlı ${receiptCount} adet makbuz kaydı bulunmaktadır. Silmek için onay vermeniz gerekmektedir.`);
-    }
-
-    // Eğer force ise veya makbuz yoksa sil
-    return await api.cashBoxes.remove(id);
-  },
-
-  // --- Banka Hesabı (BankAccount) Düzenleme ve Silme İşlemleri ---
+  // --- Banka Hesabı (BankAccount) Düzenleme İşlemleri ---
   async updateBankAccount(id: number, data: Partial<BankAccount>, syncAccount = true) {
     const existing = await api.bankAccounts.get(id);
     if (!existing) throw new Error('Banka hesabı bulunamadı.');
@@ -233,26 +212,6 @@ export const financeService = {
     }
 
     return result;
-  },
-
-  async deleteBankAccount(id: number, force = false) {
-    const existing = await api.bankAccounts.get(id);
-    if (!existing) throw new Error('Banka hesabı bulunamadı.');
-
-    // Bu banka hesabına bağlı tahsilat/tediye makbuzu var mı kontrol et
-    let receiptCount = 0;
-    try {
-      receiptCount = await api.collectionReceipts.count({ bankAccountId: id });
-    } catch {
-      const allReceipts = await api.collectionReceipts.list();
-      receiptCount = allReceipts.filter(r => r.bankAccountId === id).length;
-    }
-
-    if (receiptCount > 0 && !force) {
-      throw new Error(`Bu banka hesabına bağlı ${receiptCount} adet makbuz kaydı bulunmaktadır. Silmek için onay vermeniz gerekmektedir.`);
-    }
-
-    return await api.bankAccounts.remove(id);
   },
 
   // --- Statement & Movement Reports (Ekstre ve Hareket Raporları) ---

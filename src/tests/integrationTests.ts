@@ -6,15 +6,15 @@
  * doğrular:
  *   • item 4  — türetilmiş/korumalı finansal alanlar generic INSERT/PATCH'te soyulur
  *   • item 8  — yevmiye fiş no sunucuda üretilir; eşzamanlı isteklerde benzersizdir
- *   • item 1/45 — transactional kayıtlar doğrudan silinemez (403)
- *   • item 1  — cari hareket iptali = ters kayıt (void), bakiye net sıfır
+ *   • silme   — kademe 2 kayıtlar gerekçe+parola olmadan silinemez (400);
+ *               ayrıntılı silme suite'i: npm run test:delete
  *   • item 7  — 5xx yanıtları SQL/stack sızdırmaz (genel mesaj)
  *   • iyimser kilitleme — eşzamanlı PATCH'te tam olarak bir istek kazanır (409)
  *   • stok kartı ekstresi — her renk ayrı hareket satırı alır, color/size kolonları dolu yazılır
  *
  * Çalıştırma: npm run test:integration
  */
-import { startTestServer, api, type TestServer } from './harness.js';
+import { startTestServer, api, purgeTestResidue, type TestServer } from './harness.js';
 
 let passed = 0;
 let failed = 0;
@@ -97,13 +97,15 @@ async function main(): Promise<void> {
   console.log('======================================================\n');
 
   // ---------------------------------------------------------------
-  console.log('📌 A. KORUMALI ALANLAR (item 4) — generic INSERT/PATCH soyulması');
+  console.log('📌 A. KORUMALI ALANLAR (item 4) — generic yazım kapısı ve alan soyulması');
   // ---------------------------------------------------------------
   const stripContactId = await createContact('strip');
   let stripTxId = 0;
 
-  await test('INSERT: transactions.status/reversalOfId/cancelledAt istemciden zorla yazılamaz', async () => {
-    const res = await api(srv, 'POST', '/transactions', {
+  await test('transactions generic yazıma kapalı → 403 CONTROLLED_RESOURCE', async () => {
+    // Cari hareket bakiyeyi değiştirir; generic INSERT/PATCH bakiyeyi
+    // güncellemediği için kapalıdır. Kayıt yalnızca kontrollü uçtan yazılır.
+    const ins = await api(srv, 'POST', '/transactions', {
       contactId: stripContactId,
       type: 'income',
       amount: 100,
@@ -111,29 +113,45 @@ async function main(): Promise<void> {
       description: 'TEST-FAZ3 strip INSERT',
       category: 'Tahsilat',
       paymentMethod: 'cash',
-      // Zorlanan (forged) korumalı alanlar:
       status: 'cancelled',
       reversalOfId: 999,
-      cancelledAt: '2020-01-01T00:00:00.000Z',
     });
-    expect(res.status).toBe(201);
-    stripTxId = Number((res.data as any)?.data ?? res.data);
-    const row = await getRow('transactions', stripTxId);
-    expect(row.status).toBe('posted'); // DB varsayılanı; zorlanan 'cancelled' soyuldu
-    expect(row.reversalOfId).toBeNullish();
-    expect(row.cancelledAt).toBeNullish();
-  });
+    expect(ins.status).toBe(403);
+    expect((ins.data as any)?.code).toBe('CONTROLLED_RESOURCE');
 
-  await test('PATCH: transactions korumalı alanları güncellemede de soyulur', async () => {
-    const res = await api(srv, 'PATCH', `/transactions/${stripTxId}`, {
-      description: 'TEST-FAZ3 strip PATCH',
-      status: 'cancelled',
-      reversalOfId: 777,
+    const patch = await api(srv, 'PATCH', '/transactions/1', { description: 'TEST-FAZ3 strip PATCH' });
+    expect(patch.status).toBe(403);
+    expect((patch.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    // /ops/commit de aynı kapıya takılır (ham satır yazımı bypass değil).
+    const commit = await api(srv, 'POST', '/ops/commit', {
+      mutations: [
+        {
+          op: 'insert',
+          resource: 'transactions',
+          data: { contactId: stripContactId, type: 'income', amount: 100, date: new Date().toISOString(), description: 'TEST-FAZ3 commit' },
+        },
+      ],
     });
-    expect(res.status).toBe(200);
+    expect(commit.status).toBe(403);
+    expect((commit.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    // Kontrollü uç çalışır ve hareketi gerçekten yazar (D bölümü bu kaydı kullanır).
+    const ok = await api(srv, 'POST', '/ops/contact-transaction', {
+      mode: 'create',
+      contactId: stripContactId,
+      type: 'income',
+      amount: 100,
+      date: new Date().toISOString(),
+      description: `TEST-FAZ3 hareket ${RUN}`,
+      category: 'Tahsilat',
+      paymentMethod: 'cash',
+    });
+    expect(ok.status).toBe(200);
+    stripTxId = Number((ok.data as any)?.data?.id);
+    expect(stripTxId).toBeGreaterThan(0);
     const row = await getRow('transactions', stripTxId);
-    expect(row.description).toBe('TEST-FAZ3 strip PATCH'); // meşru alan yazıldı
-    expect(row.status).toBe('posted'); // korumalı alan değişmedi
+    expect(row.status).toBe('posted');
     expect(row.reversalOfId).toBeNullish();
   });
 
@@ -242,80 +260,34 @@ async function main(): Promise<void> {
   });
 
   // ---------------------------------------------------------------
-  console.log('\n📌 D. DOĞRUDAN SİLME YASAĞI (item 1/45)');
+  console.log('\n📌 D. SİLME POLİTİKASI MOTORU — kademe 2 gerekçe/parola kapısı');
+  // (Ayrıntılı silme suite'i: npm run test:delete)
   // ---------------------------------------------------------------
-  await test('DELETE transactions → 403 TRANSACTIONAL_NO_DELETE', async () => {
+  await test('DELETE transactions (kademe 2) gerekçesiz → 400 REASON_REQUIRED', async () => {
     const res = await api(srv, 'DELETE', `/transactions/${stripTxId}`);
-    expect(res.status).toBe(403);
-    expect((res.data as any)?.code).toBe('TRANSACTIONAL_NO_DELETE');
+    expect(res.status).toBe(400);
+    expect((res.data as any)?.code).toBe('REASON_REQUIRED');
     assertNoLeak(res.text);
   });
 
-  await test('DELETE journalEntries → 403 TRANSACTIONAL_NO_DELETE', async () => {
+  await test('DELETE journalEntries (kademe 2) gerekçesiz → 400 REASON_REQUIRED', async () => {
     const res = await api(srv, 'DELETE', `/journalEntries/${jeId}`);
-    expect(res.status).toBe(403);
-    expect((res.data as any)?.code).toBe('TRANSACTIONAL_NO_DELETE');
+    expect(res.status).toBe(400);
+    expect((res.data as any)?.code).toBe('REASON_REQUIRED');
     assertNoLeak(res.text);
   });
 
   // ---------------------------------------------------------------
-  console.log('\n📌 E. CARİ HAREKET İPTALİ = TERS KAYIT (item 1, void+reversal)');
-  // ---------------------------------------------------------------
-  await test('op create→cancel: bakiye net sıfır, çift iptal 409, iptal sonrası update 409', async () => {
-    const cid = await createContact('void');
-    const c0 = await getRow('contacts', cid);
-    const bal0 = Number(c0.balance) || 0;
-
-    const created = await api(srv, 'POST', '/ops/contact-transaction', {
-      mode: 'create',
-      contactId: cid,
-      type: 'expense',
-      amount: 250,
-      description: 'TEST-FAZ3 void',
-      category: 'Ödeme',
-      paymentMethod: 'cash',
-    });
-    expect(created.status).toBe(200);
-    const txId = Number((created.data as any)?.data?.id);
-    expect(txId).toBeGreaterThan(0);
-
-    const afterCreate = await getRow('contacts', cid);
-    expect(Number(afterCreate.balance)).toBe(bal0 + 250); // expense → bakiye artar
-
-    const cancelled = await api(srv, 'POST', '/ops/contact-transaction', { mode: 'delete', id: txId });
-    expect(cancelled.status).toBe(200);
-    expect((cancelled.data as any)?.data?.cancelled).toBe(true);
-    expect((cancelled.data as any)?.data?.deleted).toBe(false);
-    const reversalId = Number((cancelled.data as any)?.data?.reversalId);
-    expect(reversalId).toBeGreaterThan(0);
-
-    const afterCancel = await getRow('contacts', cid);
-    expect(Number(afterCancel.balance)).toBe(bal0); // ters kayıt bakiyeyi sıfırladı
-
-    const orig = await getRow('transactions', txId);
-    expect(orig.status).toBe('cancelled'); // orijinal korundu, silinmedi
-    const rev = await getRow('transactions', reversalId);
-    expect(Number(rev.reversalOfId)).toBe(txId);
-
-    const dbl = await api(srv, 'POST', '/ops/contact-transaction', { mode: 'delete', id: txId });
-    expect(dbl.status).toBe(409);
-    expect((dbl.data as any)?.code).toBe('TX_ALREADY_CANCELLED');
-
-    const upd = await api(srv, 'POST', '/ops/contact-transaction', { mode: 'update', id: txId, amount: 300 });
-    expect(upd.status).toBe(409);
-    expect((upd.data as any)?.code).toBe('TX_CANCELLED_NO_UPDATE');
-  });
-
-  // ---------------------------------------------------------------
-  console.log('\n📌 F. HATA TEMİZLİĞİ (item 7) — 5xx SQL/stack sızdırmaz');
+  console.log('\n📌 E. HATA TEMİZLİĞİ (item 7) — 5xx SQL/stack sızdırmaz');
   // ---------------------------------------------------------------
   await test('FK ihlali (var olmayan contactId) → 500 genel mesaj, sızıntı yok', async () => {
-    const res = await api(srv, 'POST', '/transactions', {
-      contactId: 999999, // var olmayan cari → fk_transactions_contact ihlali
-      type: 'income',
-      amount: 1,
+    const res = await api(srv, 'POST', '/invoices', {
+      contactId: 999999, // var olmayan cari → fk_invoices_contact ihlali
+      invoiceNumber: `TEST-FAZ3-FK-${RUN}`,
+      type: 'sales',
       date: new Date().toISOString(),
-      description: 'TEST-FAZ3 fk',
+      status: 'draft',
+      grandTotal: 1,
     });
     expect(res.status).toBe(500);
     expect((res.data as any)?.error).toBe('Sunucu hatası oluştu. Lütfen tekrar deneyin.');
@@ -329,7 +301,7 @@ async function main(): Promise<void> {
   });
 
   // ---------------------------------------------------------------
-  console.log('\n📌 G. STOK HAREKETİ RENK/BEDEN KOLONLARI — stok kartı ekstresi kırılımı');
+  console.log('\n📌 F. STOK HAREKETİ RENK/BEDEN KOLONLARI — stok kartı ekstresi kırılımı');
   // ---------------------------------------------------------------
   await test('invoice-stock: her renk ayrı hareket satırı alır, color/size kolonları dolu yazılır', async () => {
     // Renkler merkezî karttan çözümlenir; test, kullanıcının renk listesine bağımlı
@@ -389,11 +361,11 @@ async function main(): Promise<void> {
     expect(Number(second.quantity)).toBe(6);
     expect(second.size).toBe('40');
 
-    // Temizlik: ürün silinir, inventoryLogs FK CASCADE ile birlikte temizlenir.
+    // Stok hareketi olan ürün silinemez: hareket defteri ile ürün kartı birlikte
+    // korunur (silme motoru guard'ı). Kalıntı koşu sonunda purgeTestResidue ile kalkar.
     const del = await api(srv, 'DELETE', `/products/${productId}`);
-    expect(del.status).toBe(200);
-    const after = await api(srv, 'GET', `/inventoryLogs?search=${encodeURIComponent(docNo)}`);
-    expect(((after.data as any)?.data ?? []).length).toBe(0);
+    expect(del.status).toBe(409);
+    expect((del.data as any)?.code).toBe('HAS_DEPENDENTS');
   });
 
   // ---------------------------------------------------------------
@@ -402,11 +374,13 @@ async function main(): Promise<void> {
   console.log('======================================================\n');
 
   await srv.close();
+  await purgeTestResidue('Entegrasyon');
   process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch(async (err) => {
   console.error('INTEGRATION TEST HARİCİ HATA:', err);
   try { await srv?.close(); } catch { /* yoksay */ }
+  await purgeTestResidue('Entegrasyon');
   process.exit(1);
 });

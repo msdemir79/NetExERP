@@ -426,76 +426,7 @@ async function doSeed(): Promise<{ created: boolean }> {
     createdAnything = true;
   }
 
-  // 9. Açılış yevmiye fişleri
-  if ((await tableCount('journalEntries')) === 0) {
-    const entries = [
-      {
-        entryNumber: 'YEV-2026-000001',
-        entryType: 'acilis',
-        date: new Date('2026-01-01'),
-        description: '2026 Mali Yılı Açılış Bilançosu ve Mahsubu',
-        documentType: 'opening',
-        documentNumber: 'ACILIS-2026',
-        totalDebit: 184580000,
-        totalCredit: 184580000,
-        isBalanced: true,
-        status: 'approved',
-        createdAt: new Date('2026-01-01T09:00:00'),
-        lines: [
-          { id: '1', accountCode: '100.01', accountName: 'Merkez TL Kasası', description: '2026 Devir Kasa Nakit Mevcudu', debit: 1115360, credit: 0 },
-          { id: '2', accountCode: '101.01', accountName: 'Portföydeki Çekler', description: 'Portföydeki Müşteri Çekleri Devri', debit: 6303540, credit: 0 },
-          { id: '3', accountCode: '102.01', accountName: 'Garanti BBVA Vadesiz TL Hesabı', description: 'Garanti BBVA Vadesiz Mevduat Devri', debit: 142850000, credit: 0 },
-          { id: '4', accountCode: '102.02', accountName: 'Ziraat Bankası Ticari TL Hesabı', description: 'Ziraat Bankası Mevduat Devri', debit: 15442560, credit: 0 },
-          { id: '5', accountCode: '120.01', accountName: 'Yurtiçi Müşteriler Cari Hesabı', description: 'Müşteri Cari Alacak Bakiyeleri Devri', debit: 13666725, credit: 0 },
-          { id: '6', accountCode: '150.01', accountName: 'Deri ve Suni Deri Stokları', description: 'Deri Hammadde Yılbaşı Sayım Stoğu', debit: 3450000, credit: 0 },
-          { id: '7', accountCode: '152.01', accountName: 'Biten Ayakkabı Mamul Deposu', description: 'Mamul Ayakkabı Depo Stoğu', debit: 1751815, credit: 0 },
-          { id: '8', accountCode: '103.01', accountName: 'Verilen Firma Çekleri', description: 'Satıcılara Verilen Vadeli Firma Çekleri Devri', debit: 0, credit: 4969152 },
-          { id: '9', accountCode: '320.01', accountName: 'Deri ve Malzeme Tedarikçileri', description: 'Tedarikçi Cari Borç Bakiyeleri Devri', debit: 0, credit: 9610848 },
-          { id: '10', accountCode: '500.01', accountName: 'Ödenmiş Sermaye', description: 'Şirket Tescilli Ödenmiş Ana Sermayesi', debit: 0, credit: 170000000 },
-        ],
-      },
-      {
-        entryNumber: 'YEV-2026-000002',
-        entryType: 'tahsil',
-        date: new Date('2026-03-15'),
-        description: 'Müşteri Cari Tahsilatları ve Banka Hareketleri',
-        documentType: 'collection',
-        documentNumber: 'THS-2026-08',
-        totalDebit: 4850000,
-        totalCredit: 4850000,
-        isBalanced: true,
-        status: 'approved',
-        createdAt: new Date('2026-03-15T14:30:00'),
-        lines: [
-          { id: '11', accountCode: '100.01', accountName: 'Merkez TL Kasası', description: 'Müşteri Elden Nakit Tahsilat', debit: 350000, credit: 0 },
-          { id: '12', accountCode: '102.01', accountName: 'Garanti BBVA Vadesiz TL Hesabı', description: 'Müşteri Banka EFT/Havale Tahsilatı', debit: 4500000, credit: 0 },
-          { id: '13', accountCode: '120.01', accountName: 'Yurtiçi Müşteriler Cari Hesabı', description: 'Yurtiçi Müşteriler Cari Hesabından Düşüm', debit: 0, credit: 4850000 },
-        ],
-      },
-      {
-        entryNumber: 'YEV-2026-000003',
-        entryType: 'tediye',
-        date: new Date('2026-06-20'),
-        description: 'Tedarikçi Deri Hammadde Ödemesi ve Genel Fabrika Masrafları',
-        documentType: 'disbursement',
-        documentNumber: 'TDY-2026-14',
-        totalDebit: 3200000,
-        totalCredit: 3200000,
-        isBalanced: true,
-        status: 'approved',
-        createdAt: new Date('2026-06-20T16:00:00'),
-        lines: [
-          { id: '14', accountCode: '320.01', accountName: 'Deri ve Malzeme Tedarikçileri', description: 'Deri Tedarikçisi Havale ile Cari Ödeme', debit: 2800000, credit: 0 },
-          { id: '15', accountCode: '770.01', accountName: 'Genel Yönetim ve Fabrika Giderleri', description: 'Fabrika Elektrik ve Lojistik Hizmet Faturası', debit: 400000, credit: 0 },
-          { id: '16', accountCode: '102.01', accountName: 'Garanti BBVA Vadesiz TL Hesabı', description: 'Banka Hesabından Otomatik Çıkış', debit: 0, credit: 3200000 },
-        ],
-      },
-    ];
-    for (const e of entries) await insertRow(null, 'journalEntries', e);
-    createdAnything = true;
-  }
-
-  // 10. Merkezi renk kartları (color master)
+  // 9. Merkezi renk kartları (color master)
   if ((await tableCount('colors')) === 0) {
     // HEX değerleri src/lib/colorSwatches.ts paletiyle birebir aynıdır (uydurma değer yok).
     const colorRows = [
@@ -513,7 +444,7 @@ async function doSeed(): Promise<{ created: boolean }> {
   const siyahColor = await queryOne<{ id: number }>('SELECT `id` FROM `colors` WHERE `name` = ? LIMIT 1', ['SİYAH']);
   const siyahColorId = Number((siyahColor as any)?.id || 0);
 
-  // 11. Örnek ürünler, reçete ve iş emri
+  // 10. Örnek ürünler, reçete ve iş emri
   if ((await tableCount('products')) === 0) {
     const deriId = await insertRow(null, 'products', {
       code: 'HAM-DERI-01',

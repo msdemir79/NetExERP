@@ -73,11 +73,8 @@ export const hrService = {
   },
 
   async deleteEmployee(id: number): Promise<void> {
-    // Bağlı puantaj ve bordroları temizle
-    await api.attendanceRecords.removeWhere({ employeeId: id });
-    await api.leaveRequests.removeWhere({ employeeId: id });
-    await api.payrollRecords.removeWhere({ employeeId: id });
-    await api.advanceRequests.removeWhere({ employeeId: id });
+    // Bağlı puantaj/bordro/izin/avans kaydı varsa sunucu 409 ile reddeder;
+    // kart yalnızca ilişkisi yokken (parolasız) silinebilir.
     await api.employees.remove(id);
   },
 

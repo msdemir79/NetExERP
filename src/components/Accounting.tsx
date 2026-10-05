@@ -28,7 +28,7 @@ import JournalEntryModal from './Accounting/JournalEntryModal';
 import JournalEntryPrintModal from './Accounting/JournalEntryPrintModal';
 import AddAccountModal from './Accounting/AddAccountModal';
 import EditAccountModal from './Accounting/EditAccountModal';
-import DeleteAccountModal from './Accounting/DeleteAccountModal';
+import DeleteConfirmModal from './Common/DeleteConfirmModal';
 import ChartOfAccounts from './Accounting/ChartOfAccounts';
 import MizanPrintModal from './Accounting/MizanPrintModal';
 import KebirPrintModal from './Accounting/KebirPrintModal';
@@ -879,12 +879,16 @@ export default function Accounting() {
         }}
       />
 
-      {/* MODAL: TDHP Hesap Silme */}
-      <DeleteAccountModal
-        isOpen={!!accountToDelete}
-        onClose={() => setAccountToDelete(null)}
-        account={accountToDelete}
-      />
+      {/* MODAL: TDHP Hesap Silme (ortak silme motoru — Kademe 2) */}
+      {accountToDelete && (
+        <DeleteConfirmModal
+          resource="accounts"
+          id={accountToDelete.id ?? null}
+          title="TDHP Hesabını Sil"
+          onClose={() => setAccountToDelete(null)}
+          onDeleted={() => setAccountToDelete(null)}
+        />
+      )}
     </div>
   );
 }

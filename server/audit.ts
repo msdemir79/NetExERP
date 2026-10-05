@@ -16,13 +16,21 @@ export interface AuditEntry {
   description: string;
   details?: string | null;
   entityId?: string | number | null;
+  /** Silme işlemlerinde kullanıcının girdiği zorunlu gerekçe. */
+  reason?: string | null;
+  /** Silinen kaydın tek satırlık tanıtıcısı (belge no / ad / tutar). */
+  recordSummary?: string | null;
 }
 
 /**
- * Denetim izine otomatik yazılan kritik kaynaklar. Ana veriler (ürün/cari
- * kartı tanımı) ve tüm finansal/stok/muhasebe/üretim/bordro/ayar kayıtları
- * burada listelenir; generic REST yazımları bu kaynaklar için aynı
- * transaction içinde sunucu tarafında denetim kaydı üretir.
+ * Denetim izine otomatik yazılan kaynaklar. Generic REST yazımları (create/
+ * update) bu kaynaklar için aynı transaction içinde sunucu tarafında denetim
+ * kaydı üretir.
+ *
+ * Satır düzeyinde yeniden yazılan çocuk tablolar (sipariş/fatura/irsaliye
+ * kalemleri, ürün↔renk bağı) ve hareket defterleri burada YOKTUR: bunlar her
+ * kayıtta toplu olarak yeniden yazıldığı için izi şişirir. Silmeleri ise zaten
+ * deletePolicy motoru her zaman denetim izine yazar.
  */
 export const AUDITED_RESOURCES: Record<string, { label: string; module: string }> = {
   users: { label: 'Kullanıcı', module: 'users' },
@@ -30,16 +38,26 @@ export const AUDITED_RESOURCES: Record<string, { label: string; module: string }
   contacts: { label: 'Cari', module: 'contacts' },
   products: { label: 'Ürün', module: 'inventory' },
   colors: { label: 'Renk', module: 'colors' },
+  assortmentTemplates: { label: 'Asorti Şablonu', module: 'inventory' },
+  barcodeTemplates: { label: 'Barkod Şablonu', module: 'inventory' },
   invoices: { label: 'Fatura', module: 'invoices' },
   cashBoxes: { label: 'Kasa', module: 'finance' },
   bankAccounts: { label: 'Banka Hesabı', module: 'finance' },
   checks: { label: 'Çek', module: 'finance' },
   collectionReceipts: { label: 'Tahsilat Makbuzu', module: 'finance' },
+  transactions: { label: 'Cari Hareket', module: 'finance' },
   journalEntries: { label: 'Muhasebe Fişi', module: 'accounting' },
+  accounts: { label: 'Muhasebe Hesabı', module: 'accounting' },
   orders: { label: 'Sipariş', module: 'orders' },
   waybills: { label: 'İrsaliye', module: 'waybills' },
   workOrders: { label: 'İş Emri', module: 'production' },
+  recipes: { label: 'Reçete', module: 'production' },
+  employees: { label: 'Personel', module: 'hr' },
+  attendanceRecords: { label: 'Puantaj', module: 'hr' },
+  leaveRequests: { label: 'İzin Talebi', module: 'hr' },
+  advanceRequests: { label: 'Avans Talebi', module: 'hr' },
   payrollRecords: { label: 'Bordro', module: 'hr' },
+  periodLocks: { label: 'Dönem Kilidi', module: 'hr' },
   settings: { label: 'Ayar', module: 'settings' },
 };
 
@@ -135,8 +153,8 @@ export async function writeAudit(
   try {
     await execute(
       `INSERT INTO \`auditLogs\`
-         (\`userId\`, \`userName\`, \`userRole\`, \`action\`, \`module\`, \`entityId\`, \`description\`, \`details\`, \`ipAddress\`, \`timestamp\`)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+         (\`userId\`, \`userName\`, \`userRole\`, \`action\`, \`module\`, \`entityId\`, \`description\`, \`details\`, \`reason\`, \`recordSummary\`, \`ipAddress\`, \`timestamp\`)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         options.auth?.user?.id ?? null,
         name,
@@ -146,6 +164,8 @@ export async function writeAudit(
         entry.entityId === undefined || entry.entityId === null ? null : String(entry.entityId),
         entry.description,
         entry.details ?? null,
+        entry.reason ?? null,
+        entry.recordSummary ?? null,
         options.ip ?? null,
       ],
     );
@@ -168,8 +188,8 @@ export async function writeAuditInTx(
   const { name, role } = actorLabel(options.auth?.user || null);
   await conn.query(
     `INSERT INTO \`auditLogs\`
-       (\`userId\`, \`userName\`, \`userRole\`, \`action\`, \`module\`, \`entityId\`, \`description\`, \`details\`, \`ipAddress\`, \`timestamp\`)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+       (\`userId\`, \`userName\`, \`userRole\`, \`action\`, \`module\`, \`entityId\`, \`description\`, \`details\`, \`reason\`, \`recordSummary\`, \`ipAddress\`, \`timestamp\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
     [
       options.auth?.user?.id ?? null,
       name,
@@ -179,6 +199,8 @@ export async function writeAuditInTx(
       entry.entityId === undefined || entry.entityId === null ? null : String(entry.entityId),
       entry.description,
       entry.details ?? null,
+      entry.reason ?? null,
+      entry.recordSummary ?? null,
       options.ip ?? null,
     ],
   );
