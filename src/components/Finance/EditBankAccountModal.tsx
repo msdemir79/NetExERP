@@ -163,7 +163,7 @@ export default function EditBankAccountModal({
           </div>
 
           {/* Şube ve Hesap No */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Şube Adı
@@ -206,7 +206,7 @@ export default function EditBankAccountModal({
           </div>
 
           {/* TDHP Hesap Kodu & Para Birimi */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 TDHP Muhasebe Kodu

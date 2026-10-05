@@ -6,6 +6,7 @@ import {
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { userService } from '../../services/userService';
 import { exportToCsv } from '../../lib/exportService';
+import { showToast } from '../../lib/feedback';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
 import type { AuditLog, AuditActionType } from '../../types';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
@@ -114,7 +115,7 @@ export default function AuditLogTab() {
 
   const handleExport = () => {
     if (logs.length === 0) {
-      alert('Dışa aktarılacak denetim kaydı bulunamadı.');
+      showToast('Dışa aktarılacak denetim kaydı bulunamadı.', 'warning');
       return;
     }
 

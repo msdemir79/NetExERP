@@ -1,6 +1,7 @@
 import React from 'react';
 import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { showToast, confirmDialog } from '../lib/feedback';
 import {
   Play,
   CheckCircle2,
@@ -150,7 +151,7 @@ export default function Production() {
       const shortageKeys = result.items.filter(i => i.status === 'shortage').map(i => getMrpKey(i));
       setSelectedMrpKeys(shortageKeys);
     } catch (err: any) {
-      alert(`MRP Hesaplama Hatası: ${err.message}`);
+      showToast(`MRP Hesaplama Hatası: ${err.message}`, 'error');
     } finally {
       setIsMrpCalculating(false);
     }
@@ -300,7 +301,7 @@ export default function Production() {
   };
 
   const handleDeleteRecipe = async (recipeId: number) => {
-    if (confirm('Bu reçeteyi silmek istediğinize emin misiniz?')) {
+    if (await confirmDialog('Bu reçeteyi silmek istediğinize emin misiniz?', { confirmText: 'Sil' })) {
       await productionService.deleteRecipe(recipeId);
       handleCalculateMRP();
     }
@@ -311,13 +312,13 @@ export default function Production() {
     try {
       const createdIds = await productionService.createWorkOrdersFromOrder(orderId);
       if (createdIds.length > 0) {
-        alert(`${createdIds.length} adet ürün kalemi başarıyla üretim planına alındı ve barkodları oluşturuldu.`);
+        showToast(`${createdIds.length} adet ürün kalemi başarıyla üretim planına alındı ve barkodları oluşturuldu.`, 'success');
         handleCalculateMRP();
       } else {
-        alert('Bu siparişteki tüm kalemler zaten üretim planına alınmış.');
+        showToast('Bu siparişteki tüm kalemler zaten üretim planına alınmış.', 'info');
       }
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
   };
 
@@ -1093,6 +1094,11 @@ export default function Production() {
                                     </div>
                                     <span className="text-indigo-600 font-black flex-shrink-0 ml-2">
                                       {ing.quantity} {ing.unit || matProd?.unit || 'Adet'}
+                                      {Number(ing.basisQty) > 1 && (
+                                        <span className="text-slate-600 dark:text-slate-300 font-bold">
+                                          {' '}/ {ing.basisQty} {productMap.get(rc.productId)?.unit || 'Çift'}
+                                        </span>
+                                      )}
                                     </span>
                                   </div>
                                 );

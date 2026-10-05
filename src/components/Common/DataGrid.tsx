@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Filter, ChevronUp, ChevronDown, Search, PackageOpen } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 /* ------------------------------------------------------------------ */
 /* Durum rozeti (Nesilce tarzı pill)                                   */
@@ -45,6 +46,8 @@ export interface GridColumn<T> {
   render?: (row: T, index: number) => React.ReactNode;
   /** Sütun filtresinin arayacağı metin; verilmezse String(row[key]) */
   filterValue?: (row: T) => string;
+  /** Sıralamada kullanılacak değer; verilmezse row[key], o da yoksa filterValue */
+  sortValue?: (row: T) => unknown;
 }
 
 export interface DataGridProps<T> {
@@ -64,6 +67,8 @@ export interface DataGridProps<T> {
   maxHeight?: string;
   className?: string;
   footer?: React.ReactNode;
+  /** Açılışta uygulanan sıralama. Başlığa üçüncü tıklama (sıralamayı bırak) bu sıraya döner. */
+  defaultSort?: { key: string; dir: 'asc' | 'desc' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -105,15 +110,19 @@ export default function DataGrid<T>({
   maxHeight,
   className,
   footer,
+  defaultSort,
 }: DataGridProps<T>) {
-  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: '', dir: 'asc' });
+  const baseSort = defaultSort ?? { key: '', dir: 'asc' as const };
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>(baseSort);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const isMobile = useIsMobile();
 
   const getKey = (row: T): string | number =>
     typeof rowKey === 'function' ? rowKey(row) : (row[rowKey] as string | number);
 
   const getSortValue = (row: T, key: string): unknown => {
     const col = columns.find((c) => c.key === key);
+    if (col?.sortValue) return col.sortValue(row);
     return col?.filterValue ? col.filterValue(row) : (row as Record<string, unknown>)[key];
   };
 
@@ -145,7 +154,7 @@ export default function DataGrid<T>({
   const toggleSort = (col: GridColumn<T>) => {
     if (col.sortable === false) return;
     setSort((s) =>
-      s.key !== col.key ? { key: col.key, dir: 'asc' } : s.dir === 'asc' ? { key: col.key, dir: 'desc' } : { key: '', dir: 'asc' }
+      s.key !== col.key ? { key: col.key, dir: 'asc' } : s.dir === 'asc' ? { key: col.key, dir: 'desc' } : baseSort
     );
   };
 
@@ -177,6 +186,76 @@ export default function DataGrid<T>({
           {toolbar}
         </div>
       )}
+      {isMobile ? (
+        <div className="divide-y divide-slate-200 dark:divide-slate-800 overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={`mskel-${i}`} className="space-y-2 p-3">
+                <div className="h-4 w-2/3 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <div className="h-3 w-1/2 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+              </div>
+            ))
+          ) : filtered.length === 0 ? (
+            <div className="px-4 py-12 text-center">
+              <PackageOpen className="w-10 h-10 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+              <p className="text-sm text-slate-400">{emptyMessage}</p>
+            </div>
+          ) : (
+            filtered.map((row, i) => {
+              const id = getKey(row);
+              const [primaryCol, ...restCols] = columns;
+              return (
+                <div
+                  key={String(id)}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  className={cn('p-3', onRowClick && 'cursor-pointer active:bg-slate-50 dark:active:bg-slate-800/40')}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {selectable && (
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(id)}
+                        onChange={() => toggleOne(id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      {primaryCol.render ? primaryCol.render(row, i) : String((row as Record<string, unknown>)[primaryCol.key] ?? '')}
+                    </div>
+                  </div>
+                  {restCols.length > 0 && (
+                    <div className="mt-2.5 space-y-1.5">
+                      {restCols.map((col) => (
+                        <div key={col.key} className="flex items-baseline justify-between gap-3">
+                          <span className="shrink-0 text-label uppercase tracking-wide text-slate-500 dark:text-slate-400">{col.title}</span>
+                          <div
+                            className={cn(
+                              'min-w-0 text-sm text-slate-700 dark:text-slate-300',
+                              col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
+                            )}
+                          >
+                            {col.render ? col.render(row, i) : String((row as Record<string, unknown>)[col.key] ?? '')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {rowActions && (
+                    <div
+                      className="mt-2.5 flex items-center justify-end gap-1 border-t border-slate-100 dark:border-slate-800 pt-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {rowActions(row)}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : (
       <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full border-collapse min-w-[640px]">
           <thead className="bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10">
@@ -304,6 +383,7 @@ export default function DataGrid<T>({
           </tbody>
         </table>
       </div>
+      )}
       {footer && <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500">{footer}</div>}
     </div>
   );

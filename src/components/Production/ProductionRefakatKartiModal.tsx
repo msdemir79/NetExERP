@@ -25,6 +25,7 @@ import Modal from '../Modal';
 import { BarcodeSvg } from '../BarcodeSvg';
 import type { WorkOrder, Product, ProductionStage, Recipe, Contact } from '../../types';
 import { productionService } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import html2canvas from 'html2canvas-pro';
@@ -263,7 +264,7 @@ export default function ProductionRefakatKartiModal({
       if (onStageUpdated) onStageUpdated();
       if (onStatusUpdated) onStatusUpdated();
     } catch (err: any) {
-      alert(`Aşama güncellenirken hata: ${err.message}`);
+      showToast(`Aşama güncellenirken hata: ${err.message}`, 'error');
     } finally {
       setUpdatingStage(null);
     }
@@ -360,7 +361,7 @@ export default function ProductionRefakatKartiModal({
       pdf.save(`Refakat_Karti_${workOrder.barcode}.pdf`);
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);
-      alert('PDF oluşturulurken bir sorun oluştu.');
+      showToast('PDF oluşturulurken bir sorun oluştu.', 'error');
     } finally {
       setIsGeneratingPdf(false);
     }

@@ -237,7 +237,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
           {/* TAB 1: GENEL BİLGİLER */}
           {activeTab === 'general' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Personel Sicil / Kodu *
@@ -281,7 +281,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     T.C. Kimlik No
@@ -309,7 +309,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Departman *
@@ -339,7 +339,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Telefon Numarası
@@ -378,7 +378,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                   Sosyal Güvenlik (SGK) Durumu *
                 </label>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setSgkStatus('sgk_li')}
@@ -417,7 +417,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Ücret Hesaplama Tipi *
@@ -484,7 +484,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 </div>
 
                 {paymentMethod === 'bank' && (
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
                         Banka Adı
@@ -518,7 +518,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
           {/* TAB 3: ÖZLÜK & İZİN HAKLARI */}
           {activeTab === 'details' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Hak Edilen Yıllık İzin (Gün)
@@ -547,7 +547,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSaved }: Em
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 uppercase mb-1">
                     Kan Grubu

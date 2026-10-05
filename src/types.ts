@@ -36,6 +36,49 @@ export interface Contact {
   updatedAt?: Date;
 }
 
+/**
+ * Merkezi renk kartı (Color Master). Renk bilgisi sistemde TEK DOĞRULUK
+ * KAYNAĞI olarak bu tabloda tutulur; ürün kartları, stok hareketleri,
+ * sipariş/irsaliye/fatura satırları, iş emirleri ve reçeteler renge
+ * `colorId` ile bağlanır. Serbest metin renk girişi yoktur.
+ * Renkler fiziksel silinmez; `isActive = false` ile pasifleştirilir.
+ */
+export interface ColorMaster {
+  id?: number;
+  code: string;                  // Benzersiz renk kodu (örn. R-0001); sunucu otomatik üretebilir
+  name: string;                  // Renk adı (örn. SİYAH) — UNIQUE DEĞİLDİR
+  groupName?: string | null;     // Renk grubu (örn. Siyahlar)
+  hexCode?: string | null;       // #RRGGBB biçiminde; zorunlu değil (bilinmiyorsa boş bırakılır)
+  rgbCode?: string | null;       // "R, G, B" — her zaman hexCode'tan türetilir
+  pantoneCode?: string | null;
+  manufacturerCode?: string | null; // Üretici renk kodu (örn. BLK-001)
+  description?: string | null;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  version?: number;
+}
+
+/** Ürün ↔ renk bağı (productColors). Ürün kartındaki renk listesi buradan okunur. */
+export interface ProductColor {
+  id?: number;
+  productId: number;
+  colorId: number;
+  sortOrder?: number;
+}
+
+/** Ürün satırlarına sunucuda eklenen renk künyesi (salt okunur, join sonucu). */
+export interface ProductColorRef {
+  id: number;
+  code: string;
+  name: string;
+  groupName?: string | null;
+  hexCode?: string | null;
+  pantoneCode?: string | null;
+  manufacturerCode?: string | null;
+  isActive: boolean;
+}
+
 export interface AssortmentTemplate {
   id?: number;
   name: string;
@@ -220,7 +263,16 @@ export interface Product {
   variantBarcodes?: BarcodeVariant[];
   // Footwear & variant specific
   isFootwear?: boolean;             // Compatibility flag (true for finished goods & size-based semi-finished)
+  /**
+   * Ürünün renk adları. Salt OKUNUR: sunucu productColors ⋈ colors join'inden
+   * üretir (merkezi renk kartı tek doğruluk kaynağıdır). Yazmak için `colorIds`
+   * gönderilir; bu alan istemci gövdesinden doğrudan yazılamaz.
+   */
   colors?: string[];
+  /** Ürünün renk künyeleri (kod/HEX/Pantone) — salt okunur, sunucu üretir. */
+  colorRefs?: ProductColorRef[];
+  /** Yazma amaçlı sanal alan: ürüne bağlanacak merkezi renk kartı id'leri. */
+  colorIds?: number[];
   assortmentTemplateId?: number;    // Linked template
   assortment?: {
     size: string;
@@ -257,10 +309,10 @@ export interface RecipeIngredient {
   department?: string;             // 'KESİM' | 'BASKI' | 'SAYA' | 'BAĞCIK' | 'MONTA' | 'TEMİZLEME' | 'DİĞER'
   partName?: string;               // Açıklama / Parça Notu (örn: 'ÇEMBER', 'NAL', 'GAMBA', 'FORT', 'DİL ASTAR', 'TABAN', 'KUTU')
   color?: string;                  // Malzeme / Yarı mamul rengi / Kullanılacak Renk (Örn: Siyah, Beyaz, Saks)
-  quantity: number;                // 1 çift/adet mamul için sarfiyat
+  quantity: number;                // basisQty kadar mamul için sarfiyat
+  basisQty?: number;               // Kaç mamul için (örn. 8'li koli = 8). Boş/1 → 1 çift/adet mamul için
   unit?: string;                   // Çift, dm2, Adet, Kg, Metre, Plak vb.
   isMatrixMatched?: boolean;       // Numara/Beden Matris Eşleşmeli (Taban, Mostra, Fuspet için sipariş asortisi ile 1:1 eşleşir)
-  wasteRate?: number;              // Fire / Zayiat Oranı (%)
   notes?: string;
 }
 
@@ -268,6 +320,7 @@ export interface Recipe {
   id?: number;
   productId: number;               // Mamul Ürün ID
   targetColor?: string;            // Belirli bir renk varyantı reçetesi mi (Örn: "Siyah" veya "Tüm Renkler")
+  targetColorId?: number | null;   // Merkezi renk kartı bağı (colors.id)
   name?: string;
   ingredients: RecipeIngredient[];
   notes?: string;
@@ -329,6 +382,7 @@ export interface WorkOrder {
   
   // Product Variant info & Size Breakdown
   color?: string;
+  colorId?: number | null;         // Merkezi renk kartı bağı (colors.id)
   size?: string;
   assortmentBreakdown?: { size: string; quantity: number }[];
   
@@ -448,6 +502,7 @@ export interface OrderItem {
   orderId: number;
   productId: number;
   color?: string;
+  colorId?: number | null;         // Merkezi renk kartı bağı (colors.id)
   size?: string;
   quantity: number;
   shippedQuantity: number;
@@ -501,6 +556,7 @@ export interface InvoiceItem {
   productCode: string;
   productName: string;
   color?: string;
+  colorId?: number | null;         // Merkezi renk kartı bağı (colors.id)
   size?: string;
   quantity: number;              // Faturalanan Miktar (Çift / Adet)
   unit: string;                  // 'Çift', 'Adet', 'Metre', 'Kg', 'Paket' vb.
@@ -561,6 +617,7 @@ export interface WaybillItem {
   productCode: string;
   productName: string;
   color?: string;
+  colorId?: number | null;         // Merkezi renk kartı bağı (colors.id)
   size?: string;
   quantity: number;              // Sevk Edilen Miktar (Çift / Adet)
   unit: string;                  // 'Çift', 'Adet', 'Metre', 'Kg', 'Paket' vb.
@@ -580,6 +637,7 @@ export interface InventoryLog {
   date: Date;
   description: string;
   color?: string;
+  colorId?: number | null;         // Merkezi renk kartı bağı (colors.id)
   size?: string;
 }
 
@@ -919,6 +977,7 @@ export interface AttendancePeriodLock {
 export type AppModule = 
   | 'dashboard'
   | 'inventory'
+  | 'colors'
   | 'orders'
   | 'waybills'
   | 'invoices'

@@ -18,6 +18,7 @@ import {
 import { BarcodeSvg } from '../BarcodeSvg';
 import { printHtml, openPrintWindow } from '../../lib/printService';
 import { downloadThermal100x150Pdf } from '../../lib/pdfService';
+import { showToast } from '../../lib/feedback';
 
 export interface ThermalShippingLabelProps {
   isOpen: boolean;
@@ -102,7 +103,7 @@ export const ThermalShippingLabelModal: React.FC<ThermalShippingLabelProps> = ({
       await downloadThermal100x150Pdf(labelRef.current, `Koli_Etiketi_${trackingBarcode}.pdf`);
     } catch (err) {
       console.error(err);
-      alert('PDF oluşturulurken bir hata oluştu.');
+      showToast('PDF oluşturulurken bir hata oluştu.', 'error');
     } finally {
       setIsDownloadingPdf(false);
     }

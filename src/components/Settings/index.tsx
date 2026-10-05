@@ -75,8 +75,8 @@ export default function SettingsHub() {
       label: 'Stok Modülü Ayarları',
       shortLabel: 'Stok & Barkod',
       icon: Package,
-      badge: 'Asorti & Barkod',
-      description: 'Asorti şablonları, barkod standardı, sayaç ve numara serileri'
+      badge: 'Asorti, Barkod & Renk',
+      description: 'Asorti şablonları, barkod standardı, sayaç ve numara serileri, merkezi renk kartları'
     },
     {
       id: 'order',

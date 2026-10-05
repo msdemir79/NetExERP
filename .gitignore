@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Yüklenen görseller (#51) — diske yazılır, deploy'da kalıcı olmalı ve
+# yedeklemeye dahil edilmelidir; sürüm kontrolüne girmez.
+/data/uploads/
+
+# Veritabanı yedekleri (#54) — `npm run db:backup` çıktısı; hassas veri
+# içerir, sürüm kontrolüne girmez.
+/backups/

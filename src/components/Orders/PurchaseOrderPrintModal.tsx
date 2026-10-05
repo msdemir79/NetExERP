@@ -18,6 +18,7 @@ import { settingsService } from '../../services/settingsService';
 import { downloadElementAsPdf } from '../../lib/pdfService';
 import { openPrintWindow } from '../../lib/printService';
 import { cn } from '../../lib/utils';
+import { showToast } from '../../lib/feedback';
 import { numberToTurkishWords, isFootwearProduct, calculateAssortmentBreakdown, type SizedRowGroup } from '../../lib/assortmentHelpers';
 import { PoTemplateOfficial } from './PoTemplateOfficial';
 import { PoTemplateMatrix } from './PoTemplateMatrix';
@@ -462,7 +463,7 @@ export function PurchaseOrderPrintModal({
       );
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);
-      alert('PDF oluşturulurken bir hata oluştu. Lütfen yazdırma penceresini kullanarak "PDF Olarak Kaydet" seçeneğini deneyin.');
+      showToast('PDF oluşturulurken bir hata oluştu. Lütfen yazdırma penceresini kullanarak "PDF Olarak Kaydet" seçeneğini deneyin.', 'error');
     } finally {
       setDownloadingPdf(false);
     }

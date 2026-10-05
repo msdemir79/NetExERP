@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Landmark, BookOpen, Save, Check, ShieldCheck, BellRing } from 'lucide-react';
+import { showToast } from '../../lib/feedback';
 import type { AppSettings } from '../../types';
 
 interface FinanceSettingsProps {
@@ -45,7 +46,7 @@ export default function FinanceSettings({ settings, onSave }: FinanceSettingsPro
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Finans ayarları kaydedilemedi:', err);
-      alert('Finans ayarları kaydedilirken hata oluştu.');
+      showToast('Finans ayarları kaydedilirken hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -185,6 +186,17 @@ export default function FinanceSettings({ settings, onSave }: FinanceSettingsPro
               className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
             <span className="text-[10px] text-slate-400">Standart TDHP 391 Grubu</span>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">İndirilecek KDV (Alış)</label>
+            <input
+              type="text"
+              value={vatDedCode}
+              onChange={e => setVatDedCode(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+            <span className="text-[10px] text-slate-400">Standart TDHP 191 Grubu</span>
           </div>
         </div>
 

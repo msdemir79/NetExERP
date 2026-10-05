@@ -122,8 +122,47 @@ async function main() {
   });
   const [rows] = await app.query('SHOW TABLES');
   console.log(`\nKurulum tamam. ${rows.length} tablo oluşturuldu.`);
+
+  // Geçiş taban çizgisi (baseline): db/schema.sql her zaman tüm migration'ları
+  // içerecek şekilde güncel tutulur. Taze kurulumda schema.sql uygulandığı için
+  // mevcut migration dosyaları zaten "uygulanmış" sayılır; bunları
+  // schema_migrations'a işaretliyoruz ki sonraki `npm run db:migrate`
+  // (idempotent olmayan) dosyaları yeniden uygulayıp hata vermesin.
+  await markMigrationsAsApplied(app);
+
   console.log('Şimdi çalıştırabilirsiniz: npm run dev\n');
   await app.end();
+}
+
+/**
+ * db/migrations/*.sql dosyalarını schema_migrations'ta "uygulanmış" işaretler.
+ * Yalnızca taze kurulumda (schema.sql zaten güncel şemayı oluşturduğu için)
+ * çağrılır. Tek tek INSERT IGNORE ile yapılır; tekrar çalıştırmada güvenlidir.
+ */
+async function markMigrationsAsApplied(conn) {
+  const migrationsDir = path.join(root, 'db', 'migrations');
+  if (!fs.existsSync(migrationsDir)) return;
+
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  if (!files.length) return;
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id        VARCHAR(255) NOT NULL,
+      appliedAt DATETIME     NOT NULL,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci
+  `);
+  for (const file of files) {
+    await conn.query(
+      'INSERT IGNORE INTO schema_migrations (id, appliedAt) VALUES (?, NOW())',
+      [file],
+    );
+  }
+  console.log(`Geçiş taban çizgisi işaretlendi: ${files.length} migration (schema.sql güncel kabul edildi).`);
 }
 
 main().catch((err) => {

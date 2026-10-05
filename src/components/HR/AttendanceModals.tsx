@@ -192,7 +192,7 @@ export function BulkAttendanceModal({
                 Atanacak Çalışma Durumu
               </label>
               
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
                   <button
                     key={key}
@@ -464,7 +464,7 @@ export function CellEditorModal({
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5 uppercase">
                   Çalışma Durumu
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
                     <button
                       key={key}

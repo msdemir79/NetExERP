@@ -4,7 +4,7 @@ import {
   commit,
   type Mutation,
 } from '../api/client';
-import { roundUpQuantity } from '../lib/inventoryCalculator';
+import { ingredientPerUnit, roundMaterialQuantity, roundUpQuantity } from '../lib/inventoryCalculator';
 import type {
   WorkOrder,
   Order,
@@ -141,7 +141,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
         ['Taban', 'Mostra', 'Fuspet', 'Salpa', 'Saya', 'Kalıp'].includes(rawProduct.subType || '')
       );
 
-      const totalIngNeeded = ing.quantity * wo.quantity;
+      const totalIngNeeded = ingredientPerUnit(ing) * wo.quantity;
       let ingColor = ing.color?.trim() || '';
       if (!ingColor) {
         const hasMultipleColors = rawProduct.colors && rawProduct.colors.length > 1;
@@ -178,7 +178,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
         existing.isMatrixMatched = true;
         for (const s of woSizes) {
           const sizeKey = s.size.trim();
-          const sizeQtyNeeded = s.quantity * ing.quantity;
+          const sizeQtyNeeded = s.quantity * ingredientPerUnit(ing);
           existing.sizeNeedsMap.set(sizeKey, (existing.sizeNeedsMap.get(sizeKey) || 0) + sizeQtyNeeded);
         }
       }
@@ -343,7 +343,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
         2
       );
 
-      const reqQty = roundUpQuantity(data.requiredQuantity, 2);
+      const reqQty = roundMaterialQuantity(data.requiredQuantity, rawProduct.unit);
       grossShortageQuantity = Math.max(0, roundUpQuantity(reqQty - currentStock, 2));
       shortageQuantity = Math.max(0, roundUpQuantity(reqQty - currentStock - onOrderQuantity, 2));
     }
@@ -393,7 +393,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
       sizeBreakdown: sizeBreakdownList,
       unit: rawProduct.unit || 'Çift',
       currentStock,
-      requiredQuantity: roundUpQuantity(data.requiredQuantity, 2),
+      requiredQuantity: roundMaterialQuantity(data.requiredQuantity, rawProduct.unit),
       onOrderQuantity,
       grossShortageQuantity,
       shortageQuantity,

@@ -20,6 +20,7 @@ import {
   createPurchaseOrdersBySupplierFromMRP,
   createPurchaseOrderFromMRP,
 } from './productionMrp';
+import { ingredientPerUnit, requiredIngredientQuantity } from '../lib/inventoryCalculator';
 
 /**
  * Üretim servisi: iş emirleri, aşama geçişleri, reçeteler (BOM), MRP ve
@@ -167,6 +168,7 @@ export const productionService = {
     moldCode?: string;
     moldGroup?: string;
     color?: string;
+    colorId?: number | null;
     size?: string;
     assortmentBreakdown?: { size: string; quantity: number }[];
     targetDate?: Date;
@@ -215,6 +217,7 @@ export const productionService = {
       moldCode: data.moldCode || prod?.moldCode,
       moldGroup: data.moldGroup || prod?.moldGroup,
       color: data.color,
+      colorId: data.colorId,
       size: data.size,
       assortmentBreakdown: computedAssortment,
       notes: data.notes,
@@ -286,6 +289,7 @@ export const productionService = {
         moldCode: product.moldCode,
         moldGroup: product.moldGroup,
         color: item.color,
+        colorId: item.colorId ?? null,
         size: item.size,
         assortmentBreakdown,
         notes: `Sipariş: ${order.orderNumber} - ${item.color || ''} ${item.size ? 'Beden: ' + item.size : ''}`,
@@ -406,7 +410,7 @@ export const productionService = {
 
       if (recipe && recipe.ingredients.length > 0) {
         for (const ing of recipe.ingredients) {
-          const totalNeeded = ing.quantity * order.quantity;
+          const totalNeeded = requiredIngredientQuantity(ing, order.quantity, ing.unit);
           if (!ing.productId || !(totalNeeded > 0)) continue;
           movements.push({
             productId: ing.productId,
@@ -600,7 +604,7 @@ export const productionService = {
       const raw = await api.products.get(ing.productId);
       if (!raw) continue;
 
-      const totalNeeded = Number((ing.quantity * quantity).toFixed(3));
+      const totalNeeded = requiredIngredientQuantity(ing, quantity, raw.unit || ing.unit);
       const currentStock = raw.stock || 0;
       const isSufficient = currentStock >= totalNeeded;
       if (!isSufficient) allSufficient = false;
@@ -614,7 +618,9 @@ export const productionService = {
         department: ing.department,
         partName: ing.partName,
         unit: raw.unit || ing.unit || 'Adet',
-        quantityPerPair: ing.quantity,
+        quantityPerPair: ingredientPerUnit(ing),
+        basisQty: Number(ing.basisQty) > 0 ? Number(ing.basisQty) : 1,
+        basisQuantity: Number(ing.quantity) || 0,
         totalNeeded,
         currentStock,
         remainingStockAfter: currentStock - totalNeeded,

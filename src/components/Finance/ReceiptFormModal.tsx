@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react';
 import { financeService } from '../../services/financeService';
+import { ContactSelect } from '../Contacts/ContactSelect';
+import { showToast } from '../../lib/feedback';
 import type { Contact, CashBox, BankAccount, Invoice, ReceiptType, PaymentInstrument } from '../../types';
 
 interface ReceiptFormModalProps {
@@ -61,12 +63,12 @@ export default function ReceiptFormModal({
   const handleSaveReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contactId) {
-      alert('Lütfen bir cari hesap seçiniz.');
+      showToast('Lütfen bir cari hesap seçiniz.', 'warning');
       return;
     }
     const amount = Number(receiptAmount);
     if (isNaN(amount) || amount <= 0) {
-      alert('Lütfen geçerli bir tutar giriniz.');
+      showToast('Lütfen geçerli bir tutar giriniz.', 'warning');
       return;
     }
 
@@ -94,9 +96,9 @@ export default function ReceiptFormModal({
 
       onClose();
       resetReceiptForm();
-      alert('Makbuz başarıyla kaydedildi ve Tek Düzen Hesap Planına (TDHP) muhasebeleştirildi.');
+      showToast('Makbuz başarıyla kaydedildi ve Tek Düzen Hesap Planına (TDHP) muhasebeleştirildi.', 'success');
     } catch (err: any) {
-      alert(`Hata: ${err.message}`);
+      showToast(`Hata: ${err.message}`, 'error');
     }
   };
 
@@ -109,6 +111,7 @@ export default function ReceiptFormModal({
     setCheckBranch('');
     setCheckDrawer('');
     setCheckDueDate('');
+    setCheckIssueDate(new Date().toISOString().split('T')[0]);
     setCheckNotes('');
     setReceiptInvoiceId('');
   };
@@ -141,7 +144,7 @@ export default function ReceiptFormModal({
         </div>
 
         <form onSubmit={handleSaveReceipt} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 İşlem Tarihi
@@ -177,19 +180,14 @@ export default function ReceiptFormModal({
             <label className="block text-xs font-semibold text-gray-700 mb-1">
               Cari Hesap (Müşteri / Tedarikçi) *
             </label>
-            <select
-              required
-              value={contactId}
-              onChange={(e) => onContactChange(Number(e.target.value))}
-              className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-            >
-              <option value="">Cari Hesap Seçiniz...</option>
-              {contacts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri & Tedarikçi'}) - Bakiye: ₺{c.balance.toLocaleString('tr-TR')}
-                </option>
-              ))}
-            </select>
+            <ContactSelect
+              contacts={contacts}
+              value={contactId ? Number(contactId) : null}
+              createType={type === 'collection' ? 'customer' : 'supplier'}
+              placeholder="Cari Hesap Seçiniz..."
+              showBalance
+              onChange={(id) => onContactChange(id ?? '')}
+            />
           </div>
 
           {/* Kasa veya Banka Seçimi */}
@@ -235,7 +233,7 @@ export default function ReceiptFormModal({
           {receiptInstrument === 'check' && (
             <div className="bg-gray-50 p-3.5 rounded-lg border border-gray-200 space-y-3">
               <p className="text-xs font-bold text-gray-800">Çek / Senet Detayları</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-600 mb-0.5">Çek Seri No *</label>
                   <input
@@ -259,7 +257,7 @@ export default function ReceiptFormModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-600 mb-0.5">Banka Adı</label>
                   <input
@@ -281,11 +279,44 @@ export default function ReceiptFormModal({
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-0.5">Kesim Tarihi</label>
+                  <input
+                    type="date"
+                    value={checkIssueDate}
+                    onChange={(e) => setCheckIssueDate(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded p-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-0.5">Şube</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: Merter Şubesi"
+                    value={checkBranch}
+                    onChange={(e) => setCheckBranch(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded p-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-600 mb-0.5">Not</label>
+                <input
+                  type="text"
+                  placeholder="Çek / senet ile ilgili notlar..."
+                  value={checkNotes}
+                  onChange={(e) => setCheckNotes(e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded p-2"
+                />
+              </div>
             </div>
           )}
 
           {/* Tutar ve Açıklama */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 İşlem Tutarı (₺) *

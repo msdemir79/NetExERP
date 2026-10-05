@@ -17,6 +17,7 @@ import { LabelTemplateDesignerModal } from './LabelTemplateDesignerModal';
 import DataGrid, { GridColumn, StatusPill } from '../Common/DataGrid';
 import { turkishIncludes } from '../../lib/turkishUtils';
 import { cn } from '../../lib/utils';
+import { confirmDialog } from '../../lib/feedback';
 
 const getEffectiveSize = (t: BarcodeTemplate) => {
   const isLandscape = t.orientation === 'landscape';
@@ -80,13 +81,13 @@ export const BarcodeTemplatesManager: React.FC = () => {
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (confirm(`"${name}" şablonunu silmek istediğinize emin misiniz?`)) {
+    if (await confirmDialog(`"${name}" şablonunu silmek istediğinize emin misiniz?`)) {
       await barcodeTemplateService.delete(id);
     }
   };
 
   const handleResetDefaults = async () => {
-    if (confirm('Tüm barkod şablonları fabrika ayarlarına sıfırlansın mı? Mevcut özel tasarımlarınız silinecektir.')) {
+    if (await confirmDialog('Tüm barkod şablonları fabrika ayarlarına sıfırlansın mı? Mevcut özel tasarımlarınız silinecektir.', { confirmText: 'Sıfırla' })) {
       await barcodeTemplateService.resetDefaults();
     }
   };

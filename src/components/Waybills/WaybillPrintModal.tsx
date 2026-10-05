@@ -9,6 +9,7 @@ import { generateUblTrDespatchXml, downloadXmlFile } from '../../lib/ublTrGenera
 import { UblXmlViewerModal } from '../Common/UblXmlViewerModal';
 import { ThermalShippingLabelModal } from '../Common/ThermalShippingLabelModal';
 import { cn } from '../../lib/utils';
+import { showToast } from '../../lib/feedback';
 import type { Waybill } from '../../types';
 import { GibStandardWaybillTemplate, GibCorporateWaybillTemplate, GibDispatchChecklistTemplate } from './WaybillPrintTemplates';
 
@@ -89,7 +90,7 @@ export function WaybillPrintModal({ isOpen, onClose, waybillId }: WaybillPrintMo
       });
     } catch (err) {
       console.error('PDF indirme hatası:', err);
-      alert('PDF oluşturulamadı.');
+      showToast('PDF oluşturulamadı.', 'error');
     } finally {
       setDownloadingPdf(false);
     }

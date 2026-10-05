@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Modal from '../Modal';
 import { productionService, PRODUCTION_STAGES_CONFIG } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
 import type { WorkOrder, ProductionStage } from '../../types';
 
 interface StageTransitionModalProps {
@@ -47,7 +48,7 @@ export default function StageTransitionModal({
       onClose();
       onDone();
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
   };
 
@@ -78,7 +79,7 @@ export default function StageTransitionModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">İşleyen Operatör</label>
               <input

@@ -29,6 +29,7 @@ export const AUDITED_RESOURCES: Record<string, { label: string; module: string }
   roles: { label: 'Rol', module: 'users' },
   contacts: { label: 'Cari', module: 'contacts' },
   products: { label: 'Ürün', module: 'inventory' },
+  colors: { label: 'Renk', module: 'colors' },
   invoices: { label: 'Fatura', module: 'invoices' },
   cashBoxes: { label: 'Kasa', module: 'finance' },
   bankAccounts: { label: 'Banka Hesabı', module: 'finance' },
@@ -42,30 +43,79 @@ export const AUDITED_RESOURCES: Record<string, { label: string; module: string }
   settings: { label: 'Ayar', module: 'settings' },
 };
 
-/** Bir kaynak yazımı için otomatik denetim kaydı üretir (kimlik sunucudan). */
+/** Denetim izine asla yazılmayan hassas gövde alanları. */
+const HIDDEN_FIELDS = new Set(['password', 'passwordHash', 'passwordSalt']);
+
+/**
+ * Eski → yeni değer karşılaştırması denetim detayına yazılan alanlar.
+ * Renk künyesi ve ürün kartının renk listesi tarihsel belgelerde de göründüğü
+ * için ayrıca izlenir: "bu ürünün rengi neydi, ne oldu" audit'ten okunabilmelidir.
+ */
+const DIFF_FIELDS: Record<string, string[]> = {
+  colors: ['code', 'name', 'groupName', 'hexCode', 'pantoneCode', 'manufacturerCode', 'isActive'],
+  products: ['code', 'name', 'colors'],
+};
+
+/** Bu kaynak için güncellemede eski → yeni karşılaştırması tutuluyor mu? */
+export function auditTracksChanges(resource: string): boolean {
+  return Boolean(DIFF_FIELDS[resource]?.length);
+}
+
+function diffText(value: unknown, booleanLike = false): string {
+  if (booleanLike) return value ? 'aktif' : 'pasif';
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'aktif' : 'pasif';
+  if (Array.isArray(value)) return value.join(', ') || '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+/**
+ * Bir kaynak yazımı için otomatik denetim kaydı üretir (kimlik sunucudan).
+ * `before` verilirse izlenen alanlarda eski → yeni karşılaştırması da detaya
+ * yazılır; böylece renk adı/kodu değişiklikleri sonradan denetlenebilir.
+ */
 export function resourceAuditEntry(
   resource: string,
   action: 'create' | 'update' | 'delete',
   id: string | number | null,
   body?: unknown,
+  before?: Record<string, unknown> | null,
 ): AuditEntry | null {
   const meta = AUDITED_RESOURCES[resource];
   if (!meta) return null;
   const verb = action === 'create' ? 'oluşturuldu' : action === 'update' ? 'güncellendi' : 'silindi';
   const idText = id === undefined || id === null ? '' : ` (id: ${id})`;
-  let details: string | null = null;
-  if (body && typeof body === 'object') {
-    const fields = Object.keys(body as Record<string, unknown>).filter(
-      (k) => k !== 'password' && k !== 'passwordHash' && k !== 'passwordSalt',
-    );
-    if (fields.length) details = `Alanlar: ${fields.join(', ')}`.slice(0, 1000);
+
+  const payload = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const fields = Object.keys(payload).filter((k) => !HIDDEN_FIELDS.has(k));
+  const parts: string[] = [];
+  if (fields.length) parts.push(`Alanlar: ${fields.join(', ')}`);
+
+  const changes: string[] = [];
+  if (before && action === 'update') {
+    for (const field of DIFF_FIELDS[resource] || []) {
+      if (!(field in payload)) continue;
+      const flagLike = field === 'isActive';
+      const oldText = diffText(before[field], flagLike);
+      const newText = diffText(payload[field], flagLike);
+      if (oldText !== newText) changes.push(`${field}: "${oldText}" → "${newText}"`);
+    }
   }
+  if (changes.length) parts.push(`Değişen: ${changes.join(' | ')}`);
+
+  let description = `${meta.label} kaydı ${verb}${idText}`;
+  // Yalnızca durum değiştiyse denetim izi açık fiil kullanır (pasifleştirme/aktifleştirme).
+  if (resource === 'colors' && action === 'update' && changes.length === 1 && changes[0].startsWith('isActive:')) {
+    description = `Renk ${payload.isActive ? 'aktifleştirildi' : 'pasifleştirildi'}${idText}`;
+  }
+
   return {
     action,
     module: meta.module,
     entityId: id ?? null,
-    description: `${meta.label} kaydı ${verb}${idText}`,
-    details,
+    description,
+    details: parts.length ? parts.join(' — ').slice(0, 1000) : null,
   };
 }
 

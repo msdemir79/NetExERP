@@ -4,6 +4,7 @@ import { hrService } from '../../services/hrService';
 import { X, Printer, Download } from 'lucide-react';
 import type { PayrollRecord, Employee, HRModuleSettings } from '../../types';
 import { downloadElementAsPdf } from '../../lib/pdfService';
+import { showToast } from '../../lib/feedback';
 
 interface PayrollSlipModalProps {
   isOpen: boolean;
@@ -250,7 +251,7 @@ export default function PayrollSlipModal({ isOpen, onClose, payroll, employee }:
       });
     } catch (err) {
       console.error('PDF indirme hatası:', err);
-      alert('PDF oluşturulamadı.');
+      showToast('PDF oluşturulamadı.', 'error');
     } finally {
       setDownloadingPdf(false);
     }

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Plus, Trash2, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import type { Account, Contact, JournalEntryLine, JournalEntryType } from '../../types';
 import { accountingService } from '../../services/accountingService';
+import { showToast } from '../../lib/feedback';
+import { ContactSelect } from '../Contacts/ContactSelect';
 
 interface Props {
   isOpen: boolean;
@@ -70,7 +72,7 @@ export default function JournalEntryModal({ isOpen, onClose, accounts, contacts,
 
   const removeLine = (index: number) => {
     if (lines.length <= 2) {
-      alert('Bir yevmiye fişinde en az 2 satır (Borç ve Alacak) bulunmalıdır.');
+      showToast('Bir yevmiye fişinde en az 2 satır (Borç ve Alacak) bulunmalıdır.', 'warning');
       return;
     }
     setLines(lines.filter((_, i) => i !== index));
@@ -85,17 +87,17 @@ export default function JournalEntryModal({ isOpen, onClose, accounts, contacts,
     e.preventDefault();
 
     if (!description.trim()) {
-      alert('Lütfen fiş açıklaması giriniz.');
+      showToast('Lütfen fiş açıklaması giriniz.', 'warning');
       return;
     }
 
     if (!isBalanced) {
-      alert(`Yevmiye fişi dengeli değil! Borç ve Alacak tutarları eşit olmalıdır.\nFark: ₺${Math.abs(difference).toLocaleString('tr-TR')}`);
+      showToast(`Yevmiye fişi dengeli değil! Borç ve Alacak tutarları eşit olmalıdır.\nFark: ₺${Math.abs(difference).toLocaleString('tr-TR')}`, 'warning');
       return;
     }
 
     if (totalDebit <= 0) {
-      alert('Fiş toplam tutarı 0 olamaz.');
+      showToast('Fiş toplam tutarı 0 olamaz.', 'warning');
       return;
     }
 
@@ -116,7 +118,7 @@ export default function JournalEntryModal({ isOpen, onClose, accounts, contacts,
       onSuccess();
       onClose();
     } catch (err: any) {
-      alert(`Fiş kaydetme hatası: ${err.message}`);
+      showToast(`Fiş kaydetme hatası: ${err.message}`, 'error');
     }
   };
 
@@ -235,16 +237,14 @@ export default function JournalEntryModal({ isOpen, onClose, accounts, contacts,
                     </td>
 
                     <td className="p-2">
-                      <select
-                        value={line.contactId || ''}
-                        onChange={(e) => handleLineChange(idx, 'contactId', e.target.value ? Number(e.target.value) : undefined)}
-                        className="w-full text-xs border border-gray-300 rounded p-1.5 bg-white dark:bg-slate-900 truncate"
-                      >
-                        <option value="">Cari Yok</option>
-                        {contacts.map((c) => (
-                          <option key={`je-contact-${c.id}`} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                      <ContactSelect
+                        compact
+                        contacts={contacts}
+                        value={line.contactId ?? null}
+                        placeholder="Cari Yok"
+                        emptyOptionLabel="Cari Yok"
+                        onChange={(id) => handleLineChange(idx, 'contactId', id ?? undefined)}
+                      />
                     </td>
 
                     <td className="p-2">

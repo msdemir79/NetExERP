@@ -76,6 +76,44 @@ export async function api<T = any>(
   return { status: res.status, data, text };
 }
 
+/**
+ * Aynı süreç içinde ek bir oturum mint eder ve belirtecini döner. RBAC
+ * testlerinde farklı rollerle (super_admin olmayan) istek atmak için kullanılır;
+ * sunucu süreci paylaşıldığından oturum anında geçerlidir.
+ */
+export function mintToken(userId: number): string {
+  return createSession({ userId, ip: '127.0.0.1', userAgent: 'proerp-rbac-test' }).token;
+}
+
+/**
+ * Belirtilen belirteçle (veya `null` ise Authorization başlığı olmadan) istek atar.
+ * `api()` ile aynıdır ama token sunucuya değil çağrıya bağlıdır; böylece tek
+ * sunucuda birden çok kimlik test edilebilir.
+ */
+export async function apiWithToken<T = any>(
+  srv: TestServer,
+  token: string | null,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<ApiResponse<T>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${srv.baseUrl}/api${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data: T | null = null;
+  try {
+    data = text ? (JSON.parse(text) as T) : null;
+  } catch {
+    data = null;
+  }
+  return { status: res.status, data, text };
+}
+
 /** Eşzamanlılık sınırlı bir iş havuzu çalıştırır; her öğe için ms cinsinden gecikme toplar. */
 export async function runPool<T>(
   items: T[],

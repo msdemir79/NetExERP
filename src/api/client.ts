@@ -5,6 +5,8 @@ import type {
   RecipeConsumptionResult,
   ContactBalanceResult,
   Contact,
+  ColorMaster,
+  ProductColor,
   AssortmentTemplate,
   BarcodeTemplate,
   Product,
@@ -35,6 +37,7 @@ import type {
   AppUser,
   AuditLog,
 } from '../types';
+import type { MizanRow, MizanLevelFilter } from '../lib/accountCodes';
 
 /* ------------------------------------------------------------------ */
 /* Tipler                                                              */
@@ -191,6 +194,11 @@ export interface ResourceClient<T> {
   findOne(where: ListOptions['where']): Promise<T | undefined>;
   get(id: Id): Promise<T | undefined>;
   count(where?: ListOptions['where']): Promise<number>;
+  /**
+   * `list` ile aynı filtreleri (where + search) uygulayan toplam kayıt sayısı.
+   * Sunucu tarafı sayfalama kullanan ekranlarda sayfa sayısı buradan hesaplanır.
+   */
+  countList(opts?: ListOptions): Promise<number>;
   create(data: Partial<T>): Promise<number>;
   createMany(rows: Partial<T>[]): Promise<number[]>;
   /** id varsa günceller, yoksa ekler (Dexie put karşılığı). */
@@ -233,7 +241,12 @@ function resource<T>(name: string): ResourceClient<T> {
     },
 
     async count(where) {
-      const res = await http<{ count: number }>(`/${name}${buildQuery({ where })}${buildQuery({ where }) ? '&' : '?'}count=1`);
+      return this.countList({ where });
+    },
+
+    async countList(opts) {
+      const qs = buildQuery(opts);
+      const res = await http<{ count: number }>(`/${name}${qs}${qs ? '&' : '?'}count=1`);
       return res.count || 0;
     },
 
@@ -320,6 +333,8 @@ export const api = {
   assortmentTemplates: resource<AssortmentTemplate>('assortmentTemplates'),
   barcodeTemplates: resource<BarcodeTemplate>('barcodeTemplates'),
   products: resource<Product>('products'),
+  colors: resource<ColorMaster>('colors'),
+  productColors: resource<ProductColor>('productColors'),
   recipes: resource<Recipe>('recipes'),
   workOrders: resource<WorkOrder>('workOrders'),
   inventoryLogs: resource<InventoryLog>('inventoryLogs'),
@@ -357,6 +372,25 @@ export type Api = typeof api;
 export async function callOp<T = any>(op: string, payload: any = {}): Promise<T> {
   const res = await http<{ data: T }>(`/ops/${op}`, { method: 'POST', body: JSON.stringify(payload) });
   return res.data;
+}
+
+export interface GenerateBarcodesResult {
+  /** Barkod üretilen ürün id'leri. */
+  generated: number[];
+  /** Seçili olduğu halde zaten barkodu olan / bulunamayan kart sayısı. */
+  skipped: number;
+  /** Üretilen toplam barkod adedi (koli + varyant). */
+  totalBarcodes: number;
+  barcodeType: string;
+  barcodePrefix: string;
+}
+
+/**
+ * Seçili kartlara (veya `onlyMissing` ile barkodu olmayanların tümüne) sunucuda,
+ * kilitli sayaçtan toplu barkod üretir. Yalnızca barkodu olmayan ürünlere yazar.
+ */
+export async function generateBarcodesBulk(payload: { productIds?: number[]; onlyMissing?: boolean }): Promise<GenerateBarcodesResult> {
+  return callOp<GenerateBarcodesResult>('generate-barcodes', payload);
 }
 
 /* ------------------------------------------------------------------ */
@@ -397,6 +431,47 @@ export interface DashboardSummary {
 /** Pano özetini tek istekte, sunucuda agregatlanmış olarak çeker. */
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const res = await http<{ data: DashboardSummary }>(`/ops/dashboard-summary`, { method: 'GET' });
+  return res.data;
+}
+
+/**
+ * Mizan (trial balance) — sunucuda hesaplanır.
+ * journalEntries satırları SQL GROUP BY ile kesin hesap kodu bazında toplanır,
+ * üst kodlara yuvarlanır; istemciye yalnızca hazır MizanRow[] döner.
+ */
+export async function getMizanSummary(options?: {
+  startDate?: Date;
+  endDate?: Date;
+  onlyWithBalance?: boolean;
+  levelFilter?: MizanLevelFilter;
+}): Promise<MizanRow[]> {
+  const params = new URLSearchParams();
+  if (options?.startDate) params.set('startDate', new Date(options.startDate).toISOString());
+  if (options?.endDate) params.set('endDate', new Date(options.endDate).toISOString());
+  if (options?.onlyWithBalance) params.set('onlyWithBalance', '1');
+  if (options?.levelFilter && options.levelFilter !== 'all') params.set('levelFilter', options.levelFilter);
+  const qs = params.toString();
+  const res = await http<{ data: MizanRow[] }>(`/ops/mizan${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  return res.data;
+}
+
+/** Raporlar ana sayfa (Genel Yönetim Özeti) KPI'ları — sunucuda agregatlanır. */
+export interface ReportsSummary {
+  inventory: { totalStockCount: number; criticalStockCount: number };
+  production: { activeWorkOrdersCount: number; activePairsInProduction: number };
+  finance: { totalLiquidity: number };
+  hr: { totalEmployeesCount: number; currentMonthEmployerCost: number };
+  accounting: { kdv191: number; kdv391: number; netKdvDiff: number };
+  orders: { salesOrdersCount: number };
+}
+
+/**
+ * Raporlar özet KPI'larını tek istekte çeker. Eskiden 9 tam tablo indirilip
+ * istemcide reduce ile hesaplanıyordu; artık her bölüm SQL ile sunucuda toplanır
+ * ve kullanıcının görüntüleme yetkisine göre koşullu çalışır (yetkisiz → 0).
+ */
+export async function getReportsSummary(): Promise<ReportsSummary> {
+  const res = await http<{ data: ReportsSummary }>(`/ops/reports-summary`, { method: 'GET' });
   return res.data;
 }
 
@@ -474,6 +549,20 @@ export async function recalculateContactBalance(contactId: number): Promise<Cont
 export async function reseedDatabase(): Promise<{ created: boolean }> {
   const res = await http<{ data: { created: boolean } }>('/ops/reseed', { method: 'POST' });
   return res.data || { created: false };
+}
+
+/**
+ * base64 data URL görseli sunucuya yükler ve kalıcı `/uploads/<hash>.<ext>`
+ * URL'ini döner (#51). Ürün/renk görselleri ve firma logosu artık DB'de base64
+ * olarak tutulmaz; bu URL ilgili alana yazılır ve `<img src>` ile aynı şekilde
+ * görüntülenir.
+ */
+export async function uploadImage(dataUrl: string): Promise<string> {
+  const res = await http<{ data: { url: string } }>('/files', {
+    method: 'POST',
+    body: JSON.stringify({ dataUrl }),
+  });
+  return res.data.url;
 }
 
 export async function health(): Promise<{ status: string; database: { connected: boolean; version?: string; error?: string } }> {

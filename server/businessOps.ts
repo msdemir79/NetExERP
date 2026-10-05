@@ -13,20 +13,26 @@ import { clientIp, can, type AuthContext } from './auth.js';
 import { versionSupported } from './schema.js';
 import { broadcast } from './sse.js';
 import { writeAuditInTx } from './audit.js';
-import { allocateDocumentNumber, journalPrefixFor } from './numbering.js';
-import { calculateWeightedAverageCost, roundUpQuantity } from '../src/lib/inventoryCalculator.js';
+import { allocateDocumentNumber, journalPrefixFor, allocateBarcodeSequences, formatBarcodeValue } from './numbering.js';
+import { HttpError as OpError } from './errors.js';
+import { resolveColorIdByName } from './colorService.js';
+import { calculateWeightedAverageCost, ingredientPerUnit, requiredIngredientQuantity, roundUpQuantity } from '../src/lib/inventoryCalculator.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
+import { buildMizanRows, type MizanLevelFilter } from '../src/lib/accountCodes.js';
 import type { AppModule, PermissionAction } from '../src/types.js';
 
-class OpError extends Error {
-  status: number;
-  code?: string;
-  constructor(status: number, message: string, code?: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
+/**
+ * Ürün renkleri merkezi renk kartına taşındı (productColors ⋈ colors).
+ * Eski `products.colors` JSON kolonu yerine bu alt sorgu okunur; böylece
+ * stok hareketi/varyant senkronu aynı `string[]` biçimini görmeye devam eder.
+ *
+ * GROUP_CONCAT + ORDER BY kullanılıyor çünkü MySQL'de JSON_ARRAYAGG sıralama
+ * desteklemez (LATERAL alt sorguda da sıra korunmuyor); renk sırası varyant
+ * matrisini ve varsayılan rengi belirlediği için deterministik olmalı.
+ * Sonuç JSON metni olarak döner ve parseList ile çözülür.
+ */
+const PRODUCT_COLORS_SQL =
+  '(SELECT CONCAT(\'[\', GROUP_CONCAT(JSON_QUOTE(`c`.`name`) ORDER BY `pc`.`sortOrder` ASC), \']\') FROM `productColors` `pc` JOIN `colors` `c` ON `c`.`id` = `pc`.`colorId` WHERE `pc`.`productId` = `products`.`id`)';
 
 const STOCK_MOVEMENT_TYPES = ['in', 'out', 'production_in', 'production_out'] as const;
 type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
@@ -53,7 +59,7 @@ function assertSuperAdmin(auth: AuthContext | undefined, message: string): void 
 
 async function lockProduct(conn: PoolConnection, productId: number) {
   const rows = await conn.query<any[]>(
-    'SELECT `id`, `code`, `name`, `unit`, `stock`, `buyingPrice`, `variantBarcodes`, `colors`, `categoryType`, `isFootwear`, `isRawMaterial` FROM `products` WHERE `id` = ? FOR UPDATE',
+    `SELECT \`id\`, \`code\`, \`name\`, \`unit\`, \`stock\`, \`buyingPrice\`, \`variantBarcodes\`, ${PRODUCT_COLORS_SQL} AS \`colors\`, \`categoryType\`, \`isFootwear\`, \`isRawMaterial\` FROM \`products\` WHERE \`id\` = ? FOR UPDATE`,
     [productId],
   );
   const row = (rows[0] as any[])[0];
@@ -73,6 +79,21 @@ function parseVariants(raw: unknown): any[] {
     }
   }
   return [];
+}
+
+/**
+ * Ürün renk listesi düz metin dizisidir (`productColors` alt sorgusu JSON metni
+ * döner). parseVariants string öğeleri karakter nesnesine çevirdiği için renkler
+ * ayrı çözülür; sıra `sortOrder`'ı korur ve varsayılan rengi belirler.
+ */
+function parseColorNames(raw: unknown): string[] {
+  if (!raw) return [];
+  let list: unknown = raw;
+  if (typeof raw === 'string') {
+    try { list = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.map((v) => (typeof v === 'string' ? v.trim() : String(v ?? '').trim())).filter(Boolean);
 }
 
 async function writeProductStock(
@@ -106,13 +127,17 @@ async function insertInventoryLog(
     quantity: number;
     description: string;
     color?: string | null;
+    colorId?: number | null;
     size?: string | null;
     date?: Date | null;
   },
 ): Promise<number> {
+  // `color` metni tarihsel kayıt olarak korunur; merkezi kart bağı (colorId) da
+  // aynı satıra yazılır ki stok ekstresi/raporlar renk kartına bağlanabilsin.
+  const colorId = input.colorId ?? (input.color ? await resolveColorIdByName(conn, input.color) : null);
   const [result] = await conn.query(
-    'INSERT INTO `inventoryLogs` (`productId`, `type`, `quantity`, `date`, `description`, `color`, `size`) VALUES (?, ?, ?, COALESCE(?, NOW()), ?, ?, ?)',
-    [input.productId, input.type, input.quantity, input.date ?? null, input.description, input.color ?? null, input.size ?? null],
+    'INSERT INTO `inventoryLogs` (`productId`, `type`, `quantity`, `date`, `description`, `color`, `colorId`, `size`) VALUES (?, ?, ?, COALESCE(?, NOW()), ?, ?, ?, ?)',
+    [input.productId, input.type, input.quantity, input.date ?? null, input.description, input.color ?? null, colorId, input.size ?? null],
   );
   return Number((result as any)?.insertId || 0);
 }
@@ -741,7 +766,7 @@ export function createBusinessOpsRouter(): Router {
           if (!Number.isFinite(ingProductId)) continue;
 
           const raw = await lockProduct(conn, ingProductId);
-          const totalNeeded = Number((Number(ing.quantity) * quantity).toFixed(3));
+          const totalNeeded = requiredIngredientQuantity(ing, quantity, raw.unit || ing.unit);
           if (!Number.isFinite(totalNeeded) || totalNeeded <= 0) continue;
 
           const variants = parseVariants(raw.variantBarcodes);
@@ -754,13 +779,17 @@ export function createBusinessOpsRouter(): Router {
           let newStock: number;
           let nextVariants: any[] | null = null;
           let logDetail = '';
+          let logColor: string | null = null;
+          let logSize: string | null = null;
           const unit = raw.unit || 'Birim';
 
           if (isMatrixItem && variants.length > 0) {
-            const rawColors = parseVariants(raw.colors);
+            const rawColors = parseColorNames(raw.colors);
             const targetColor =
               ing.color || color || (rawColors.length ? rawColors[0] : undefined) || variants[0]?.color || 'Genel';
             const normalizedSize = size && !['Asorti', 'Tüm Bedenler', 'Standart'].includes(size) ? size : null;
+            logColor = targetColor || null;
+            logSize = normalizedSize || size || null;
 
             if (normalizedSize) {
               let index = variants.findIndex((v) => v.size === normalizedSize && v.color === targetColor);
@@ -788,6 +817,8 @@ export function createBusinessOpsRouter(): Router {
           } else {
             newStock = Math.max(0, roundUpQuantity((Number(raw.stock) || 0) - totalNeeded, 2));
             logDetail = ` [${ing.partName || raw.categoryType || ''}: -${totalNeeded} ${unit}]`;
+            logColor = color || null;
+            logSize = size || null;
           }
 
           await writeProductStock(conn, ingProductId, newStock, nextVariants, null, withVersion);
@@ -796,6 +827,8 @@ export function createBusinessOpsRouter(): Router {
             type: 'production_out',
             quantity: totalNeeded,
             description: `Otomatik BOM Sarfiyatı: ${finished.name} (${quantity} ${finished.unit || 'Çift'})${orderBarcode ? ' #' + orderBarcode : ''}${logDetail}${operator ? ' | Operatör: ' + operator : ''}`,
+            color: logColor,
+            size: logSize,
           });
 
           consumedList.push({
@@ -803,7 +836,7 @@ export function createBusinessOpsRouter(): Router {
             name: raw.name,
             code: raw.code,
             unit,
-            quantityPerPair: Number(ing.quantity) || 0,
+            quantityPerPair: ingredientPerUnit(ing),
             totalConsumed: totalNeeded,
             remainingStock: newStock,
             details: logDetail,
@@ -845,6 +878,8 @@ export function createBusinessOpsRouter(): Router {
           type: 'production_in',
           quantity,
           description: `Üretim Tamamlandı & Mamul Stoğa Giriş: ${finished.name} (+${quantity} ${finished.unit || 'Çift'})${orderBarcode ? ' | Takip No: ' + orderBarcode : ''}${operator ? ' | Usta: ' + operator : ''}`,
+          color: color || null,
+          size: size || null,
         });
 
         return {
@@ -1559,7 +1594,7 @@ export function createBusinessOpsRouter(): Router {
     const deltaSign = signedQuantity < 0 ? -1 : 1;
 
     const rows = await conn.query<any[]>(
-      `SELECT \`id\`, \`name\`, \`unit\`, \`stock\`, \`variantBarcodes\`, \`colors\`, \`assortment\`, \`assortmentTemplateId\`, \`isFootwear\`, \`hasSizeVariants\`
+      `SELECT \`id\`, \`name\`, \`unit\`, \`stock\`, \`variantBarcodes\`, ${PRODUCT_COLORS_SQL} AS \`colors\`, \`assortment\`, \`assortmentTemplateId\`, \`isFootwear\`, \`hasSizeVariants\`
        FROM \`products\` WHERE \`id\` = ? FOR UPDATE`,
       [productId],
     );
@@ -1590,6 +1625,8 @@ export function createBusinessOpsRouter(): Router {
           quantity,
           date: input.date ?? null,
           description: `${baseDescription} (${deltaSign > 0 ? '+' : '-'}${quantity} ${product.unit || 'Adet'})`,
+          color: input.color ?? null,
+          size: input.size ?? null,
         });
       }
       return;
@@ -1607,7 +1644,7 @@ export function createBusinessOpsRouter(): Router {
       if (tmpl) assortment = parseList(tmpl.items);
     }
 
-    const colorsList: string[] = parseList(product.colors).map((x: any) => (typeof x === 'string' ? x : String(x)));
+    const colorsList: string[] = parseColorNames(product.colors);
 
     if (variants.length === 0) {
       const colors = colorsList.length > 0 ? colorsList : ['Genel'];
@@ -1693,6 +1730,10 @@ export function createBusinessOpsRouter(): Router {
         quantity,
         date: input.date ?? null,
         description: `${baseDescription}${logDetailText ? ` (${logDetailText})` : ''}`,
+        // Renk/beden kolonları stok kartı ekstresinin gruplama anahtarıdır;
+        // description metnine gömmek ekstrede renk kırılımını kaybettiriyordu.
+        color: effectiveColor || null,
+        size: sizeTrim || null,
       });
     }
   }
@@ -1855,7 +1896,7 @@ export function createBusinessOpsRouter(): Router {
 
       const result = await withTransaction(async (conn) => {
         const pRows = await conn.query<any[]>(
-          'SELECT `id`, `stock`, `variantBarcodes`, `colors`, `assortment`, `assortmentTemplateId`, `isFootwear` FROM `products` FOR UPDATE',
+          `SELECT \`id\`, \`stock\`, \`variantBarcodes\`, ${PRODUCT_COLORS_SQL} AS \`colors\`, \`assortment\`, \`assortmentTemplateId\`, \`isFootwear\` FROM \`products\` FOR UPDATE`,
         );
         const products = pRows[0] as any[];
         const parseList = (raw: unknown): any[] => {
@@ -1864,10 +1905,7 @@ export function createBusinessOpsRouter(): Router {
           if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p.map((v: any) => ({ ...v })) : []; } catch { return []; } }
           return [];
         };
-        const colorsOf = (product: any): string[] => {
-          const c = parseList(product.colors);
-          return c.length ? c.map((x: any) => (typeof x === 'string' ? x : String(x))) : [];
-        };
+        const colorsOf = (product: any): string[] => parseColorNames(product.colors);
 
         const changed: number[] = [];
         for (const product of products) {
@@ -2529,6 +2567,7 @@ export function createBusinessOpsRouter(): Router {
         productCode: raw.productCode ?? null,
         productName: raw.productName ?? null,
         color: raw.color ?? null,
+        colorId: raw.colorId != null && Number.isFinite(Number(raw.colorId)) ? Number(raw.colorId) : null,
         size: raw.size ?? null,
         quantity,
         unit: raw.unit ?? null,
@@ -2631,10 +2670,11 @@ export function createBusinessOpsRouter(): Router {
         for (const it of items) {
           await conn.query(
             `INSERT INTO \`invoiceItems\`
-              (\`invoiceId\`, \`productId\`, \`orderItemId\`, \`productCode\`, \`productName\`, \`color\`, \`size\`,
+              (\`invoiceId\`, \`productId\`, \`orderItemId\`, \`productCode\`, \`productName\`, \`color\`, \`colorId\`, \`size\`,
                \`quantity\`, \`unit\`, \`unitPrice\`, \`discountRate\`, \`discountAmount\`, \`taxRate\`, \`taxAmount\`, \`total\`)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [invoiceId, it.productId, it.orderItemId, it.productCode, it.productName, it.color, it.size,
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [invoiceId, it.productId, it.orderItemId, it.productCode, it.productName, it.color,
+             it.colorId ?? (it.color ? await resolveColorIdByName(conn, it.color) : null), it.size,
              it.quantity, it.unit, it.unitPrice, it.discountRate, it.discountAmount, it.taxRate, it.taxAmount, it.total],
           );
         }
@@ -3209,6 +3249,287 @@ export function createBusinessOpsRouter(): Router {
           cashFlowByDay: fin.cashFlowByDay,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Mizan (trial balance) — sunucu tarafı agregasyon                  */
+  /*                                                                  */
+  /* Eskiden istemci tüm accounts + journalEntries'yi (tüm satırlarla)  */
+  /* indirip her filtre değişiminde döngülerle topluyordu. Burada satır  */
+  /* toplamları SQL GROUP BY + JSON_TABLE ile kesin hesap kodu bazında   */
+  /* hesaplanır; üst kodlara yuvarlama ve satır üretimi paylaşılan       */
+  /* buildMizanRows ile yapılır. İstemciye yalnızca hazır MizanRow[] döner.*/
+  /* ---------------------------------------------------------------- */
+  router.get('/mizan', async (req, res, next) => {
+    try {
+      const role = req.auth?.role || null;
+      if (!can(role, 'accounting', 'view')) {
+        res.json({ data: [] });
+        return;
+      }
+
+      const onlyWithBalance = req.query.onlyWithBalance === '1' || req.query.onlyWithBalance === 'true';
+      const levelFilterRaw = String(req.query.levelFilter || 'all');
+      const levelFilter = (
+        ['all', 'class', 'group', 'main', 'sub'].includes(levelFilterRaw) ? levelFilterRaw : 'all'
+      ) as MizanLevelFilter;
+
+      const conds: string[] = [];
+      const params: any[] = [];
+      if (req.query.startDate) {
+        conds.push('je.`date` >= ?');
+        params.push(new Date(String(req.query.startDate)));
+      }
+      if (req.query.endDate) {
+        conds.push('je.`date` <= ?');
+        params.push(new Date(String(req.query.endDate)));
+      }
+      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+      const [acctRows, totalRows] = await Promise.all([
+        query<any>('SELECT `code`, `name`, `type`, `level` FROM `accounts` ORDER BY `id` ASC'),
+        query<any>(
+          `SELECT jt.\`accountCode\` AS \`code\`, COALESCE(SUM(jt.\`debit\`),0) AS \`debit\`, COALESCE(SUM(jt.\`credit\`),0) AS \`credit\`
+             FROM \`journalEntries\` je,
+                  JSON_TABLE(je.\`lines\`, '$[*]' COLUMNS (
+                    accountCode VARCHAR(50) PATH '$.accountCode',
+                    debit DECIMAL(15,2) PATH '$.debit',
+                    credit DECIMAL(15,2) PATH '$.credit'
+                  )) AS jt
+             ${where}
+            GROUP BY jt.\`accountCode\``,
+          params,
+        ),
+      ]);
+
+      const perCodeTotals = new Map<string, { debit: number; credit: number }>();
+      for (const r of totalRows || []) {
+        perCodeTotals.set(String(r.code), { debit: Number(r.debit) || 0, credit: Number(r.credit) || 0 });
+      }
+      const accounts = (acctRows || []).map((a: any) => ({
+        code: String(a.code ?? ''),
+        name: String(a.name ?? ''),
+        type: String(a.type ?? ''),
+        level: Number(a.level) || 0,
+      }));
+
+      const rows = buildMizanRows(accounts, perCodeTotals, { onlyWithBalance, levelFilter });
+      res.json({ data: rows });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Raporlar ana sayfa (Genel Yönetim Özeti) KPI'ları                 */
+  /*                                                                  */
+  /* Reports/index eskiden 9 tam tabloyu indirip reduce ile özet        */
+  /* çıkarıyordu. Burada her KPI SQL ile sunucuda hesaplanır ve bölüm    */
+  /* kullanıcının görüntüleme yetkisine göre koşullu çalışır (yetkisiz → 0).*/
+  /* ---------------------------------------------------------------- */
+  router.get('/reports-summary', async (req, res, next) => {
+    try {
+      const role = req.auth?.role || null;
+      const canView = (m: AppModule) => can(role, m, 'view');
+
+      const now = new Date();
+      const curYear = now.getFullYear();
+      const curMonth = now.getMonth() + 1;
+
+      const inventorySection = async () => {
+        if (!canView('inventory')) return { totalStockCount: 0, criticalStockCount: 0 };
+        const r = await queryOne<any>(
+          'SELECT COALESCE(SUM(`stock`),0) AS totalStock, COALESCE(SUM(CASE WHEN `stock` <= `minStock` THEN 1 END),0) AS critical FROM `products`',
+        );
+        return { totalStockCount: Number(r?.totalStock) || 0, criticalStockCount: Number(r?.critical) || 0 };
+      };
+
+      const productionSection = async () => {
+        if (!canView('production')) return { activeWorkOrdersCount: 0, activePairsInProduction: 0 };
+        // İstemcideki `w.currentStage !== 'completed'` karşılığı: NULL de "aktif" sayılır.
+        const r = await queryOne<any>(
+          "SELECT COALESCE(SUM(CASE WHEN `currentStage` IS NULL OR `currentStage` <> 'completed' THEN 1 END),0) AS cnt, COALESCE(SUM(CASE WHEN `currentStage` IS NULL OR `currentStage` <> 'completed' THEN `quantity` END),0) AS qty FROM `workOrders`",
+        );
+        return { activeWorkOrdersCount: Number(r?.cnt) || 0, activePairsInProduction: Number(r?.qty) || 0 };
+      };
+
+      const financeSection = async () => {
+        if (!canView('finance')) return { totalLiquidity: 0 };
+        const r = await queryOne<any>(
+          'SELECT (SELECT COALESCE(SUM(`balance`),0) FROM `cashBoxes`) + (SELECT COALESCE(SUM(`balance`),0) FROM `bankAccounts`) AS liq',
+        );
+        return { totalLiquidity: Number(r?.liq) || 0 };
+      };
+
+      const hrSection = async () => {
+        if (!canView('hr')) return { totalEmployeesCount: 0, currentMonthEmployerCost: 0 };
+        const r = await queryOne<any>(
+          "SELECT (SELECT COUNT(*) FROM `employees` WHERE `status` = 'active') AS emp, (SELECT COALESCE(SUM(`totalEmployerCost`),0) FROM `payrollRecords` WHERE `year` = ? AND `month` = ?) AS cost",
+          [curYear, curMonth],
+        );
+        return { totalEmployeesCount: Number(r?.emp) || 0, currentMonthEmployerCost: Number(r?.cost) || 0 };
+      };
+
+      const accountingSection = async () => {
+        if (!canView('accounting')) return { kdv191: 0, kdv391: 0, netKdvDiff: 0 };
+        const r = await queryOne<any>(
+          "SELECT COALESCE(SUM(CASE WHEN jt.accountCode LIKE '191%' THEN COALESCE(jt.debit,0) - COALESCE(jt.credit,0) END),0) AS kdv191, COALESCE(SUM(CASE WHEN jt.accountCode LIKE '391%' THEN COALESCE(jt.credit,0) - COALESCE(jt.debit,0) END),0) AS kdv391 FROM `journalEntries` je, JSON_TABLE(je.`lines`, '$[*]' COLUMNS (accountCode VARCHAR(50) PATH '$.accountCode', debit DECIMAL(15,2) PATH '$.debit', credit DECIMAL(15,2) PATH '$.credit')) AS jt",
+        );
+        const kdv191 = Number(r?.kdv191) || 0;
+        const kdv391 = Number(r?.kdv391) || 0;
+        return { kdv191, kdv391, netKdvDiff: kdv391 - kdv191 };
+      };
+
+      const ordersSection = async () => {
+        if (!canView('orders')) return { salesOrdersCount: 0 };
+        const r = await queryOne<any>("SELECT COUNT(*) AS n FROM `orders` WHERE `type` = 'sales'");
+        return { salesOrdersCount: Number(r?.n) || 0 };
+      };
+
+      const [inventory, production, finance, hr, accounting, orders] = await Promise.all([
+        inventorySection(), productionSection(), financeSection(), hrSection(), accountingSection(), ordersSection(),
+      ]);
+
+      res.json({ data: { inventory, production, finance, hr, accounting, orders } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Toplu barkod üretimi (seçili kartlar veya barkodu olmayanlar)     */
+  /*                                                                  */
+  /* Sıra numaraları `documentNumbers` (scope='barcodes') üzerinde tek  */
+  /* atomik adımda rezerve edilir; böylece eşzamanlı istekler çakışmaz. */
+  /* Yalnızca barkodu OLMAYAN ürünlere yazılır: mevcut koli/varyant     */
+  /* barkodları (ve içindeki stok) asla ezilmez.                        */
+  /* ---------------------------------------------------------------- */
+  router.post('/generate-barcodes', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      assertAnyPermission(
+        req.auth,
+        [['inventory', 'edit']],
+        'Toplu barkod üretimi için "Stok" modülünde düzenleme yetkisi gerekir.',
+      );
+
+      const onlyMissing = body.onlyMissing === true;
+      const rawIds = Array.isArray(body.productIds)
+        ? body.productIds.map((v: any) => Number(v)).filter((v: number) => Number.isFinite(v) && v > 0)
+        : [];
+      if (!onlyMissing && rawIds.length === 0) {
+        throw new OpError(400, 'Barkod üretilecek ürünler seçilmelidir veya "yalnızca barkodu olmayanlar" belirtilmelidir.');
+      }
+
+      const withVersion = await versionSupported('products');
+
+      const result = await withTransaction(async (conn) => {
+        // 1) Barkod ayarları: tip, önek ve mevcut sayaç (istemci üreteciyle süreklilik için seed).
+        const sRows = await conn.query<any[]>(
+          `SELECT \`barcodeType\`, \`barcodePrefix\`, \`nextBarcodeSequence\` FROM \`settings\`
+            WHERE \`id\` IN ('global_settings', 'global_barcode')
+            ORDER BY (\`id\` = 'global_settings') DESC LIMIT 1`,
+        );
+        const sRow = (sRows[0] as any[])[0] || {};
+        const barcodeType = String(sRow.barcodeType || 'CODE-128');
+        const barcodePrefix = sRow.barcodePrefix != null ? String(sRow.barcodePrefix) : '869';
+        const seedSeq = Number(sRow.nextBarcodeSequence) || 1000000;
+
+        // 2) Hedef ürünleri satır kilidiyle seç. Her iki durumda da YALNIZCA barkodu
+        //    olmayanlar alınır; seçili kartlardan zaten barkodu olanlar atlanır.
+        const missing =
+          '(`barcode` IS NULL OR `barcode` = \'\') AND (`colorBoxBarcodes` IS NULL OR JSON_LENGTH(`colorBoxBarcodes`) = 0) AND (`variantBarcodes` IS NULL OR JSON_LENGTH(`variantBarcodes`) = 0)';
+        const params: any[] = [];
+        let where: string;
+        if (rawIds.length) {
+          where = `WHERE \`id\` IN (${rawIds.map(() => '?').join(', ')}) AND ${missing}`;
+          params.push(...rawIds);
+        } else {
+          where = `WHERE ${missing}`;
+        }
+        const pRows = await conn.query<any[]>(
+          `SELECT \`id\`, \`code\`, \`name\`, \`isFootwear\`, \`hasSizeVariants\`, \`assortment\`, \`assortmentTemplateId\`, ${PRODUCT_COLORS_SQL} AS \`colors\`
+             FROM \`products\` ${where} FOR UPDATE`,
+          params,
+        );
+        const products = (pRows[0] as any[]) || [];
+        const skipped = rawIds.length ? Math.max(0, rawIds.length - products.length) : 0;
+        if (!products.length) {
+          return { generated: [] as number[], skipped, totalBarcodes: 0, barcodeType, barcodePrefix };
+        }
+
+        // 3) Her ürün için gereken barkod sayısı ve yapısını planla
+        //    (istemcideki generateAutomatedBarcodes ile aynı mantık).
+        const plans: { id: number; colors: string[]; assortment: any[]; variantMode: boolean; need: number }[] = [];
+        let total = 0;
+        for (const product of products) {
+          const colors = parseColorNames(product.colors);
+          const effectiveColors = colors.length ? colors : ['Genel'];
+          const wantsVariants = Boolean(product.isFootwear || product.hasSizeVariants);
+          let assortment = parseVariants(product.assortment);
+          if (wantsVariants && assortment.length === 0 && product.assortmentTemplateId) {
+            const tRows = await conn.query<any[]>('SELECT `items` FROM `assortmentTemplates` WHERE `id` = ?', [product.assortmentTemplateId]);
+            const tmpl = (tRows[0] as any[])[0];
+            if (tmpl) assortment = parseVariants(tmpl.items);
+          }
+          const variantMode = wantsVariants && assortment.length > 0;
+          const perColor = variantMode ? 1 + assortment.length : 1;
+          const need = effectiveColors.length * perColor;
+          plans.push({ id: Number(product.id), colors: effectiveColors, assortment: variantMode ? assortment : [], variantMode, need });
+          total += need;
+        }
+
+        // 4) Tüm parti için sıraları tek atomik adımda rezerve et.
+        const seqs = await allocateBarcodeSequences(conn, total, seedSeq);
+        let cursor = 0;
+        const nextBarcode = () => formatBarcodeValue(seqs[cursor++], barcodeType, barcodePrefix);
+
+        const generated: number[] = [];
+        for (const plan of plans) {
+          const colorBoxBarcodes: { color: string; barcode: string }[] = [];
+          const variantBarcodes: { size: string; color: string; barcode: string; stock: number }[] = [];
+          for (const color of plan.colors) {
+            colorBoxBarcodes.push({ color, barcode: nextBarcode() });
+            if (plan.variantMode) {
+              for (const it of plan.assortment) {
+                variantBarcodes.push({ size: String(it.size ?? ''), color, barcode: nextBarcode(), stock: 0 });
+              }
+            }
+          }
+          const sets = ['`colorBoxBarcodes` = ?', '`updatedAt` = NOW()'];
+          const up: any[] = [JSON.stringify(colorBoxBarcodes)];
+          if (plan.variantMode) { sets.push('`variantBarcodes` = ?'); up.push(JSON.stringify(variantBarcodes)); }
+          if (withVersion) sets.push('`version` = `version` + 1');
+          up.push(plan.id);
+          await conn.query(`UPDATE \`products\` SET ${sets.join(', ')} WHERE \`id\` = ?`, up);
+          generated.push(plan.id);
+        }
+
+        // 5) Sayaç köprüsü: istemcideki tekil üreteç bu aralıktan SONRA devam etsin.
+        const lastSeq = seqs[seqs.length - 1];
+        if (Number.isFinite(lastSeq)) {
+          await conn.query(
+            `UPDATE \`settings\` SET \`nextBarcodeSequence\` = ? WHERE \`id\` IN ('global_settings', 'global_barcode')`,
+            [lastSeq + 1],
+          );
+        }
+
+        // 6) Tek özet audit kaydı.
+        await writeAuditInTx(conn, {
+          action: 'update',
+          module: 'inventory',
+          description: `Toplu barkod üretimi: ${generated.length} ürün, ${total} barkod (${barcodeType})`,
+          details: `Ürün ID'leri: ${generated.slice(0, 50).join(', ')}`.slice(0, 1000),
+        }, { auth: req.auth, ip: clientIp(req) });
+
+        return { generated, skipped, totalBarcodes: total, barcodeType, barcodePrefix };
+      });
+
+      if (result.generated.length) broadcast('products', 'update', result.generated.map(String));
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }

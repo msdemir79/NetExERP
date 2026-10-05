@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Modal from '../Modal';
 import { cn } from '../../lib/utils';
 import { formatQuantity } from '../../lib/inventoryCalculator';
 import { inventoryService } from '../../services/inventoryService';
+import { showToast } from '../../lib/feedback';
+import { ColorSelect } from '../Colors/ColorSelect';
 import { Product } from '../../types';
 
 interface AdjustStockModalProps {
@@ -17,16 +19,24 @@ export default function AdjustStockModal({ isOpen, onClose, product, onSubmitted
     type: 'in' as 'in' | 'out',
     quantity: 1,
     selectedColor: '',
+    selectedColorId: null as number | null,
     selectedSize: '',
     description: 'Manuel stok düzeltme'
   });
 
+  const restrictColorIds = useMemo(
+    () => (product?.colorRefs || []).map((ref) => Number(ref.id)).filter((id) => Number.isFinite(id) && id > 0),
+    [product?.colorRefs]
+  );
+
   useEffect(() => {
     if (isOpen && product) {
+      const firstRef = (product.colorRefs || [])[0];
       setAdjustData({
         type: 'in',
         quantity: 1,
-        selectedColor: product.colors?.[0] || '',
+        selectedColor: firstRef?.name || product.colors?.[0] || '',
+        selectedColorId: firstRef?.id ?? null,
         selectedSize: product.variantBarcodes?.[0]?.size || '',
         description: 'Stok hareketi'
       });
@@ -53,7 +63,7 @@ export default function AdjustStockModal({ isOpen, onClose, product, onSubmitted
       onClose();
       onSubmitted();
     } catch (err: any) {
-      alert('Stok hareketi işlenirken hata oluştu: ' + (err.message || err));
+      showToast('Stok hareketi işlenirken hata oluştu: ' + (err.message || err), 'error');
     }
   };
 
@@ -74,7 +84,7 @@ export default function AdjustStockModal({ isOpen, onClose, product, onSubmitted
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">İşlem Türü</label>
               <select
@@ -102,20 +112,17 @@ export default function AdjustStockModal({ isOpen, onClose, product, onSubmitted
           </div>
 
           {/* If product has colors */}
-          {product.colors && product.colors.length > 0 && (
+          {(product.colors?.length || product.colorRefs?.length) ? (
             <div className={cn("grid gap-3", (product.hasSizeVariants || product.isFootwear) ? "grid-cols-2" : "grid-cols-1")}>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">İşlem Yapılacak Renk</label>
-                <select
-                  value={adjustData.selectedColor}
-                  onChange={e => setAdjustData(prev => ({ ...prev, selectedColor: e.target.value }))}
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-bold outline-none"
-                >
-                  <option value="">Genel / Tümü</option>
-                  {product.colors.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                <ColorSelect
+                  value={adjustData.selectedColorId}
+                  valueName={adjustData.selectedColor || null}
+                  restrictToIds={restrictColorIds.length > 0 ? restrictColorIds : undefined}
+                  placeholder="Genel / Tümü"
+                  onChange={(colorId, color) => setAdjustData(prev => ({ ...prev, selectedColor: color?.name || '', selectedColorId: colorId }))}
+                />
               </div>
 
               {(product.hasSizeVariants || product.isFootwear) && (
@@ -134,7 +141,7 @@ export default function AdjustStockModal({ isOpen, onClose, product, onSubmitted
                 </div>
               )}
             </div>
-          )}
+          ) : null}
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hareket Açıklaması</label>

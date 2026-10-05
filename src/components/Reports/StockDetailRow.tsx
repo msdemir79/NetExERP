@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, ChevronRight, MapPin, AlertTriangle, Palette, CheckCircle2, Check, Copy } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { getColorSwatch, formatColorQty } from '../../lib/colorSwatches';
+import { getColorSwatch, formatColorQty, hexFromColorRefs } from '../../lib/colorSwatches';
 import { CATEGORY_TYPE_META } from './stockCategoryMeta';
 import type { Product, StockCategoryType } from '../../types';
 
@@ -171,7 +171,7 @@ export default function StockDetailRow({ p, isExpanded, rowDensity, copiedBarcod
                                   : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                               )}
                             >
-                              <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+                              <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: hexFromColorRefs(p.colorRefs, c.color) || sw.bg, borderColor: sw.border }} />
                               <span className="text-[9px] font-black uppercase text-slate-600 dark:text-slate-300">{c.color}</span>
                               <span className={cn(
                                 "text-[9px] font-mono font-black",
@@ -199,9 +199,9 @@ export default function StockDetailRow({ p, isExpanded, rowDensity, copiedBarcod
                     )}
 
                     {/* Koli / Multiplier Tahmini (Ayakkabılar İçin) */}
-                    {p.multiplier && p.multiplier > 1 && (
-                      <span className="text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded hidden md:inline-block">
-                        ~{(p.finalStock / p.multiplier).toFixed(1)} Koli
+                    {p.templateMultiplier > 1 && (
+                      <span className="text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded hidden md:inline-block">
+                        ~{(p.finalStock / p.templateMultiplier).toFixed(1)} Koli
                       </span>
                     )}
 

@@ -3,6 +3,7 @@ import { X, Users, Shield, Check, ArrowRight, Sparkles, UserCheck } from 'lucide
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { useAuth } from '../../context/AuthContext';
+import { showToast } from '../../lib/feedback';
 import type { AppUser } from '../../types';
 
 interface UserSwitcherModalProps {
@@ -42,7 +43,7 @@ export default function UserSwitcherModal({ isOpen, onClose }: UserSwitcherModal
   const handleSelectUser = async (user: AppUser) => {
     if (!user.id) return;
     if (user.status !== 'active') {
-      alert('Bu kullanıcı hesabı aktif değildir, giriş yapılamaz.');
+      showToast('Bu kullanıcı hesabı aktif değildir, giriş yapılamaz.', 'warning');
       return;
     }
     await switchUser(user.id);

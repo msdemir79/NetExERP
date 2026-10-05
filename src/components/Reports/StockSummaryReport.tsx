@@ -7,8 +7,9 @@ import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import { cn } from '../../lib/utils';
 import { printTabularReport } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
-import { getColorSwatch, formatColorQty } from '../../lib/colorSwatches';
-import type { Product, AssortmentTemplate } from '../../types';
+import { getColorSwatch, formatColorQty, hexFromColorRefs } from '../../lib/colorSwatches';
+import type { Product } from '../../types';
+import { getCartonSize } from '../../lib/carton';
 
 interface ColorStockEntry {
   color: string;
@@ -39,11 +40,6 @@ export default function StockSummaryReport() {
   const rows = React.useMemo<SummaryRow[]>(() => {
     if (!products) return [];
 
-    const templateMap = new Map<number, AssortmentTemplate>();
-    templates?.forEach(t => {
-      if (t.id) templateMap.set(t.id, t);
-    });
-
     const search = searchTerm.toLowerCase().trim();
 
     return products
@@ -54,9 +50,8 @@ export default function StockSummaryReport() {
         p.category?.toLowerCase().includes(search)
       )
       .map(p => {
-        const templateItems = p.assortment || (p.assortmentTemplateId ? templateMap.get(p.assortmentTemplateId)?.items : undefined) || [];
-        // multiplier 1 = tanımsız (Inventory varsayılanı); bu durumda asorti toplamı koli adedi sayılır
-        const koliSize = (p.multiplier && p.multiplier > 1 ? p.multiplier : 0) || templateItems.reduce((acc, it) => acc + (it.quantity || 0), 0) || 0;
+        // Koli içi adet: asorti toplamı, asorti yoksa karttaki koli çarpanı (tek kaynak: lib/carton)
+        const koliSize = getCartonSize(p, templates);
         const unitLabel = p.unit || 'Adet';
 
         // Renk bazlı stok dağılımı: yalnızca varyant (renk+beden) stok kayıtları varsa hesaplanır
@@ -163,7 +158,7 @@ export default function StockSummaryReport() {
                   title="Renk tanımlı, varyant stok kaydı yok"
                   className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-white dark:bg-slate-900 px-1.5 py-0.5"
                 >
-                  <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+                  <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: hexFromColorRefs(row.colorRefs, color) || sw.bg, borderColor: sw.border }} />
                   <span className="text-[9px] font-bold uppercase text-slate-400">{color}</span>
                 </span>
               );
@@ -190,7 +185,7 @@ export default function StockSummaryReport() {
                 entry.stock <= 0 ? "border-rose-200 bg-rose-50/60" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
               )}
             >
-              <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+              <span className="w-2 h-2 rounded-full border shrink-0" style={{ backgroundColor: hexFromColorRefs(row.colorRefs, entry.color) || sw.bg, borderColor: sw.border }} />
               <span className="text-[9px] font-black uppercase text-slate-600 dark:text-slate-300">{entry.color}</span>
               <span className={cn(
                 "text-[9px] font-mono font-black",

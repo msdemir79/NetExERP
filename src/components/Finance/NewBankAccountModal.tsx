@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../api/client';
 import { accountingService } from '../../services/accountingService';
+import { showToast } from '../../lib/feedback';
 
 interface NewBankAccountModalProps {
   isOpen: boolean;
@@ -22,7 +23,7 @@ export default function NewBankAccountModal({ isOpen, onClose }: NewBankAccountM
   const handleSaveBankAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBankName || !newBankIban) {
-      alert('Lütfen banka adı ve IBAN giriniz.');
+      showToast('Lütfen banka adı ve IBAN giriniz.', 'warning');
       return;
     }
     try {
@@ -55,7 +56,7 @@ export default function NewBankAccountModal({ isOpen, onClose }: NewBankAccountM
       setNewBankIban('');
       setNewBankBalance('0');
     } catch (err: any) {
-      alert(`Banka hesabı ekleme hatası: ${err.message}`);
+      showToast(`Banka hesabı ekleme hatası: ${err.message}`, 'error');
     }
   };
 
@@ -112,6 +113,18 @@ export default function NewBankAccountModal({ isOpen, onClose }: NewBankAccountM
               onChange={(e) => setNewBankAccountCode(e.target.value)}
               className="w-full text-sm border border-gray-300 rounded-lg p-2 font-mono"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Para Birimi</label>
+            <select
+              value={newBankCurrency}
+              onChange={(e) => setNewBankCurrency(e.target.value)}
+              className="w-full text-sm border border-gray-300 rounded-lg p-2 bg-white dark:bg-slate-900"
+            >
+              <option value="TRY">Türk Lirası (TRY)</option>
+              <option value="USD">Amerikan Doları (USD)</option>
+              <option value="EUR">Euro (EUR)</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Açılış Bakiyesi (₺)</label>

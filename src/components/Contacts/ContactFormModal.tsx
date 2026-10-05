@@ -31,6 +31,8 @@ interface ContactFormModalProps {
   onSave: (data: Partial<Contact>) => Promise<void>;
   initialData?: Contact | null;
   defaultType?: EntityType;
+  /** Başka bir modalın içinden açılıyorsa ESC yalnızca bu formu kapatır. */
+  nested?: boolean;
 }
 
 const CATEGORY_OPTIONS = [
@@ -59,7 +61,8 @@ export default function ContactFormModal({
   onClose,
   onSave,
   initialData,
-  defaultType = 'customer'
+  defaultType = 'customer',
+  nested = false
 }: ContactFormModalProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'contact' | 'financial' | 'notes'>('general');
   const [loading, setLoading] = useState(false);
@@ -92,6 +95,7 @@ export default function ContactFormModal({
   const [bankAccountName, setBankAccountName] = useState('');
   const [balance, setBalance] = useState<number>(0);
   const [accountCode, setAccountCode] = useState('');
+  const [isManualAccountCode, setIsManualAccountCode] = useState(false);
   const [notes, setNotes] = useState('');
 
   // Live queries for suggestions
@@ -217,6 +221,7 @@ export default function ContactFormModal({
       setBankAccountName(initialData.bankAccountName || '');
       setBalance(initialData.balance || 0);
       setAccountCode(initialData.accountCode || '');
+      setIsManualAccountCode(true);
       setNotes(initialData.notes || '');
     } else if (isOpen) {
       // Reset form & automatically suggest next sequential codes
@@ -248,6 +253,7 @@ export default function ContactFormModal({
       });
       const nextTdhpSeq = (maxSeq + 1).toString().padStart(3, '0');
       setAccountCode(`${tdhpPrefix}${nextTdhpSeq}`);
+      setIsManualAccountCode(false);
 
       setName('');
       setCompanyTitle('');
@@ -285,8 +291,21 @@ export default function ContactFormModal({
     }
   }, [isOpen, initialData, isManualCode, allContacts, type]);
 
+  // TDHP muavin hesap kodu önerisi de listeler geldikten sonra yeniden hesaplanır.
+  // Form iç içe (ör. irsaliye ekranından) açıldığında carî/hesap listeleri henüz
+  // yüklenmemiş olur; ilk öneri dolu bir kod (örn. 120.01.001) verebilir ve kayıt
+  // sırasında mevcut hesabın adı bu cariyle ezilirdi.
+  useEffect(() => {
+    if (isOpen && !initialData && !isManualAccountCode && allContacts && tdhpAccounts) {
+      handleAutoSuggestAccountCode(type);
+    }
+  }, [isOpen, initialData, isManualAccountCode, allContacts, tdhpAccounts, type]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Portal ile taşınmış olsa da React olayları ağaçta yukarı yayılır;
+    // ev sahibi formun (ör. stok kartı) submit'i tetiklenmesin.
+    e.stopPropagation();
     if (!name.trim()) {
       setError('Lütfen cari ünvanını giriniz.');
       setActiveTab('general');
@@ -339,6 +358,7 @@ export default function ContactFormModal({
       onClose={onClose}
       title={initialData ? `Cari Kartı Düzenle: ${initialData.name}` : 'Yeni Cari Hesap Kartı'}
       size="xl"
+      nested={nested}
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
@@ -473,7 +493,7 @@ export default function ContactFormModal({
                 <input
                   type="text"
                   value={accountCode}
-                  onChange={(e) => setAccountCode(e.target.value)}
+                  onChange={(e) => { setAccountCode(e.target.value); setIsManualAccountCode(true); }}
                   placeholder={type === 'supplier' ? 'Örn: 320.01.001' : 'Örn: 120.01.001'}
                   list="tdhp-contact-accounts-quick"
                   className="w-full border border-indigo-200 bg-indigo-50/40 rounded-lg p-2.5 text-xs font-mono font-bold text-indigo-950 focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
@@ -550,7 +570,7 @@ export default function ContactFormModal({
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                   Cari Türü *
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => handleTypeChange('customer')}
@@ -928,7 +948,7 @@ export default function ContactFormModal({
                     <input
                       type="text"
                       value={accountCode}
-                      onChange={(e) => setAccountCode(e.target.value)}
+                      onChange={(e) => { setAccountCode(e.target.value); setIsManualAccountCode(true); }}
                       placeholder={type === 'supplier' ? 'Örn: 320.01.001' : 'Örn: 120.01.001'}
                       list="tdhp-contact-accounts-tab3"
                       className="w-full border border-indigo-200 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs font-mono font-bold text-indigo-950 focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
@@ -974,6 +994,7 @@ export default function ContactFormModal({
                             }
                           });
                           setAccountCode(`${prefix}${(maxSeq + 1).toString().padStart(3, '0')}`);
+                          setIsManualAccountCode(true);
                         }}
                         className={cn(
                           "flex-1 py-2 rounded-lg text-[10px] font-bold border text-center transition-all",
@@ -994,6 +1015,7 @@ export default function ContactFormModal({
                             }
                           });
                           setAccountCode(`${prefix}${(maxSeq + 1).toString().padStart(3, '0')}`);
+                          setIsManualAccountCode(true);
                         }}
                         className={cn(
                           "flex-1 py-2 rounded-lg text-[10px] font-bold border text-center transition-all",

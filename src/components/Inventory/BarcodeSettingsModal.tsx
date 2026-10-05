@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import Modal from '../Modal';
 import { settingsService } from '../../services/settingsService';
+import { showToast } from '../../lib/feedback';
 
 interface BarcodeSettingsModalProps {
   isOpen: boolean;
@@ -37,7 +38,7 @@ export default function BarcodeSettingsModal({ isOpen, onClose }: BarcodeSetting
     try {
       await settingsService.updateBarcodeSettings(barcodeSettings);
       onClose();
-      alert('Barkod ayarları başarıyla güncellendi.');
+      showToast('Barkod ayarları başarıyla güncellendi.', 'success');
     } catch (err) {
       console.error('Barcode settings error:', err);
     }

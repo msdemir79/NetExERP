@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Hammer, Save, Check, Layers, AlertCircle, Sparkles, Activity } from 'lucide-react';
 import { PRODUCTION_STAGES_CONFIG } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
 import type { AppSettings } from '../../types';
 
 interface ProductionSettingsProps {
@@ -36,7 +37,7 @@ export default function ProductionSettings({ settings, onSave }: ProductionSetti
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Üretim ayarları kaydedilemedi:', err);
-      alert('Üretim ayarları kaydedilirken hata oluştu.');
+      showToast('Üretim ayarları kaydedilirken hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }

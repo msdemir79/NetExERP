@@ -13,6 +13,7 @@ import { cn } from '../../lib/utils';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, SgkStatus } from '../../types';
 import { hrService } from '../../services/hrService';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import EmployeeModal from './EmployeeModal';
 
 interface EmployeeListTabProps {
@@ -36,12 +37,12 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
   };
 
   const handleDelete = async (emp: Employee) => {
-    if (!confirm(`${emp.name} isimli personeli silmek istediğinize emin misiniz?`)) return;
+    if (!(await confirmDialog(`${emp.name} isimli personeli silmek istediğinize emin misiniz?`, { confirmText: 'Sil' }))) return;
     try {
       await hrService.deleteEmployee(emp.id!);
       onRefresh();
     } catch (err: any) {
-      alert(err?.message || 'Personel silinemedi.');
+      showToast(err?.message || 'Personel silinemedi.', 'error');
     }
   };
 
@@ -201,6 +202,17 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
             {departments.map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
+          </select>
+
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'passive')}
+            className="px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none shrink-0"
+          >
+            <option value="all">Tüm Durumlar</option>
+            <option value="active">Aktif</option>
+            <option value="passive">Pasif</option>
           </select>
         </div>
 

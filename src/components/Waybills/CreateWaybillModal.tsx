@@ -3,9 +3,12 @@ import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { invoiceService } from '../../services/invoiceService';
 import { waybillService } from '../../services/waybillService';
-import type { WaybillItem, WaybillType, WaybillStatus, WaybillScenario } from '../../types';
+import type { ColorMaster, WaybillItem, WaybillType, WaybillStatus, WaybillScenario } from '../../types';
 import { Truck, Plus, CheckCircle2, X, Trash2, ShoppingBag, Package, Car } from 'lucide-react';
+import { ColorSelect } from '../Colors/ColorSelect';
+import { ContactSelect } from '../Contacts/ContactSelect';
 import { cn } from '../../lib/utils';
+import { showToast } from '../../lib/feedback';
 
 // =========================================================================================
 // CREATE WAYBILL MODAL (With direct Order import & manual line item builder)
@@ -165,6 +168,14 @@ export default function CreateWaybillModal({
     ]);
   };
 
+  /**
+   * Renk seçimi satıra hem metin (`color`, tarihsel kolon) hem merkezî kart bağı
+   * (`colorId`) olarak yazılır; serbest metin girişi yoktur.
+   */
+  const updateItemColor = (index: number, colorId: number | null, color: ColorMaster | null) => {
+    setItems(prev => prev.map((it, i) => (i === index ? { ...it, color: color?.name || undefined, colorId } : it)));
+  };
+
   // Update item field
   const updateItem = (index: number, field: string, value: any) => {
     setItems(prev => {
@@ -215,11 +226,11 @@ export default function CreateWaybillModal({
 
   const handleSubmit = async (submitStatus: WaybillStatus) => {
     if (!contactId) {
-      alert('Lütfen bir müşteri veya tedarikçi cari seçiniz.');
+      showToast('Lütfen bir müşteri veya tedarikçi cari seçiniz.', 'warning');
       return;
     }
     if (items.length === 0) {
-      alert('Lütfen en az bir sevk kalemi ekleyiniz.');
+      showToast('Lütfen en az bir sevk kalemi ekleyiniz.', 'warning');
       return;
     }
 
@@ -261,7 +272,7 @@ export default function CreateWaybillModal({
       onSuccess(waybillId);
     } catch (err: any) {
       console.error('İrsaliye oluşturulamadı:', err);
-      alert('İrsaliye oluşturulurken hata oluştu: ' + err.message);
+      showToast('İrsaliye oluşturulurken hata oluştu: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -358,18 +369,13 @@ export default function CreateWaybillModal({
               <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                 {type === 'sales' ? 'Müşteri / Alıcı Cari' : 'Tedarikçi Cari'}
               </label>
-              <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value ? Number(e.target.value) : '')}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
-              >
-                <option value="">-- Cari Seçiniz --</option>
-                {contacts?.map(c => (
-                  <option key={`wb-contact-opt-${c.id}`} value={c.id}>
-                    {c.name} {c.companyTitle ? `(${c.companyTitle})` : ''} - {c.city || ''}
-                  </option>
-                ))}
-              </select>
+              <ContactSelect
+                contacts={contacts ?? []}
+                value={contactId ? Number(contactId) : null}
+                createType={type === 'sales' ? 'customer' : 'supplier'}
+                placeholder="-- Cari Seçiniz --"
+                onChange={(id) => setContactId(id ?? '')}
+              />
             </div>
 
             {/* Siparişten Çağır Butonu */}
@@ -444,12 +450,34 @@ export default function CreateWaybillModal({
               </div>
 
               <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-0.5">Taşıyıcı VKN</label>
+                <input
+                  type="text"
+                  placeholder="10 haneli vergi kimlik no"
+                  value={carrierTaxNo}
+                  onChange={(e) => setCarrierTaxNo(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono"
+                />
+              </div>
+
+              <div>
                 <label className="text-[11px] font-bold text-slate-600 block mb-0.5">Araç / Çekici Plakası</label>
                 <input
                   type="text"
                   placeholder="Örn: 34 YK 8842"
                   value={vehiclePlate}
                   onChange={(e) => setVehiclePlate(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-0.5">Dorse Plakası</label>
+                <input
+                  type="text"
+                  placeholder="Örn: 34 ABC 123 (varsa)"
+                  value={trailerPlate}
+                  onChange={(e) => setTrailerPlate(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono uppercase"
                 />
               </div>
@@ -553,12 +581,13 @@ export default function CreateWaybillModal({
                         </td>
                         <td className="p-2.5">
                           <div className="flex gap-1">
-                            <input
-                              type="text"
+                            <ColorSelect
+                              compact
+                              className="w-1/2"
+                              value={item.colorId ?? null}
+                              valueName={item.color}
                               placeholder="Renk"
-                              value={item.color || ''}
-                              onChange={(e) => updateItem(idx, 'color', e.target.value)}
-                              className="w-1/2 p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-center"
+                              onChange={(colorId, color) => updateItemColor(idx, colorId, color)}
                             />
                             <input
                               type="text"

@@ -14,7 +14,8 @@ import {
 import Modal from '../Modal';
 import { cn } from '../../lib/utils';
 import { formatQuantity } from '../../lib/inventoryCalculator';
-import { getColorSwatch } from '../../lib/colorSwatches';
+import ColorSwatch from '../Colors/ColorSwatch';
+import { useColorHexByName } from '../Colors/useColorMaster';
 import { inventoryService } from '../../services/inventoryService';
 import { CATEGORY_CONFIGS, getProductCategoryType } from './categoryConfig';
 import type { Account, BarcodeVariant, Product } from '../../types';
@@ -39,6 +40,7 @@ export default function ProductDetailModal({
   onEdit,
 }: ProductDetailModalProps) {
   const navigate = useNavigate();
+  const hexOf = useColorHexByName();
   const [detailTab, setDetailTab] = useState<'general' | 'stock' | 'tdhp'>('general');
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -200,18 +202,15 @@ export default function ProductDetailModal({
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {product.colors.map(c => {
-                    const sw = getColorSwatch(c);
-                    return (
-                      <span
-                        key={c}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase text-slate-800 dark:text-slate-200 shadow-sm"
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full border flex-shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
-                        {c}
-                      </span>
-                    );
-                  })}
+                  {product.colors.map(c => (
+                    <span
+                      key={c}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase text-slate-800 dark:text-slate-200 shadow-sm"
+                    >
+                      <ColorSwatch name={c} hexCode={hexOf(c)} size={10} className="rounded-full" />
+                      {c}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}
@@ -287,13 +286,11 @@ export default function ProductDetailModal({
                       </tr>
                     </thead>
                     <tbody>
-                      {matrixColors.map(color => {
-                        const sw = getColorSwatch(color);
-                        return (
+                      {matrixColors.map(color => (
                           <tr key={color} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0 hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
                             <td className="px-3 py-2 text-left whitespace-nowrap">
                               <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase text-slate-800 dark:text-slate-200">
-                                <span className="w-2.5 h-2.5 rounded-full border flex-shrink-0" style={{ backgroundColor: sw.bg, borderColor: sw.border }} />
+                                <ColorSwatch name={color} hexCode={hexOf(color)} size={10} className="rounded-full" />
                                 {color}
                               </span>
                             </td>
@@ -320,8 +317,7 @@ export default function ProductDetailModal({
                               {matrixSizes.reduce((sum, s) => sum + (cellOf(color, s)?.stock || 0), 0)}
                             </td>
                           </tr>
-                        );
-                      })}
+                      ))}
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">

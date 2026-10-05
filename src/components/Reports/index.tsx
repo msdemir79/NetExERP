@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
-import { useApiQueryIf } from '../../hooks/useApiQuery';
+import { getReportsSummary } from '../../api/client';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { useAuth } from '../../context/AuthContext';
 import { 
   BarChart3, 
@@ -45,47 +45,25 @@ export default function ReportsHub() {
   const canAccounting = hasPermission('accounting', 'view');
   const canInventory = hasPermission('inventory', 'view');
 
-  // Yetkisi olmayan modüllerin sorguları hiç çalıştırılmaz.
-  const products = useApiQueryIf(canInventory, () => api.products.list(), [], ['products']) || [];
-  const workOrders = useApiQueryIf(canProduction, () => api.workOrders.list(), [], ['workOrders']) || [];
-  const orders = useApiQueryIf(canOrders, () => api.orders.list({ where: { type: 'sales' } }), [], ['orders']) || [];
-  const cashBoxes = useApiQueryIf(canFinance, () => api.cashBoxes.list(), [], ['cashBoxes']) || [];
-  const bankAccounts = useApiQueryIf(canFinance, () => api.bankAccounts.list(), [], ['bankAccounts']) || [];
-  const employees = useApiQueryIf(canHr, () => api.employees.list({ where: { status: 'active' } }), [], ['employees']) || [];
-  const payrolls = useApiQueryIf(canHr, () => api.payrollRecords.list(), [], ['payrollRecords']) || [];
-  const accounts = useApiQueryIf(canAccounting, () => api.accounts.list(), [], ['accounts']) || [];
-  const journalEntries = useApiQueryIf(canAccounting, () => api.journalEntries.list(), [], ['journalEntries']) || [];
+  // Tüm özet KPI'ları tek istekte, sunucuda agregatlanmış olarak gelir.
+  // (Eskiden 9 tam tablo indirilip istemcide reduce ile hesaplanıyordu; artık
+  //  her bölüm SQL ile sunucuda toplanır ve görüntüleme yetkisine göre koşullu çalışır.)
+  const summary = useApiQuery(
+    () => getReportsSummary(),
+    [],
+    ['products', 'workOrders', 'orders', 'cashBoxes', 'bankAccounts', 'employees', 'payrollRecords', 'journalEntries'],
+  );
 
   // Overview metrics
-  const totalStockCount = products.reduce((s, p) => s + (p.stock || 0), 0);
-  const criticalStockCount = products.filter(p => p.stock <= p.minStock).length;
-  
-  const activeWorkOrders = workOrders.filter(w => w.currentStage !== 'completed');
-  const activePairsInProduction = activeWorkOrders.reduce((s, w) => s + (w.quantity || 0), 0);
-  
-  const totalLiquidity = 
-    cashBoxes.reduce((s, c) => s + (c.balance || 0), 0) + 
-    bankAccounts.reduce((s, b) => s + (b.balance || 0), 0);
-
-  const totalEmployeesCount = employees.length;
-  const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
-  const currentMonthPayrolls = payrolls.filter(p => p.month === currentMonth && p.year === currentYear);
-  const currentMonthEmployerCost = currentMonthPayrolls.reduce((s, p) => s + (p.totalEmployerCost || 0), 0);
-
-  let kdv191 = 0;
-  let kdv391 = 0;
-  journalEntries.forEach(entry => {
-    entry.lines?.forEach(line => {
-      if (line.accountCode.startsWith('191')) {
-        kdv191 += (Number(line.debit) || 0) - (Number(line.credit) || 0);
-      }
-      if (line.accountCode.startsWith('391')) {
-        kdv391 += (Number(line.credit) || 0) - (Number(line.debit) || 0);
-      }
-    });
-  });
-  const netKdvDiff = kdv391 - kdv191;
+  const totalStockCount = summary?.inventory.totalStockCount ?? 0;
+  const criticalStockCount = summary?.inventory.criticalStockCount ?? 0;
+  const activeWorkOrdersCount = summary?.production.activeWorkOrdersCount ?? 0;
+  const activePairsInProduction = summary?.production.activePairsInProduction ?? 0;
+  const totalLiquidity = summary?.finance.totalLiquidity ?? 0;
+  const totalEmployeesCount = summary?.hr.totalEmployeesCount ?? 0;
+  const currentMonthEmployerCost = summary?.hr.currentMonthEmployerCost ?? 0;
+  const netKdvDiff = summary?.accounting.netKdvDiff ?? 0;
+  const salesOrdersCount = summary?.orders.salesOrdersCount ?? 0;
 
   const tabs = [
     { id: 'overview', label: 'Genel Yönetim Özeti', icon: BarChart3, allowed: true },
@@ -186,7 +164,7 @@ export default function ReportsHub() {
                 {canProduction ? activePairsInProduction.toLocaleString('tr-TR') : '—'} <span className="text-xs font-bold text-slate-400">Çift Hatta</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                {activeWorkOrders.length} Adet İş Emri 8 Kademeli Proses Hattında İşleniyor
+                {activeWorkOrdersCount} Adet İş Emri 8 Kademeli Proses Hattında İşleniyor
               </p>
 
               <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] font-bold text-indigo-600">
@@ -271,7 +249,7 @@ export default function ReportsHub() {
               </div>
 
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100 font-mono">
-                {canOrders ? orders.length : '—'} <span className="text-xs font-bold text-slate-400">Sipariş Kaydı</span>
+                {canOrders ? salesOrdersCount : '—'} <span className="text-xs font-bold text-slate-400">Sipariş Kaydı</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Sipariş Karşılama Oranları & 7 Günlük Açık Sevk İrsaliyeleri

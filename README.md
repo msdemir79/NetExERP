@@ -61,28 +61,95 @@ Parola sıfırlamasından sonra sunucuyu yeniden başlatın.
 
 ### Mevcut bir kurulumu güncelleme
 
-Bu sürümde kimlik doğrulama sunucuya taşındı; `db/schema.sql` içinden `pinCode`, `sessionToken` ve `sessionExpiresAt` kolonları kaldırıldı. Yeni kurulumlarda bu kolonlar oluşturulmaz. Daha önce kurulmuş bir veritabanında kalan (artık okunmayan/yazılmayan) kolonları temizlemek için:
+Şema değişiklikleri `db/migrations/` altında numaralı `.sql` dosyalarıyla yönetilir. Mevcut bir veritabanını güncellemek için:
 
 ```bash
-mysql -u proerp -p proerp < db/migrations/001-security-hardening.sql
+npm run db:backup     # 1. önce yedek al (önerilir)
+npm run db:migrate    # 2. uygulanmamış geçişleri sırayla uygular
 ```
 
-Eski `sha256` parola kayıtları korunur; her kullanıcı ilk başarılı girişinde parolası otomatik olarak scrypt biçimine yükseltilir (parola değişmez).
+`db:migrate` yalnızca `schema_migrations` tablosunda işaretli olmayan dosyaları uygular; tekrar çalıştırmak güvenlidir.
+
+> **Önemli — MySQL DDL otomatik commit eder.** Bir geçiş dosyası hata verirse dosyanın bir kısmı uygulanmış olabilir ama dosya `schema_migrations`'a işaretlenmez. Hata mesajındaki adımları izleyin: veritabanının gerçek durumunu kontrol edin, gerekirse yedekten dönün, sonra tekrar `db:migrate` çalıştırın.
+
+> **Şema kuralı:** Yeni bir migration eklediğinizde aynı değişikliği `db/schema.sql`'e de işleyin. `schema.sql` her zaman güncel şemayı temsil eder; taze kurulumda (`db:setup`) tüm migration dosyaları taban çizgisi olarak otomatik işaretlenir, böylece `db:migrate` idempotent olmayan dosyaları yeniden uygulamaya kalkmaz.
+
+Eski bir sürümden geliyorsanız: bu sürümde kimlik doğrulama sunucuya taşındı; `db/schema.sql` içinden `pinCode`, `sessionToken` ve `sessionExpiresAt` kolonları kaldırıldı (`db/migrations/001-security-hardening.sql`). Eski `sha256` parola kayıtları korunur; her kullanıcı ilk başarılı girişinde parolası otomatik olarak scrypt biçimine yükseltilir (parola değişmez).
 
 > Eski sürüme geri dönmek isterseniz: geri döndükten sonra kullanıcıların parolaları scrypt biçiminde olduğu için giriş yapamazlar; `npm run user:password` ile parola atamanız gerekir.
 
 Veriler yerel MySQL veritabanında saklanır. Sunucu ilk açılışta boş tabloları örnek fabrika verileriyle (TDHP hesap planı, hammadde/mamul ürünler, reçeteler, personel) otomatik doldurur. Bağlantı bilgileri `.env` dosyasından okunur (`.env.example` şablonundan üretilir).
 
-> `npm run db:setup` yerine kurulumu elle yapmak isterseniz: `db/schema.sql` dosyasını MySQL'de çalıştırın, ardından `.env` içindeki `DB_*` değerlerini kendi kullanıcı bilgilerinizle doldurun.
+> `npm run db:setup` yerine kurulumu elle yapmak isterseniz: `db/schema.sql` dosyasını MySQL'de çalıştırın, ardından `.env` içindeki `DB_*` değerlerini kendi kullanıcı bilgilerinizle doldurun. Elle kurulumda taban çizgisi işaretlenmez; sonrasında `npm run db:migrate` çalıştırmayın (migration'lar zaten schema.sql içindedir).
+
+### Üretime dağıtım (deployment)
+
+Her adımda hata olursa durun, düzeltmeden bir sonraki adıma geçmeyin.
+
+```bash
+# 1. Yedek al (geri dönüş noktası)
+npm run db:backup
+
+# 2. Şema geçişlerini uygula
+npm run db:migrate
+
+# 3. Üretim derlemesi
+npm run build
+
+# 4. Uygulamayı başlat (NODE_ENV=production'a zorlar)
+npm start
+
+# 5. Sağlık kontrolü (ayrı bir terminalden)
+curl http://localhost:3000/api/health
+```
+
+`/api/health` `{"ok":true,...}` ve MySQL sürümünü döndürür. Hata görürseniz `npm start` çıktısındaki logları inceleyin.
+
+**Geri dönüş (restore):** Bir geçiş veya derleme üretim verisini bozarsa, `npm run db:restore` ile bir yedekten geri dönün. Önce yedekleri listeleyin, sonra seçtiğiniz klasörü geri yükleyin:
+
+```bash
+npm run db:restore -- --list                              # mevcut yedekler
+npm run db:restore -- backups/proerp-<zaman>              # önizleme (yıkıcı değil)
+npm run db:restore -- backups/proerp-<zaman> --force      # GERÇEKTEN geri yükle
+```
+
+`db:restore`, yedek klasöründeki `dump.sql`'i hedef veritabanına yükler ve `uploads/` görsellerini `data/uploads/`'a geri kopyalar. `--force` olmadan yalnızca ne yapacağını gösterir; interaktif terminalde ayrıca veritabanı adını yazarak onay ister. **Bu işlem geri alınamaz** — restore'dan önce güncel bir `db:backup` alın.
+
+**Kalıcı olması gerekenler:** Yüklenen görseller `data/uploads/` altında, yedekler `backups/` altında tutulur (ikisi de `.gitignore`'dadır). Dağıtımda bu dizinler korunmalı ve ayrıca yedeklenmelidir.
+
+**Üretim `.env` ayarları:** `NODE_ENV=production`, `COOKIE_SECURE=true` (HTTPS arkasında), gerektiğinde `TRUST_PROXY` (ters vekil arkasında doğru istemci IP'si için) ve `HOST` (yalnız güvenilir ağda `0.0.0.0`).
+
+### Yedekleme ve geri yükleme
+
+`npm run db:backup`, **taşınabilir ve eksiksiz** bir yedek üretir: veritabanının tam SQL dökümü (`mysqldump --single-transaction`, tutarlı anlık görüntü) **ve** `data/uploads/` altındaki görseller (DB kayıtları görsel URL'lerini tutar; dosyalar ayrıdır, bu yüzden ikisi birlikte yedeklenmelidir).
+
+```
+backups/<veritabanı>-<zaman>/
+  dump.sql        tam SQL yedeği
+  uploads/        görsellerin kopyası (varsa)
+  manifest.json   zaman damgası, boyutlar, kaynak bilgisi
+```
+
+- Parola komut satırına (argv) yazılmaz; `MYSQL_PWD` ortam değişkeniyle geçirilir, böylece process listesinde görünmez.
+- `mysqldump`/`mysql` PATH'te değilse `MYSQLDUMP_PATH` / `MYSQL_PATH` ile tam yolu verin (Windows'ta yaygın kurulum dizinleri otomatik aranır).
+- **Retention:** `--keep=N` son N yedeği tutar, eskisini siler (varsayılan 10; `--keep=0` budamayı kapatır).
+
+Geri yükleme için yukarıdaki [Geri dönüş (restore)](#üretim-dağıtım-deployment) adımlarını izleyin.
+
+> **Uygulama içi JSON aracı tam yedek değildir.** Ayarlar → Şirket ekranındaki "Veri Dışa Aktarma (JSON)" yalnızca kayıtları dışa/içe aktarır; görselleri, belge/fiş sayaçlarını ve denetim izini içermez. Taşınabilir tam yedek ve güvenli geri dönüş için `db:backup` / `db:restore` kullanın.
 
 ## Komutlar
 
 | Komut | Açıklama |
 |---|---|
 | `npm run dev` | Geliştirme sunucusunu başlatır (Express + Vite middleware, port 3000) |
-| `npm run db:setup` | Veritabanını, uygulama kullanıcısını ve tabloları kurar |
+| `npm run db:setup` | Veritabanını, uygulama kullanıcısını ve tabloları kurar (geçiş taban çizgisini işaretler) |
+| `npm run db:migrate` | `db/migrations/*.sql` geçişlerini sırayla uygular ve `schema_migrations`'ta işaretler |
+| `npm run db:backup` | Tam yedek alır → `backups/<veritabanı>-<zaman>/` (`dump.sql` + `uploads/` + `manifest.json`); `--keep=N` ile eski yedekleri budar |
+| `npm run db:restore` | Bir yedek klasöründen geri yükler (`--list`, `--force`); SQL + görseller. Yıkıcı, geri alınamaz |
 | `npm run db:columns` | `db/schema.sql`'den `server/columns.ts` kaynak tanımlarını üretir |
 | `npm run user:password` | Komut satırından kullanıcı parolası sıfırlar (kilitlenme kurtarma) |
+| `npm run seed:users` | Eksik rol kullanıcılarını eklemeli açar (`--apply` ile yazar; var olan kullanıcıya dokunmaz) |
 | `npm run build` | Üretim derlemesi (`dist/`) |
 | `npm start` | Derlenmiş uygulamayı çalıştırır |
 | `npm run lint` | TypeScript tip kontrolü (`tsc --noEmit`) |

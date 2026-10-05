@@ -173,28 +173,39 @@ export default function HRManagement() {
 
       {/* Tab Panels */}
       <div>
-        {activeTab === 'employees' && (
-          <EmployeeListTab employees={employees} onRefresh={loadEmployees} />
-        )}
+        {loading ? (
+          <div className="flex items-center justify-center min-h-[300px]">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Personel Listesi Yükleniyor...</span>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'employees' && (
+              <EmployeeListTab employees={employees} onRefresh={loadEmployees} />
+            )}
 
-        {activeTab === 'attendance' && (
-          <AttendanceTab employees={employees} onAttendanceChanged={loadEmployees} />
-        )}
+            {activeTab === 'attendance' && (
+              <AttendanceTab employees={employees} onAttendanceChanged={loadEmployees} />
+            )}
 
-        {activeTab === 'leaves' && (
-          <LeaveTab employees={employees} onLeavesUpdated={loadEmployees} />
-        )}
+            {activeTab === 'leaves' && (
+              <LeaveTab employees={employees} onLeavesUpdated={loadEmployees} />
+            )}
 
-        {activeTab === 'payroll' && (
-          <PayrollTab employees={employees} onPayrollUpdated={loadEmployees} />
-        )}
+            {activeTab === 'payroll' && (
+              <PayrollTab employees={employees} onPayrollUpdated={loadEmployees} />
+            )}
 
-        {activeTab === 'advances' && (
-          <AdvanceTab employees={employees} onAdvancesUpdated={loadEmployees} />
-        )}
+            {activeTab === 'advances' && (
+              <AdvanceTab employees={employees} onAdvancesUpdated={loadEmployees} />
+            )}
 
-        {activeTab === 'reports' && (
-          <HRReport />
+            {activeTab === 'reports' && (
+              <HRReport />
+            )}
+          </>
         )}
       </div>
     </div>

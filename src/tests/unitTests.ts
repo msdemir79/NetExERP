@@ -24,6 +24,7 @@ import {
   calculateWeightedAverageCost, 
   calculateAvailableLotQuantity 
 } from '../lib/inventoryCalculator';
+import { buildMizanRows, compareAccountCodes, type MizanAccount, type MizanRow } from '../lib/accountCodes';
 
 let passedTests = 0;
 let failedTests = 0;
@@ -252,6 +253,137 @@ test('Kritik stok seviyesi doğru tespit edilmeli', () => {
 test('Parti ve lot rezervasyonu hesaplaması doğru olmalı', () => {
   expect(calculateAvailableLotQuantity(500, 150)).toBe(350);
   expect(calculateAvailableLotQuantity(100, 120)).toBe(0); // Negatife düşmez, 0 döner
+});
+
+// -----------------------------------------------------------------
+// 4. MİZAN (TRIAL BALANCE) SUNUCU TARAFI AGREGASYON EŞDEĞERLİĞİ
+// -----------------------------------------------------------------
+console.log('\n📌 4. MİZAN EŞDEĞERLİK TESTLERİ (buildMizanRows)');
+
+/**
+ * Eski istemci tarafı mizan algoritmasının birebir replikası: tüm yevmiye
+ * satırları üzerinde döngüyle kesin kod + üst kodlara (ana/grup/sınıf) yayar.
+ * Yeni buildMizanRows ise SQL GROUP BY'ı taklit eden KOD BAZLI ön-agregasyon alır.
+ * İkisi aynı sonucu vermelidir (toplama birleşmeli).
+ */
+function legacyMizan(
+  accounts: MizanAccount[],
+  lines: { accountCode: string; debit: number; credit: number }[],
+  options?: { onlyWithBalance?: boolean; levelFilter?: 'all' | 'class' | 'group' | 'main' | 'sub' },
+): MizanRow[] {
+  const uniqueMap = new Map<string, MizanAccount>();
+  accounts.forEach((acc) => {
+    const k = acc.code.trim();
+    if (!uniqueMap.has(k)) uniqueMap.set(k, acc);
+  });
+  const uniqAccounts = Array.from(uniqueMap.values());
+  const totalsMap = new Map<string, { totalDebit: number; totalCredit: number }>();
+  lines.forEach((line) => {
+    const code = line.accountCode;
+    const d = Number(line.debit) || 0;
+    const c = Number(line.credit) || 0;
+    const cur = totalsMap.get(code) || { totalDebit: 0, totalCredit: 0 };
+    cur.totalDebit += d; cur.totalCredit += c; totalsMap.set(code, cur);
+    const mainCode = code.split('.')[0];
+    if (mainCode && mainCode !== code) {
+      const m = totalsMap.get(mainCode) || { totalDebit: 0, totalCredit: 0 };
+      m.totalDebit += d; m.totalCredit += c; totalsMap.set(mainCode, m);
+    }
+    if (mainCode.length >= 2) {
+      const groupCode = mainCode.substring(0, 2);
+      if (groupCode !== mainCode) {
+        const g = totalsMap.get(groupCode) || { totalDebit: 0, totalCredit: 0 };
+        g.totalDebit += d; g.totalCredit += c; totalsMap.set(groupCode, g);
+      }
+    }
+    const classCode = mainCode.substring(0, 1);
+    if (classCode !== mainCode) {
+      const cl = totalsMap.get(classCode) || { totalDebit: 0, totalCredit: 0 };
+      cl.totalDebit += d; cl.totalCredit += c; totalsMap.set(classCode, cl);
+    }
+  });
+  const rows: MizanRow[] = uniqAccounts.map((acc) => {
+    const t = totalsMap.get(acc.code) || { totalDebit: 0, totalCredit: 0 };
+    const totalDebit = Number(t.totalDebit.toFixed(2));
+    const totalCredit = Number(t.totalCredit.toFixed(2));
+    const diff = totalDebit - totalCredit;
+    return {
+      code: acc.code, name: acc.name, type: acc.type, level: acc.level,
+      totalDebit, totalCredit,
+      debitBalance: diff > 0 ? Number(diff.toFixed(2)) : 0,
+      creditBalance: diff < 0 ? Number(Math.abs(diff).toFixed(2)) : 0,
+    };
+  });
+  rows.sort((a, b) => compareAccountCodes(a.code, b.code));
+  return rows.filter((r) => {
+    if (options?.onlyWithBalance && r.totalDebit === 0 && r.totalCredit === 0) return false;
+    if (options?.levelFilter && options.levelFilter !== 'all') {
+      if (options.levelFilter === 'class' && r.level !== 1) return false;
+      if (options.levelFilter === 'group' && r.level !== 2) return false;
+      if (options.levelFilter === 'main' && r.level !== 3) return false;
+      if (options.levelFilter === 'sub' && r.level < 4) return false;
+    }
+    return true;
+  });
+}
+
+const mizanAccounts: MizanAccount[] = [
+  { code: '1', name: 'Dönen Varlıklar', type: 'asset', level: 1 },
+  { code: '10', name: 'Hazır Değerler', type: 'asset', level: 2 },
+  { code: '100', name: 'Kasa', type: 'asset', level: 3 },
+  { code: '100.01', name: 'Kasa TL', type: 'asset', level: 4 },
+  { code: '3', name: 'K.V. Yabancı Kaynaklar', type: 'liability', level: 1 },
+  { code: '39', name: 'Diğer K.V. Y.K.', type: 'liability', level: 2 },
+  { code: '391', name: 'Hesaplanan KDV', type: 'liability', level: 3 },
+  { code: '600', name: 'Yurtiçi Satışlar', type: 'revenue', level: 3 },
+];
+const mizanLines = [
+  { accountCode: '100.01', debit: 1500, credit: 0 },
+  { accountCode: '600', debit: 0, credit: 1200 },
+  { accountCode: '391', debit: 0, credit: 300 },
+  { accountCode: '100.01', debit: 500, credit: 0 },   // aynı kod ikinci satır → agregasyon testi
+  { accountCode: '600', debit: 0, credit: 100 },
+];
+/** SQL GROUP BY accountCode karşılığı: kesin kod bazında ön-agregasyon. */
+function aggregateByCode(lines: typeof mizanLines): Map<string, { debit: number; credit: number }> {
+  const m = new Map<string, { debit: number; credit: number }>();
+  lines.forEach((l) => {
+    const cur = m.get(l.accountCode) || { debit: 0, credit: 0 };
+    cur.debit += l.debit; cur.credit += l.credit; m.set(l.accountCode, cur);
+  });
+  return m;
+}
+
+test('buildMizanRows eski satır-satır algoritmayla birebir aynı sonucu vermeli', () => {
+  const expected = legacyMizan(mizanAccounts, mizanLines);
+  const actual = buildMizanRows(mizanAccounts, aggregateByCode(mizanLines));
+  expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+});
+
+test('Mizan üst kodlara (ana/grup/sınıf) doğru yuvarlamalı', () => {
+  const rows = buildMizanRows(mizanAccounts, aggregateByCode(mizanLines));
+  const byCode = new Map(rows.map((r) => [r.code, r]));
+  // 100.01 = 2000 borç → 100, 10, 1 de 2000 borç almalı
+  expect(byCode.get('100.01')!.totalDebit).toBe(2000);
+  expect(byCode.get('100')!.totalDebit).toBe(2000);
+  expect(byCode.get('10')!.totalDebit).toBe(2000);
+  expect(byCode.get('1')!.totalDebit).toBe(2000);
+  // 600 = 1300 alacak, 391 = 300 alacak → sınıf 3 toplam alacak 300, sınıf 6 gelir 1300
+  expect(byCode.get('600')!.totalCredit).toBe(1300);
+  expect(byCode.get('391')!.totalCredit).toBe(300);
+  expect(byCode.get('3')!.totalCredit).toBe(300);
+});
+
+test('Mizan onlyWithBalance ve levelFilter filtreleri eski davranışla eşleşmeli', () => {
+  const onlyBalanceExpected = legacyMizan(mizanAccounts, mizanLines, { onlyWithBalance: true });
+  const onlyBalanceActual = buildMizanRows(mizanAccounts, aggregateByCode(mizanLines), { onlyWithBalance: true });
+  expect(JSON.stringify(onlyBalanceActual)).toBe(JSON.stringify(onlyBalanceExpected));
+
+  const classExpected = legacyMizan(mizanAccounts, mizanLines, { levelFilter: 'class' });
+  const classActual = buildMizanRows(mizanAccounts, aggregateByCode(mizanLines), { levelFilter: 'class' });
+  expect(JSON.stringify(classActual)).toBe(JSON.stringify(classExpected));
+  // Sınıf filtresi yalnızca level===1 satırları bırakır (1 ve 3)
+  expect(classActual.length).toBe(2);
 });
 
 console.log('\n======================================================');

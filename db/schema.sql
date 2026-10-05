@@ -89,6 +89,39 @@ CREATE TABLE IF NOT EXISTS barcodeTemplates (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
+-- STOK: MERKEZİ RENK TANIMLARI (COLOR MASTER)
+-- ----------------------------------------------------------
+-- Renk, sistemde TEK DOĞRULUK KAYNAĞI olarak bu tabloda tutulur.
+-- Ürün kartları, stok hareketleri, sipariş/irsaliye/fatura satırları,
+-- iş emirleri ve reçeteler renge `colorId` ile bağlanır; serbest metin
+-- renk girişi yoktur. `code` UNIQUE, `name` UNIQUE DEĞİLDİR (aynı ad
+-- farklı üretici kodlarıyla birden çok renk kaydında bulunabilir).
+-- Renkler fiziksel silinmez; `isActive = 0` ile pasifleştirilir.
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS colors (
+  `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`             VARCHAR(50)     NOT NULL,
+  `name`             VARCHAR(100)    NOT NULL,
+  `groupName`        VARCHAR(100)    NULL,
+  `hexCode`          VARCHAR(7)      NULL,
+  `rgbCode`          VARCHAR(20)     NULL,
+  `pantoneCode`      VARCHAR(50)     NULL,
+  `manufacturerCode` VARCHAR(50)     NULL,
+  `description`      TEXT            NULL,
+  `isActive`         TINYINT(1)      NOT NULL DEFAULT 1,
+  `createdAt`        DATETIME        NULL,
+  `updatedAt`        DATETIME        NULL,
+  `version`          INT             NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_colors_code` (`code`),
+  KEY `idx_colors_name` (`name`),
+  KEY `idx_colors_groupName` (`groupName`),
+  KEY `idx_colors_isActive` (`isActive`),
+  KEY `idx_colors_manufacturerCode` (`manufacturerCode`),
+  KEY `idx_colors_pantoneCode` (`pantoneCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+-- ==========================================================
 -- STOK: ÜRÜNLER
 -- ==========================================================
 CREATE TABLE IF NOT EXISTS products (
@@ -113,7 +146,6 @@ CREATE TABLE IF NOT EXISTS products (
   `colorBoxBarcodes`      JSON            NULL,
   `variantBarcodes`       JSON            NULL,
   `isFootwear`            TINYINT(1)      NULL DEFAULT 0,
-  `colors`                JSON            NULL,
   `assortmentTemplateId`  BIGINT UNSIGNED NULL,
   `assortment`            JSON            NULL,
   `category`              VARCHAR(100)    NULL,
@@ -143,6 +175,22 @@ CREATE TABLE IF NOT EXISTS products (
   KEY `idx_products_preferredSupplierId` (`preferredSupplierId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
+-- Ürün ↔ renk çoktan-çoğa bağı (products.colors JSON dizisinin yerine).
+-- colorId ON DELETE RESTRICT: bir üründe kullanılan renk silinemez.
+CREATE TABLE IF NOT EXISTS productColors (
+  `id`        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `productId` BIGINT UNSIGNED NOT NULL,
+  `colorId`   BIGINT UNSIGNED NOT NULL,
+  `sortOrder` INT             NOT NULL DEFAULT 0,
+  `createdAt` DATETIME        NULL,
+  `version`   INT             NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_productColors_product_color` (`productId`, `colorId`),
+  KEY `idx_productColors_colorId` (`colorId`),
+  CONSTRAINT fk_productColors_product FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_productColors_color   FOREIGN KEY (`colorId`)   REFERENCES colors (`id`)   ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
 -- ==========================================================
 -- ÜRETİM: REÇETELER (BOM) & İŞ EMİRLERİ
 -- ==========================================================
@@ -150,6 +198,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `productId`            BIGINT UNSIGNED NOT NULL,
   `targetColor`          VARCHAR(80)     NULL,
+  `targetColorId`        BIGINT UNSIGNED NULL,
   `name`                 VARCHAR(255)    NULL,
   `ingredients`          JSON            NOT NULL,
   `notes`                TEXT            NULL,
@@ -161,7 +210,9 @@ CREATE TABLE IF NOT EXISTS recipes (
   PRIMARY KEY (`id`),
   KEY `idx_recipes_productId` (`productId`),
   KEY `idx_recipes_targetColor` (`targetColor`),
-  CONSTRAINT fk_recipes_product FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE CASCADE
+  KEY `idx_recipes_targetColorId` (`targetColorId`),
+  CONSTRAINT fk_recipes_product FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_recipes_targetColor FOREIGN KEY (`targetColorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 CREATE TABLE IF NOT EXISTS workOrders (
@@ -182,6 +233,7 @@ CREATE TABLE IF NOT EXISTS workOrders (
   `moldCode`            VARCHAR(50)     NULL,
   `moldGroup`           VARCHAR(100)    NULL,
   `color`               VARCHAR(80)     NULL,
+  `colorId`             BIGINT UNSIGNED NULL,
   `size`                VARCHAR(50)     NULL,
   `assortmentBreakdown` JSON            NULL,
   `currentStage`        VARCHAR(30)     NOT NULL DEFAULT 'planning',
@@ -199,7 +251,9 @@ CREATE TABLE IF NOT EXISTS workOrders (
   KEY `idx_workOrders_currentStage` (`currentStage`),
   KEY `idx_workOrders_createdAt` (`createdAt`),
   KEY `idx_workOrders_barcode` (`barcode`),
-  CONSTRAINT fk_workOrders_product FOREIGN KEY (`productId`) REFERENCES products (`id`)
+  KEY `idx_workOrders_colorId` (`colorId`),
+  CONSTRAINT fk_workOrders_product FOREIGN KEY (`productId`) REFERENCES products (`id`),
+  CONSTRAINT fk_workOrders_color FOREIGN KEY (`colorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
@@ -213,13 +267,16 @@ CREATE TABLE IF NOT EXISTS inventoryLogs (
   `date`        DATETIME        NOT NULL,
   `description` TEXT            NULL,
   `color`       VARCHAR(80)     NULL,
+  `colorId`     BIGINT UNSIGNED NULL,
   `size`        VARCHAR(50)     NULL,
   `version`          INT             NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   KEY `idx_inventoryLogs_productId` (`productId`),
   KEY `idx_inventoryLogs_type` (`type`),
   KEY `idx_inventoryLogs_date` (`date`),
-  CONSTRAINT fk_inventoryLogs_product FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE CASCADE
+  KEY `idx_inventoryLogs_colorId` (`colorId`),
+  CONSTRAINT fk_inventoryLogs_product FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_inventoryLogs_color FOREIGN KEY (`colorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- Eski basit kasa/banka hareketleri (cari ekstre için geriye dönük uyumluluk)
@@ -316,6 +373,7 @@ CREATE TABLE IF NOT EXISTS orderItems (
   `orderId`           BIGINT UNSIGNED NOT NULL,
   `productId`         BIGINT UNSIGNED NOT NULL,
   `color`             VARCHAR(80)     NULL,
+  `colorId`           BIGINT UNSIGNED NULL,
   `size`              VARCHAR(50)     NULL,
   `quantity`          DECIMAL(15,4)   NOT NULL DEFAULT 0,
   `shippedQuantity`   DECIMAL(15,4)   NOT NULL DEFAULT 0,
@@ -328,7 +386,9 @@ CREATE TABLE IF NOT EXISTS orderItems (
   PRIMARY KEY (`id`),
   KEY `idx_orderItems_orderId` (`orderId`),
   KEY `idx_orderItems_productId` (`productId`),
-  CONSTRAINT fk_orderItems_order FOREIGN KEY (`orderId`) REFERENCES orders (`id`) ON DELETE CASCADE
+  KEY `idx_orderItems_colorId` (`colorId`),
+  CONSTRAINT fk_orderItems_order FOREIGN KEY (`orderId`) REFERENCES orders (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_orderItems_color FOREIGN KEY (`colorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
@@ -382,6 +442,7 @@ CREATE TABLE IF NOT EXISTS invoiceItems (
   `productCode`    VARCHAR(80)     NULL,
   `productName`    VARCHAR(255)    NULL,
   `color`          VARCHAR(80)     NULL,
+  `colorId`        BIGINT UNSIGNED NULL,
   `size`           VARCHAR(50)     NULL,
   `quantity`       DECIMAL(15,4)   NOT NULL DEFAULT 0,
   `unit`           VARCHAR(30)     NULL,
@@ -396,7 +457,9 @@ CREATE TABLE IF NOT EXISTS invoiceItems (
   KEY `idx_invoiceItems_invoiceId` (`invoiceId`),
   KEY `idx_invoiceItems_productId` (`productId`),
   KEY `idx_invoiceItems_orderItemId` (`orderItemId`),
-  CONSTRAINT fk_invoiceItems_invoice FOREIGN KEY (`invoiceId`) REFERENCES invoices (`id`) ON DELETE CASCADE
+  KEY `idx_invoiceItems_colorId` (`colorId`),
+  CONSTRAINT fk_invoiceItems_invoice FOREIGN KEY (`invoiceId`) REFERENCES invoices (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_invoiceItems_color FOREIGN KEY (`colorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================
@@ -456,6 +519,7 @@ CREATE TABLE IF NOT EXISTS waybillItems (
   `productCode`    VARCHAR(80)     NULL,
   `productName`    VARCHAR(255)    NULL,
   `color`          VARCHAR(80)     NULL,
+  `colorId`        BIGINT UNSIGNED NULL,
   `size`           VARCHAR(50)     NULL,
   `quantity`       DECIMAL(15,4)   NOT NULL DEFAULT 0,
   `unit`           VARCHAR(30)     NULL,
@@ -470,7 +534,9 @@ CREATE TABLE IF NOT EXISTS waybillItems (
   KEY `idx_waybillItems_waybillId` (`waybillId`),
   KEY `idx_waybillItems_productId` (`productId`),
   KEY `idx_waybillItems_orderItemId` (`orderItemId`),
-  CONSTRAINT fk_waybillItems_waybill FOREIGN KEY (`waybillId`) REFERENCES waybills (`id`) ON DELETE CASCADE
+  KEY `idx_waybillItems_colorId` (`colorId`),
+  CONSTRAINT fk_waybillItems_waybill FOREIGN KEY (`waybillId`) REFERENCES waybills (`id`) ON DELETE CASCADE,
+  CONSTRAINT fk_waybillItems_color FOREIGN KEY (`colorId`) REFERENCES colors (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 -- ==========================================================

@@ -7,6 +7,7 @@ import { downloadElementAsPdf } from '../../lib/pdfService';
 import { generateUblTrInvoiceXml, downloadXmlFile } from '../../lib/ublTrGenerator';
 import { UblXmlViewerModal } from '../Common/UblXmlViewerModal';
 import { cn } from '../../lib/utils';
+import { showToast } from '../../lib/feedback';
 import type { Invoice } from '../../types';
 import { GibOfficialTemplate } from './GibOfficialTemplate';
 import { CorporateModernTemplate } from './CorporateModernTemplate';
@@ -228,7 +229,7 @@ export function InvoicePrintModal({
       });
     } catch (err) {
       console.error('PDF indirme hatası:', err);
-      alert('PDF oluşturulamadı.');
+      showToast('PDF oluşturulamadı.', 'error');
     } finally {
       setDownloadingPdf(false);
     }

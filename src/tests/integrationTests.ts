@@ -10,6 +10,7 @@
  *   • item 1  — cari hareket iptali = ters kayıt (void), bakiye net sıfır
  *   • item 7  — 5xx yanıtları SQL/stack sızdırmaz (genel mesaj)
  *   • iyimser kilitleme — eşzamanlı PATCH'te tam olarak bir istek kazanır (409)
+ *   • stok kartı ekstresi — her renk ayrı hareket satırı alır, color/size kolonları dolu yazılır
  *
  * Çalıştırma: npm run test:integration
  */
@@ -325,6 +326,74 @@ async function main(): Promise<void> {
     const res = await api(srv, 'GET', '/olmayan-kaynak');
     expect(res.status).toBe(404);
     assertNoLeak(res.text);
+  });
+
+  // ---------------------------------------------------------------
+  console.log('\n📌 G. STOK HAREKETİ RENK/BEDEN KOLONLARI — stok kartı ekstresi kırılımı');
+  // ---------------------------------------------------------------
+  await test('invoice-stock: her renk ayrı hareket satırı alır, color/size kolonları dolu yazılır', async () => {
+    // Renkler merkezî karttan çözümlenir; test, kullanıcının renk listesine bağımlı
+    // olmasın diye sabit isim yerine listedeki ilk iki renk kullanılır.
+    const colorRes = await api(srv, 'GET', '/colors?limit=500');
+    const masterColors: any[] = (colorRes.data as any)?.data ?? [];
+    if (masterColors.length < 2) {
+      throw new Error('Bu test için merkezî renk listesinde en az 2 renk bulunmalı.');
+    }
+    const [colorA, colorB] = [String(masterColors[0].name), String(masterColors[1].name)];
+
+    const prod = await api(srv, 'POST', '/products', {
+      code: `TF3R-${RUN}`,
+      name: `TEST-FAZ3 Renk ${RUN}`,
+      unit: 'Çift',
+      isFootwear: true,
+      hasSizeVariants: true,
+      colors: [colorA, colorB],
+      assortment: [{ size: '40', quantity: 1 }, { size: '41', quantity: 1 }],
+      variantBarcodes: [
+        { size: '40', color: colorA, barcode: `TF3R${RUN}S40`, stock: 0 },
+        { size: '41', color: colorA, barcode: `TF3R${RUN}S41`, stock: 0 },
+        { size: '40', color: colorB, barcode: `TF3R${RUN}B40`, stock: 0 },
+        { size: '41', color: colorB, barcode: `TF3R${RUN}B41`, stock: 0 },
+      ],
+    });
+    expect(prod.status).toBe(201);
+    const productId = Number((prod.data as any)?.data ?? prod.data);
+    expect(productId).toBeGreaterThan(0);
+
+    const docNo = `TEST-FAZ3-EXT-${RUN}`;
+    const res = await api(srv, 'POST', '/ops/invoice-stock', {
+      documentNumber: docNo,
+      isSales: false,
+      writeLog: true,
+      items: [
+        { productId, quantity: 10, color: colorA, size: 'Asorti' },
+        { productId, quantity: 6, color: colorB, size: '40' },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const listRes = await api(srv, 'GET', `/inventoryLogs?search=${encodeURIComponent(docNo)}`);
+    expect(listRes.status).toBe(200);
+    const rows: any[] = (listRes.data as any)?.data ?? [];
+    expect(rows.length).toBe(2); // her renk kendi ekstre satırını alır
+
+    const first = rows.find((r) => r.color === colorA);
+    const second = rows.find((r) => r.color === colorB);
+    if (!first || !second) {
+      throw new Error(`Renk kolonu dolu hareket bulunamadı: ${JSON.stringify(rows.map((r) => ({ color: r.color, size: r.size })))}`);
+    }
+    expect(first.type).toBe('in');
+    expect(Number(first.quantity)).toBe(10);
+    expect(first.size).toBe('Asorti');
+    expect(second.type).toBe('in');
+    expect(Number(second.quantity)).toBe(6);
+    expect(second.size).toBe('40');
+
+    // Temizlik: ürün silinir, inventoryLogs FK CASCADE ile birlikte temizlenir.
+    const del = await api(srv, 'DELETE', `/products/${productId}`);
+    expect(del.status).toBe(200);
+    const after = await api(srv, 'GET', `/inventoryLogs?search=${encodeURIComponent(docNo)}`);
+    expect(((after.data as any)?.data ?? []).length).toBe(0);
   });
 
   // ---------------------------------------------------------------

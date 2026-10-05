@@ -23,7 +23,7 @@ import type { Account, JournalEntry, Contact, Invoice, CollectionReceipt } from 
 import { Calculator } from 'lucide-react';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill } from './Common/DataGrid';
-import { showToast } from '../lib/feedback';
+import { showToast, confirmDialog } from '../lib/feedback';
 import JournalEntryModal from './Accounting/JournalEntryModal';
 import JournalEntryPrintModal from './Accounting/JournalEntryPrintModal';
 import AddAccountModal from './Accounting/AddAccountModal';
@@ -115,7 +115,7 @@ export default function Accounting() {
       const result = await accountingService.autoAccountAllInvoices();
       setIntegrationResult(result);
     } catch (e: any) {
-      alert(`Entegrasyon hatası: ${e.message}`);
+      showToast(`Entegrasyon hatası: ${e.message}`, 'error');
     } finally {
       setIntegrating(false);
     }
@@ -128,11 +128,11 @@ export default function Accounting() {
     const msg = isDraft
       ? 'Bu taslak yevmiye fişi kalıcı olarak silinecek. Emin misiniz?'
       : 'Bu onaylı yevmiye fişi silinmez; borç/alacak yer değiştirmiş bir TERS KAYIT oluşturulur (orijinal fiş korunur). Devam edilsin mi?';
-    if (!confirm(msg)) return;
+    if (!(await confirmDialog(msg))) return;
     try {
       await accountingService.reverseJournalEntry(id);
     } catch (e: any) {
-      alert(e?.message || 'Yevmiye fişi iptal edilemedi.');
+      showToast(e?.message || 'Yevmiye fişi iptal edilemedi.', 'error');
     }
   };
 
@@ -827,7 +827,7 @@ export default function Accounting() {
         onClose={() => setIsEntryModalOpen(false)}
         accounts={accounts}
         contacts={contacts}
-        onSuccess={() => alert('Yevmiye fişi başarıyla kaydedildi.')}
+        onSuccess={() => showToast('Yevmiye fişi başarıyla kaydedildi.', 'success')}
       />
 
       {/* MODAL: Yeni Alt Hesap Açma */}
@@ -839,7 +839,7 @@ export default function Accounting() {
         }}
         parentAccounts={accounts}
         initialParentCode={selectedParentCodeForAdd}
-        onSuccess={() => alert('Yeni alt hesap başarıyla açıldı.')}
+        onSuccess={() => showToast('Yeni alt hesap başarıyla açıldı.', 'success')}
       />
 
       {/* MODAL: Fiş Yazdırma */}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { api } from '../api/client';
-import { useApiQuery } from '../hooks/useApiQuery';
+import { useApiQuery, useApiQueryFull } from '../hooks/useApiQuery';
 import {
   Package,
   Plus,
@@ -14,16 +14,24 @@ import {
   Settings,
   Camera,
   Edit2,
-  Boxes,
-  Grid,
   BarChart3,
-  FileText
+  FileText,
+  SlidersHorizontal,
+  ChevronDown,
+  MoreHorizontal,
+  PackageCheck
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { formatQuantity } from '../lib/inventoryCalculator';
+import { getCartonSize } from '../lib/carton';
+import { getColorSwatch, hexFromColorRefs } from '../lib/colorSwatches';
 import PageHeader from './PageHeader';
 import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
+import Button, { buttonClass } from './Common/Button';
+import ActionMenu from './Common/ActionMenu';
+import SegmentedFilter, { SegmentOption } from './Common/SegmentedFilter';
+import { controlClass } from './Common/Field';
 import CameraBarcodeScannerModal, { type ScannerMode } from './Common/CameraBarcodeScannerModal';
 import AdjustStockModal from './Inventory/AdjustStockModal';
 import ProductDetailModal from './Inventory/ProductDetailModal';
@@ -37,7 +45,8 @@ import { StockCategoryType, Product } from '../types';
 
 export default function Inventory() {
   const navigate = useNavigate();
-  const products = useApiQuery(() => api.products.list(), [], ['products']);
+  const productsQuery = useApiQueryFull(() => api.products.list(), [], ['products']);
+  const products = productsQuery.data;
   const templates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']);
   const tdhpAccounts = useApiQuery(() => api.accounts.list(), [], ['accounts']);
   const inventoryLogs = useApiQuery(() => api.inventoryLogs.list(), [], ['inventoryLogs']);
@@ -48,6 +57,7 @@ export default function Inventory() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterLowStock, setFilterLowStock] = useState(false);
   const [filterVariantOnly, setFilterVariantOnly] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -60,15 +70,9 @@ export default function Inventory() {
   const [stockCardInitialCategory, setStockCardInitialCategory] = useState<StockCategoryType>('finished');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-
-  // Adjust Stock modal state
-
   // Live Camera Barcode / QR Scanner State
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [cameraScannerMode, setCameraScannerMode] = useState<ScannerMode>('stock_count');
-
-  // Helper to determine active category of a product
-
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
@@ -131,70 +135,84 @@ export default function Inventory() {
     return counts;
   }, [products]);
 
+  const categoryOptions = useMemo<SegmentOption[]>(() => [
+    { key: 'all', label: 'Tümü', count: categoryCounts.all },
+    ...(Object.keys(CATEGORY_CONFIGS) as StockCategoryType[]).map((catKey) => {
+      const cfg = CATEGORY_CONFIGS[catKey];
+      return {
+        key: catKey,
+        label: cfg.badge,
+        count: categoryCounts[catKey],
+        icon: <cfg.icon aria-hidden="true" />
+      };
+    })
+  ], [categoryCounts]);
+
+  const activeFilterCount = (filterLowStock ? 1 : 0) + (filterVariantOnly ? 1 : 0);
+
   const productColumns = useMemo<GridColumn<Product>[]>(() => [
     {
-      key: 'name',
-      title: 'Stok / Malzeme Kartı',
+      key: 'code',
+      title: 'Stok Kodu',
+      width: '120px',
       render: (product) => (
-        <div className="flex items-center gap-3">
-          <div className="w-14 h-10 rounded-lg bg-white border border-slate-200 dark:border-slate-700 overflow-hidden flex-shrink-0 flex items-center justify-center p-0.5">
+        <span className="font-mono text-xs font-black text-fg-strong whitespace-nowrap">
+          {product.code || '—'}
+        </span>
+      ),
+      filterValue: (product) => product.code || ''
+    },
+    {
+      key: 'name',
+      title: 'Stok Adı',
+      render: (product) => (
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-12 shrink-0 items-center justify-center overflow-hidden rounded-control border border-line bg-surface p-0.5">
             {product.image ? (
-              <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
+              <img src={product.image} alt="" className="h-full w-full object-contain" />
             ) : (
-              <Package className="w-5 h-5 text-slate-300" />
+              <Package className="h-4 w-4 text-fg-muted" />
             )}
           </div>
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-mono text-[10px] font-black px-1.5 py-px rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                {product.code}
-              </span>
-              {product.accountingCode && (
-                <span className="font-mono text-[9px] font-bold px-1.5 py-px rounded bg-indigo-50 border border-indigo-200 text-indigo-700 whitespace-nowrap" title={`TDHP Stok Hesabı: ${product.accountingCode}`}>
-                  TDHP: {product.accountingCode}
-                </span>
-              )}
-              {product.shelf && (
-                <span className="text-[9px] font-bold text-slate-400 uppercase whitespace-nowrap">
-                  Raf: {product.shelf}
-                </span>
-              )}
-            </div>
-            <div className="font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
-              {product.name}
-              {product.brand && (
-                <span className="ml-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  {product.brand}
-                </span>
-              )}
-            </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-black text-fg-strong">{product.name}</div>
+            {(product.brand || product.shelf) && (
+              <div className="mt-0.5 flex items-center gap-1.5 truncate text-label font-bold text-fg-muted">
+                {product.brand && <span className="uppercase">{product.brand}</span>}
+                {product.brand && product.shelf && <span aria-hidden="true">·</span>}
+                {product.shelf && <span className="uppercase">Raf {product.shelf}</span>}
+              </div>
+            )}
           </div>
         </div>
       ),
-      filterValue: (product) => `${product.code || ''} ${product.name || ''} ${product.brand || ''} ${product.shelf || ''} ${product.colorBoxBarcodes?.map(b => b.barcode).join(' ') || ''} ${product.variantBarcodes?.map(v => v.barcode).join(' ') || ''}`
+      sortValue: (product) => product.name || '',
+      filterValue: (product) => `${product.name || ''} ${product.code || ''} ${product.brand || ''} ${product.shelf || ''} ${product.colorBoxBarcodes?.map(b => b.barcode).join(' ') || ''} ${product.variantBarcodes?.map(v => v.barcode).join(' ') || ''}`
     },
     {
       key: 'categoryType',
-      title: 'Kategori & Tür',
+      title: 'Kategori',
+      width: '160px',
       render: (product) => {
         const cfg = CATEGORY_CONFIGS[getProductCategoryType(product)];
         return (
-          <div className="space-y-0.5">
+          <div className="min-w-0">
             <span className={cn(
-              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border whitespace-nowrap",
+              "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-label font-black uppercase tracking-wide whitespace-nowrap",
               `${cfg.bgClass} ${cfg.textClass} ${cfg.borderClass}`
             )}>
-              <cfg.icon className="w-3 h-3" />
+              <cfg.icon className="h-3 w-3" aria-hidden="true" />
               {cfg.badge}
             </span>
             {product.subType && (
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase leading-tight truncate">
+              <div className="mt-0.5 truncate text-label font-bold text-fg-muted uppercase">
                 {product.subType}
               </div>
             )}
           </div>
         );
       },
+      sortValue: (product) => CATEGORY_CONFIGS[getProductCategoryType(product)].badge,
       filterValue: (product) => {
         const cfg = CATEGORY_CONFIGS[getProductCategoryType(product)];
         return `${cfg.badge} ${product.subType || ''}`;
@@ -202,83 +220,99 @@ export default function Inventory() {
     },
     {
       key: 'variant',
-      title: 'Beden & Varyant',
+      title: 'Renk & Beden',
+      width: '200px',
       render: (product) => {
-        const isVariant = product.hasSizeVariants || product.isFootwear || (product.variantBarcodes && product.variantBarcodes.length > 0);
-        if ((product.colors && product.colors.length > 0) || isVariant) {
-          return (
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1 flex-wrap">
-                {product.colors && product.colors.length > 0 ? (
-                  <>
-                    {product.colors.slice(0, 3).map(col => (
-                      <span key={col} className="text-[9px] font-black uppercase px-1.5 py-px bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                        {col}
-                      </span>
-                    ))}
-                    {product.colors.length > 3 && (
-                      <span className="text-[9px] font-black text-slate-400" title={product.colors.join(', ')}>
-                        +{product.colors.length - 3}
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-[9px] text-slate-400 font-bold">Matris Var</span>
+        const colors = product.colors || [];
+        const variantCount = product.variantBarcodes?.length || 0;
+        if (colors.length === 0 && variantCount === 0) {
+          return <span className="text-label font-bold text-fg-muted">Tekil stok</span>;
+        }
+        return (
+          <div className="min-w-0 space-y-1">
+            {colors.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                {colors.slice(0, 3).map((color) => (
+                  <span
+                    key={color}
+                    title={color}
+                    className="inline-flex items-center gap-1 rounded-pill border border-line bg-surface-raised px-1.5 py-0.5 text-label font-black uppercase text-fg"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-2 w-2 shrink-0 rounded-pill border border-line"
+                      style={{ backgroundColor: hexFromColorRefs(product.colorRefs, color) || getColorSwatch(color).bg }}
+                    />
+                    {color}
+                  </span>
+                ))}
+                {colors.length > 3 && (
+                  <span className="text-label font-black text-fg-muted" title={colors.join(', ')}>
+                    +{colors.length - 3}
+                  </span>
                 )}
               </div>
-              {product.variantBarcodes && product.variantBarcodes.length > 0 && (
-                <div className="text-[9px] font-mono text-indigo-600 font-bold leading-tight">
-                  {product.variantBarcodes.length} Beden Varyantı
-                </div>
-              )}
-            </div>
-          );
-        }
-        return <span className="text-[10px] text-slate-400 font-semibold italic">Tekil Stok</span>;
+            )}
+            {variantCount > 0 && (
+              <div className="text-label font-bold text-brand-fg">{variantCount} beden varyantı</div>
+            )}
+          </div>
+        );
       },
       filterValue: (product) => `${(product.colors || []).join(' ')} ${product.variantBarcodes && product.variantBarcodes.length > 0 ? 'matris varyant' : ''}`
     },
     {
-      key: 'sellingPrice',
-      title: 'Fiyat (Alış / Satış)',
+      key: 'buyingPrice',
+      title: 'Alış Fiyatı',
+      width: '120px',
       align: 'right',
       render: (product) => (
-        <div className="whitespace-nowrap">
-          <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-tight">
-            ₺{(product.sellingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="text-[9px] text-slate-400 font-bold leading-tight">
-            Alış: ₺{(product.buyingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-          </div>
-        </div>
+        <span className="font-mono text-2xs font-black text-fg-strong whitespace-nowrap">
+          ₺{(product.buyingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
+      ),
+      filterValue: (product) => `${product.buyingPrice || 0}`
+    },
+    {
+      key: 'sellingPrice',
+      title: 'Satış Fiyatı',
+      width: '120px',
+      align: 'right',
+      render: (product) => (
+        <span className="font-mono text-2xs font-black text-fg-strong whitespace-nowrap">
+          ₺{(product.sellingPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+        </span>
       ),
       filterValue: (product) => `${product.sellingPrice || 0}`
     },
     {
       key: 'stock',
       title: 'Mevcut Stok',
+      width: '150px',
       align: 'right',
       render: (product) => {
         const isLow = product.stock <= (product.minStock || 0);
+        // Koli içi adet: stok / koli = kaç koli eder (asorti öncelikli, tek kaynak lib/carton)
+        const cartonSize = getCartonSize(product, templates);
         return (
           <div className="space-y-0.5 whitespace-nowrap">
             <div className={cn(
-              "text-sm font-black font-mono inline-flex items-baseline gap-1 leading-tight",
-              isLow ? "text-rose-600" : "text-slate-900 dark:text-slate-100"
+              "inline-flex items-baseline gap-1 font-mono text-sm font-black",
+              isLow ? "text-danger" : "text-fg-strong"
             )}>
               <span>{formatQuantity(product.stock)}</span>
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">{product.unit}</span>
+              <span className="text-label font-bold uppercase text-fg-muted">{product.unit}</span>
             </div>
             {isLow && (
               <div className="flex justify-end">
-                <StatusPill tone="red" className="text-[9px] uppercase">
-                  <AlertTriangle className="w-3 h-3" /> Kritik (Min: {product.minStock})
+                <StatusPill tone="red" className="text-label uppercase">
+                  <AlertTriangle className="h-3 w-3" /> Kritik · Min {formatQuantity(product.minStock)}
                 </StatusPill>
               </div>
             )}
-            {product.multiplier && product.multiplier > 1 && product.secondaryUnit && (
-              <div className="text-[9px] text-indigo-500 font-bold uppercase leading-tight">
-                ({formatQuantity(product.stock * product.multiplier)} {product.secondaryUnit})
+            {cartonSize > 1 && product.secondaryUnit && (
+              <div className="text-label font-bold text-brand-fg">
+                {formatQuantity(product.stock / cartonSize)} {product.secondaryUnit}
               </div>
             )}
           </div>
@@ -286,7 +320,7 @@ export default function Inventory() {
       },
       filterValue: (product) => `${product.stock ?? 0}`
     }
-  ], []);
+  ], [templates]);
 
   // Open the stock card form in ADD mode (optionally preselecting a category).
   const handleOpenAddModal = (initialCategory?: StockCategoryType) => {
@@ -302,8 +336,19 @@ export default function Inventory() {
     setIsAddModalOpen(true);
   };
 
+  const handleOpenScanner = (mode: ScannerMode) => {
+    setCameraScannerMode(mode);
+    setIsCameraScannerOpen(true);
+  };
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setFilterLowStock(false);
+    setFilterVariantOnly(false);
+  };
+
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 pb-12">
       {/* Header & Primary Actions */}
       <PageHeader
         title="Stok & Malzeme Envanteri"
@@ -313,233 +358,183 @@ export default function Inventory() {
         iconColor="indigo"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setCameraScannerMode('stock_count');
-                setIsCameraScannerOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-bold text-purple-700 dark:text-purple-300 transition-colors cursor-pointer shadow-xs"
-              title="Cihaz veya tablet kamerasıyla barkod okutarak hızlı stok sayımı ve mal kabulü yap"
+            <Button
+              variant="primary"
+              icon={<Plus className="h-3.5 w-3.5" />}
+              onClick={() => handleOpenAddModal()}
             >
-              <Camera className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Kamera ile Canlı Sayım / Mal Kabul</span>
-            </button>
+              Yeni Stok
+            </Button>
 
-            <Link
-              to="/reports?tab=stock"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg text-xs font-semibold text-indigo-700 transition-colors"
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+            <Link to="/reports?tab=stock" className={buttonClass({ variant: 'secondary' })}>
+              <BarChart3 className="h-3.5 w-3.5" />
               <span>Stok Raporu</span>
             </Link>
 
-            <Link
-              to="/inventory/templates"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg text-xs font-bold text-indigo-700 transition-colors shadow-xs"
-              title="100x150, 60x40 ve diğer termal barkod etiket şablonlarını yönet ve tasarla"
-            >
-              <Barcode className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Barkod & Etiket Şablonları</span>
-            </Link>
-
-            <button
-              onClick={() => setIsTemplateModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-            >
-              <Ruler className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Asorti Şablonları</span>
-            </button>
-
-            <button
-              onClick={() => setIsSettingsModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-            >
-              <Settings className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Barkod Ayarları</span>
-            </button>
-
-            <button
-              onClick={() => handleOpenAddModal()}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg font-semibold text-xs transition-colors shadow-xs cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Yeni Stok Kartı</span>
-            </button>
+            <ActionMenu
+              label="Diğer işlemler"
+              icon={<MoreHorizontal className="h-4 w-4" />}
+              items={[
+                {
+                  key: 'live-count',
+                  label: 'Kamera ile Canlı Sayım',
+                  icon: <Camera />,
+                  onSelect: () => handleOpenScanner('stock_count')
+                },
+                {
+                  key: 'goods-receipt',
+                  label: 'Mal Kabul',
+                  icon: <PackageCheck />,
+                  onSelect: () => handleOpenScanner('goods_receipt')
+                },
+                {
+                  key: 'label-templates',
+                  label: 'Barkod & Etiket Şablonları',
+                  icon: <Barcode />,
+                  onSelect: () => navigate('/inventory/templates')
+                },
+                {
+                  key: 'assortment-templates',
+                  label: 'Asorti Şablonları',
+                  icon: <Ruler />,
+                  onSelect: () => setIsTemplateModalOpen(true)
+                },
+                {
+                  key: 'barcode-settings',
+                  label: 'Barkod Ayarları',
+                  icon: <Settings />,
+                  onSelect: () => setIsSettingsModalOpen(true)
+                }
+              ]}
+            />
           </div>
         }
       />
 
-      {/* Category Filter Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {/* All items */}
-        <button
-          onClick={() => setSelectedCategoryTab('all')}
-          className={cn(
-            "p-4 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group",
-            selectedCategoryTab === 'all'
-              ? "bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/10"
-              : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 hover:border-slate-300 text-slate-800 dark:text-slate-200"
-          )}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className={cn(
-              "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md",
-              selectedCategoryTab === 'all' ? "bg-white dark:bg-slate-900/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600"
-            )}>
-              TÜMÜ
-            </span>
-            <Boxes className={cn("w-4 h-4", selectedCategoryTab === 'all' ? "text-white/70" : "text-slate-400")} />
-          </div>
-          <div>
-            <div className="text-2xl font-black">{categoryCounts.all}</div>
-            <div className={cn("text-[11px] font-semibold mt-0.5", selectedCategoryTab === 'all' ? "text-slate-300" : "text-slate-500 dark:text-slate-400")}>
-              Toplam Stok Kartı
-            </div>
-          </div>
-        </button>
-
-        {/* 4 Specialized Categories */}
-        {(Object.keys(CATEGORY_CONFIGS) as StockCategoryType[]).map(catKey => {
-          const cfg = CATEGORY_CONFIGS[catKey];
-          const IconComp = cfg.icon;
-          const isSelected = selectedCategoryTab === catKey;
-
-          return (
-            <button
-              key={catKey}
-              onClick={() => setSelectedCategoryTab(catKey)}
-              className={cn(
-                "p-4 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group",
-                isSelected
-                  ? "bg-slate-900 border-slate-900 text-white shadow-xl shadow-slate-900/10"
-                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 hover:border-slate-300 text-slate-800 dark:text-slate-200"
-              )}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className={cn(
-                  "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md",
-                  isSelected ? "bg-white dark:bg-slate-900/20 text-white" : `${cfg.bgClass} ${cfg.textClass}`
-                )}>
-                  {cfg.badge}
-                </span>
-                <IconComp className={cn("w-4 h-4", isSelected ? "text-white/70" : "text-slate-400")} />
-              </div>
-              <div>
-                <div className="text-2xl font-black">{categoryCounts[catKey]}</div>
-                <div className={cn("text-[11px] font-semibold mt-0.5 truncate", isSelected ? "text-slate-300" : "text-slate-500 dark:text-slate-400")}>
-                  {cfg.title.split(' ')[0]} Kartları
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {/* Category Filter */}
+      <SegmentedFilter
+        ariaLabel="Stok kategorisi"
+        options={categoryOptions}
+        value={selectedCategoryTab}
+        onChange={(key) => setSelectedCategoryTab(key as 'all' | StockCategoryType)}
+        className="w-full md:w-auto"
+      />
 
       {/* Products Table */}
       <DataGrid<Product>
         columns={productColumns}
         data={filteredProducts}
         rowKey="id"
+        defaultSort={{ key: 'code', dir: 'asc' }}
+        loading={productsQuery.loading}
         emptyMessage="Arama kriterlerinize uygun stok kartı bulunamadı veya henüz stok kartı eklenmedi."
         toolbar={
-          <div className="flex flex-col md:flex-row items-center gap-2 flex-1 w-full">
-            <div className="relative flex-1 w-full">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Stok Kodu, Ürün Adı, Marka, Barkod veya Renk ile ara..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white transition-all"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          <div className="flex w-full flex-col gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2">
+              <div className="relative min-w-55 flex-1">
+                <Search className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-fg-muted pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Stok kodu, ürün adı, marka, raf, renk veya barkod ara..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  aria-label="Stok kartlarında ara"
+                  className={cn(controlClass(), 'h-9 pl-9 pr-8')}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    title="Aramayı temizle"
+                    aria-label="Aramayı temizle"
+                    className="absolute top-1/2 right-2.5 -translate-y-1/2 cursor-pointer text-fg-muted transition-colors hover:text-danger"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <Button
+                variant={activeFilterCount > 0 ? 'subtle' : 'secondary'}
+                icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+                iconRight={
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showAdvancedFilters && 'rotate-180')} />
+                }
+                onClick={() => setShowAdvancedFilters(open => !open)}
+                aria-expanded={showAdvancedFilters}
+              >
+                Gelişmiş Filtreler{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </Button>
+            </div>
+
+            {showAdvancedFilters && (
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
+                <Button
+                  variant={filterLowStock ? 'subtle' : 'ghost'}
+                  size="sm"
+                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                  onClick={() => setFilterLowStock(value => !value)}
+                  aria-pressed={filterLowStock}
+                  className={filterLowStock ? 'bg-danger-soft text-danger hover:bg-danger-soft' : undefined}
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+                  Kritik Stok
+                </Button>
 
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <button
-                onClick={() => setFilterLowStock(!filterLowStock)}
-                className={cn(
-                  "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
-                  filterLowStock
-                    ? "bg-rose-50 border-rose-200 text-rose-700 shadow-sm"
-                    : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                <AlertTriangle className={cn("w-3.5 h-3.5", filterLowStock ? "text-rose-600" : "text-slate-400")} />
-                <span>Kritik Stok</span>
-              </button>
+                <Button
+                  variant={filterVariantOnly ? 'subtle' : 'ghost'}
+                  size="sm"
+                  icon={<Package className="h-3.5 w-3.5" />}
+                  onClick={() => setFilterVariantOnly(value => !value)}
+                  aria-pressed={filterVariantOnly}
+                >
+                  Bedenli / Matris
+                </Button>
 
-              <button
-                onClick={() => setFilterVariantOnly(!filterVariantOnly)}
-                className={cn(
-                  "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border",
-                  filterVariantOnly
-                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
-                    : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100"
+                {activeFilterCount > 0 && (
+                  <Button variant="ghost" size="sm" icon={<X className="h-3.5 w-3.5" />} onClick={handleResetFilters}>
+                    Filtreleri Temizle
+                  </Button>
                 )}
-              >
-                <Grid className={cn("w-3.5 h-3.5", filterVariantOnly ? "text-indigo-600" : "text-slate-400")} />
-                <span>Bedenli / Matris</span>
-              </button>
-            </div>
+              </div>
+            )}
           </div>
         }
         rowActions={(product) => (
-          <>
-            <button
-              onClick={() => { setSelectedProduct(product); setIsDetailModalOpen(true); }}
-              title="Kart Detayı"
-              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => navigate(`/inventory/barcode?product=${product.id}`)}
-              title="Barkod Yazdır"
-              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 transition-colors"
-            >
-              <Barcode className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedProduct(product);
-                setIsAdjustModalOpen(true);
-              }}
-              title="Stok Hareketi Giriş/Çıkış"
-              className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors"
-            >
-              <ArrowUp className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedProduct(product);
-                setIsStatementModalOpen(true);
-              }}
-              title="Stok Kart Ekstresi / Hareket Raporu"
-              className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 transition-colors cursor-pointer"
-            >
-              <FileText className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => handleOpenEditModal(product)}
-              title="Kartı Düzenle"
-              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 hover:text-slate-900 dark:text-slate-100 transition-colors"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
-          </>
+          <ActionMenu
+            label={`${product.name} işlemleri`}
+            items={[
+              {
+                key: 'view',
+                label: 'Görüntüle',
+                icon: <Eye />,
+                onSelect: () => { setSelectedProduct(product); setIsDetailModalOpen(true); }
+              },
+              {
+                key: 'edit',
+                label: 'Düzenle',
+                icon: <Edit2 />,
+                onSelect: () => handleOpenEditModal(product)
+              },
+              {
+                key: 'adjust',
+                label: 'Stok Giriş / Çıkış',
+                icon: <ArrowUp />,
+                onSelect: () => { setSelectedProduct(product); setIsAdjustModalOpen(true); }
+              },
+              {
+                key: 'statement',
+                label: 'Stok Ekstresi',
+                icon: <FileText />,
+                onSelect: () => { setSelectedProduct(product); setIsStatementModalOpen(true); }
+              },
+              {
+                key: 'barcode',
+                label: 'Barkod Yazdır',
+                icon: <Barcode />,
+                onSelect: () => navigate(`/inventory/barcode?product=${product.id}`)
+              }
+            ]}
+          />
         )}
       />
 

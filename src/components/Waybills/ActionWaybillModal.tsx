@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { waybillService } from '../../services/waybillService';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import type { Waybill } from '../../types';
 import { AlertCircle, X, Trash2, Ban, ShieldAlert } from 'lucide-react';
 
@@ -27,7 +28,7 @@ export default function ActionWaybillModal({
       await waybillService.cancelWaybill(waybill.id, reason);
       onSuccess(`${waybill.waybillNumber} no'lu irsaliye iptal edildi, sipariş sevk miktarı ve stok geri yüklendi.`);
     } catch (err: any) {
-      alert('İptal işlemi başarısız: ' + err.message);
+      showToast('İptal işlemi başarısız: ' + err.message, 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -35,14 +36,14 @@ export default function ActionWaybillModal({
 
   const handleDelete = async () => {
     if (!waybill.id || isDeleting) return;
-    if (!confirm('Bu irsaliye kaydını kalıcı olarak silmek istediğinize emin misiniz?')) return;
+    if (!(await confirmDialog('Bu irsaliye kaydını kalıcı olarak silmek istediğinize emin misiniz?', { tone: 'danger', confirmText: 'Sil' }))) return;
 
     setIsDeleting(true);
     try {
       await waybillService.deleteWaybill(waybill.id);
       onSuccess(`${waybill.waybillNumber} no'lu irsaliye kalıcı olarak silindi.`);
     } catch (err: any) {
-      alert('Silme işlemi başarısız: ' + err.message);
+      showToast('Silme işlemi başarısız: ' + err.message, 'error');
     } finally {
       setIsDeleting(false);
     }

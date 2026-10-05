@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import type { Account, AccountType } from '../../types';
 import { accountingService } from '../../services/accountingService';
+import { showToast } from '../../lib/feedback';
 
 interface Props {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export default function AddAccountModal({ isOpen, onClose, parentAccounts, onSuc
     e.preventDefault();
 
     if (!code.trim() || !name.trim()) {
-      alert('Lütfen hesap kodu ve hesap adı giriniz.');
+      showToast('Lütfen hesap kodu ve hesap adı giriniz.', 'warning');
       return;
     }
 
@@ -54,7 +55,7 @@ export default function AddAccountModal({ isOpen, onClose, parentAccounts, onSuc
       onSuccess();
       onClose();
     } catch (err: any) {
-      alert(`Hesap ekleme hatası: ${err.message}`);
+      showToast(`Hesap ekleme hatası: ${err.message}`, 'error');
     }
   };
 
@@ -117,7 +118,7 @@ export default function AddAccountModal({ isOpen, onClose, parentAccounts, onSuc
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Para Birimi

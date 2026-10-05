@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { CheckCircle2, Building2, Printer, ExternalLink, Split, Loader2 } from 'lucide-react';
 import Modal from '../Modal';
 import DataGrid, { type GridColumn } from '../Common/DataGrid';
+import { ContactSelect } from '../Contacts/ContactSelect';
 import { productionService } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
 import { formatQuantity, roundUpQuantity } from '../../lib/inventoryCalculator';
 import { getMrpKey } from './mrpUtils';
 import type { MrpCalculationResult, MrpRequirementItem, Contact } from '../../types';
@@ -112,10 +114,16 @@ export default function MrpPurchaseOrderModal({
         const isPredefined = item.preferredSupplierId && currentSupId === item.preferredSupplierId;
         return (
           <div className="flex items-center gap-2">
-            <select
-              value={currentSupId || ''}
-              onChange={e => {
-                const val = Number(e.target.value) || 0;
+            <ContactSelect
+              compact
+              className="max-w-[200px]"
+              contacts={contacts ?? []}
+              allowTypes={['supplier', 'both']}
+              value={currentSupId || null}
+              placeholder="Tedarikçi Seçin..."
+              emptyOptionLabel="Tedarikçi Seçilmedi"
+              onChange={(id) => {
+                const val = id ?? 0;
                 setItemSuppliers(prev => {
                   const updated = { ...prev, [itemKey]: val, [String(item.rawMaterialId)]: val };
                   mrpResult?.items.forEach(otherItem => {
@@ -126,15 +134,7 @@ export default function MrpPurchaseOrderModal({
                   return updated;
                 });
               }}
-              className="w-full max-w-[200px] border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-bold bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
-            >
-              <option value="">Tedarikçi Seçin...</option>
-              {contacts?.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
-                <option key={`po-sup-opt-${itemKey}-${c.id}`} value={c.id}>
-                  {c.name} {c.id === item.preferredSupplierId ? '(Tanımlı)' : ''}
-                </option>
-              ))}
-            </select>
+            />
             {isPredefined && (
               <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded shrink-0">
                 Kayıtlı
@@ -164,7 +164,7 @@ export default function MrpPurchaseOrderModal({
   // Create Purchase Order from MRP shortages (multi-supplier auto split)
   const handleCreatePurchaseOrderFromMRP = async () => {
     if (selectedMrpKeys.length === 0) {
-      alert('Lütfen satın alma siparişi oluşturmak için en az bir hammadde seçin.');
+      showToast('Lütfen satın alma siparişi oluşturmak için en az bir hammadde seçin.', 'warning');
       return;
     }
 
@@ -187,7 +187,7 @@ export default function MrpPurchaseOrderModal({
       });
 
     if (itemsToBuy.length === 0) {
-      alert('Seçilen kalemler arasında eksik stok bulunmuyor.');
+      showToast('Seçilen kalemler arasında eksik stok bulunmuyor.', 'info');
       return;
     }
 
@@ -202,7 +202,7 @@ export default function MrpPurchaseOrderModal({
       // Recalculate MRP to update onOrderQuantity, po_created status and prevent duplicates
       await onCreated();
     } catch (err: any) {
-      alert(`Sipariş oluşturma hatası: ${err.message}`);
+      showToast(`Sipariş oluşturma hatası: ${err.message}`, 'error');
     } finally {
       setIsCreatingPO(false);
     }
@@ -301,16 +301,15 @@ export default function MrpPurchaseOrderModal({
                 Toplu Tedarikçi Ata:
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <select
-                  value={batchSupplierId || ''}
-                  onChange={e => setBatchSupplierId(Number(e.target.value) || null)}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none"
-                >
-                  <option value="">Tedarikçi Seçin...</option>
-                  {contacts?.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <ContactSelect
+                  className="min-w-[220px]"
+                  contacts={contacts ?? []}
+                  allowTypes={['supplier', 'both']}
+                  value={batchSupplierId}
+                  placeholder="Tedarikçi Seçin..."
+                  emptyOptionLabel="Tedarikçi Seçilmedi"
+                  onChange={(id) => setBatchSupplierId(id)}
+                />
                 <button
                   type="button"
                   disabled={!batchSupplierId}

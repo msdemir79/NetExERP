@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 export type ExcelCellType = 'text' | 'number' | 'select' | 'combobox' | 'readonly';
 
@@ -66,6 +67,7 @@ export default function ExcelGrid<T>({
   const [combo, setCombo] = useState<ComboState>(null);
   const [comboPos, setComboPos] = useState<{ top: number; left: number; width: number; dropUp: boolean } | null>(null);
   const comboListRef = useRef<HTMLDivElement | null>(null);
+  const isMobile = useIsMobile();
 
   // Liste, grid'in overflow kapsayıcısında kırpılmasın diye portal ile body'ye çizilir;
   // anchor hücresinin ekran konumuna sabitlenir, yer yoksa yukarı açılır.
@@ -352,6 +354,45 @@ export default function ExcelGrid<T>({
   return (
     <>
     <div className="border border-slate-300 dark:border-slate-600 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+      {isMobile ? (
+        <div className="overflow-auto" style={{ maxHeight }}>
+          {rows.length === 0 ? (
+            <div className="p-10 text-center text-slate-400">
+              {emptyHint || 'Satır eklemek için aşağıdaki butona tıklayın veya bir hücreye yazmaya başlayın.'}
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-200 dark:divide-slate-700">
+              {rows.map((row, rowIndex) => (
+                <div key={rowKey ? rowKey(row, rowIndex) : rowIndex} className="space-y-2 p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Satır {rowIndex + 1}</span>
+                    {onRemoveRow && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveRow(rowIndex)}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold text-rose-600 transition-colors hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"
+                        title="Satırı Sil"
+                      >
+                        <X className="w-3.5 h-3.5" /> Sil
+                      </button>
+                    )}
+                  </div>
+                  {columns.map((col, colIndex) => (
+                    <div key={colIndex}>
+                      <label className="mb-0.5 block text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        {col.title}{col.required && <span className="text-rose-500 ml-0.5">*</span>}
+                      </label>
+                      <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 focus-within:border-indigo-400">
+                        {renderCell(row, rowIndex, col, colIndex)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="overflow-auto" style={{ maxHeight }}>
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-20">
@@ -406,10 +447,13 @@ export default function ExcelGrid<T>({
           </tbody>
         </table>
       </div>
+      )}
       <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-2 flex items-center justify-between">
+        {!isMobile && (
         <span className="text-[10px] font-medium text-slate-400 px-1">
           İpucu: <kbd className="px-1 py-0.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[9px] font-bold">Tab</kbd> sonraki hücre/alt satır • <kbd className="px-1 py-0.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[9px] font-bold">Enter</kbd> alt satır
         </span>
+        )}
         <button
           type="button"
           onClick={() => { const idx = addRow(); setTimeout(() => focusCell(idx, focusableIdx[0]), 0); }}

@@ -25,7 +25,7 @@ while ((m = tableRe.exec(sql))) {
 const jsonColumns = {
   assortmentTemplates: ['items'],
   barcodeTemplates: ['config'],
-  products: ['colorBoxBarcodes', 'variantBarcodes', 'colors', 'assortment', 'colorImages'],
+  products: ['colorBoxBarcodes', 'variantBarcodes', 'assortment', 'colorImages'],
   recipes: ['ingredients'],
   workOrders: ['assortmentBreakdown', 'stages'],
   settings: ['company', 'stock', 'order', 'production', 'finance', 'hr'],

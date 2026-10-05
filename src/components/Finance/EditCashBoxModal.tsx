@@ -131,7 +131,7 @@ export default function EditCashBoxModal({
           )}
 
           {/* Kasa Kodu ve TDHP Kodu */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Kasa Kodu <span className="text-rose-500">*</span>
@@ -203,7 +203,7 @@ export default function EditCashBoxModal({
           </div>
 
           {/* Bakiye ve Para Birimi */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Güncel Bakiye

@@ -27,7 +27,8 @@ import {
 import { cn } from '../../lib/utils';
 import PageHeader from '../PageHeader';
 import LabelPreviewPanel from './BarcodeCenter/LabelPreviewPanel';
-import { getColorSwatch } from '../../lib/colorSwatches';
+import ColorSwatch from '../Colors/ColorSwatch';
+import { useColorHexByName } from '../Colors/useColorMaster';
 import { printHtml, openPrintWindow } from '../../lib/printService';
 import { resizeAndOptimizeImage } from '../../utils/imageUtils';
 
@@ -49,6 +50,7 @@ export default function BarcodeCenter() {
   const products = useApiQuery(() => api.products.list(), [], ['products']) || [];
   const templates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']) || [];
   const dbBarcodeTemplates = useApiQuery(() => api.barcodeTemplates.list(), [], ['barcodeTemplates']) || [];
+  const hexOf = useColorHexByName();
 
   const product = useMemo(
     () => products.find(p => String(p.id) === productIdParam) || null,
@@ -652,7 +654,6 @@ export default function BarcodeCenter() {
                     {availableColors.map(color => {
                       const count = boxCounts[color] || 0;
                       const barcode = getBoxBarcode(color);
-                      const swatch = getColorSwatch(color);
                       return (
                         <div
                           key={color}
@@ -660,10 +661,7 @@ export default function BarcodeCenter() {
                         >
                           <div className="min-w-0 space-y-0.5">
                             <div className="flex items-center gap-2">
-                              <span
-                                className="w-3 h-3 rounded-full border shrink-0"
-                                style={{ backgroundColor: swatch.bg, borderColor: swatch.border }}
-                              />
+                              <ColorSwatch name={color} hexCode={hexOf(color)} size={12} className="rounded-full" />
                               <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase">
                                 {color}
                               </span>
@@ -800,7 +798,6 @@ export default function BarcodeCenter() {
                     <div className="flex flex-wrap gap-1.5">
                       {availableColors.map(color => {
                         const isSelected = selectedVariantColors.includes(color);
-                        const swatch = getColorSwatch(color);
                         return (
                           <button
                             key={color}
@@ -823,10 +820,7 @@ export default function BarcodeCenter() {
                                 : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400"
                             )}
                           >
-                            <span
-                              className="w-2.5 h-2.5 rounded-full border border-white/40"
-                              style={{ backgroundColor: swatch.bg, borderColor: swatch.border }}
-                            />
+                            <ColorSwatch name={color} hexCode={hexOf(color)} size={10} className="rounded-full" />
                             {color}
                           </button>
                         );
@@ -848,14 +842,10 @@ export default function BarcodeCenter() {
                   </div>
                   <div className="space-y-2.5">
                     {selectedVariantColors.map(color => {
-                      const swatch = getColorSwatch(color);
                       return (
                         <div key={color} className="p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                           <div className="text-[10px] font-black text-slate-700 dark:text-slate-200 uppercase flex items-center gap-1.5">
-                            <span
-                              className="w-2.5 h-2.5 rounded-full border"
-                              style={{ backgroundColor: swatch.bg, borderColor: swatch.border }}
-                            />
+                            <ColorSwatch name={color} hexCode={hexOf(color)} size={10} className="rounded-full" />
                             Renk: {color}
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
@@ -1111,7 +1101,7 @@ export default function BarcodeCenter() {
                     </span>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Genişlik</label>
                     <div className="flex items-center gap-1 bg-white dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-600 p-1">

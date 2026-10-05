@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { getCartonSize, resolveAssortment } from '../lib/carton';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import ExcelGrid, { type ExcelColumn } from './Common/ExcelGrid';
 import Modal from './Modal';
@@ -33,6 +34,7 @@ import { PurchaseOrderPrintModal } from './Orders/PurchaseOrderPrintModal';
 import OrderDetailModal from './Orders/OrderDetailModal';
 import DeleteOrderConfirmModal from './Orders/DeleteOrderConfirmModal';
 import BlockedOrderModal from './Orders/BlockedOrderModal';
+import { ContactSelect } from './Contacts/ContactSelect';
 import { orderService } from '../services/orderService';
 import { productionService } from '../services/productionService';
 import PageHeader from './PageHeader';
@@ -205,6 +207,7 @@ export default function Orders() {
     name: string;
     code: string;
     color?: string;
+    colorId?: number | null;
     size?: string;
     isFootwear?: boolean;
     assortmentTemplateId?: number;
@@ -517,12 +520,8 @@ export default function Orders() {
       )
       .slice(0, 30)
       .map(p => {
-        const assortment: { size: string; quantity: number }[] =
-          (p.assortmentTemplateId ? (templates || []).find(t => t.id === p.assortmentTemplateId)?.items : null)
-          || (p.assortment?.length ? p.assortment : []);
-        const ppb = assortment.length
-          ? assortment.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
-          : ((p.multiplier || 0) > 1 ? (p.multiplier as number) : 0);
+        const assortment = resolveAssortment(p, templates);
+        const ppb = getCartonSize(p, templates);
         const isAssorti = Boolean(p.isFootwear || assortment.length > 0) && ppb > 0;
         const matrix: { [size: string]: number } = {};
         if (isAssorti) assortment.forEach(it => { matrix[it.size] = Number(it.quantity) || 0; });
@@ -1217,17 +1216,13 @@ export default function Orders() {
 
               <div className="space-y-1 col-span-2 md:col-span-2 xl:col-span-2">
                 <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cari Seçimi</label>
-                <select 
-                  required
-                  value={selectedContactId || ''}
-                  onChange={(e) => setSelectedContactId(Number(e.target.value))}
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-bold bg-white dark:bg-slate-900 outline-none"
-                >
-                  <option value="">Cari Seçiniz...</option>
-                  {contacts?.filter(c => c.type === (formOrderType === 'sales' ? 'customer' : 'supplier')).map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <ContactSelect
+                  contacts={contacts ?? []}
+                  value={selectedContactId}
+                  allowTypes={formOrderType === 'sales' ? ['customer', 'both'] : ['supplier', 'both']}
+                  placeholder="Cari Seçiniz..."
+                  onChange={(id) => setSelectedContactId(id)}
+                />
               </div>
 
               <div className="space-y-1">
@@ -1377,10 +1372,10 @@ export default function Orders() {
       <ColorSizePickerModal
         product={colorPick?.product || null}
         onClose={() => setColorPick(null)}
-        onSelect={(color) => {
+        onSelect={(color, colorId) => {
           if (colorPick) {
             const idx = colorPick.rowIndex;
-            setOrderItems(prev => prev.map((it, i) => (i === idx ? { ...it, color } : it)));
+            setOrderItems(prev => prev.map((it, i) => (i === idx ? { ...it, color, colorId: colorId ?? null } : it)));
           }
           setColorPick(null);
         }}

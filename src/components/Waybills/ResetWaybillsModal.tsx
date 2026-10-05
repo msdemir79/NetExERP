@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { waybillService } from '../../services/waybillService';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import { X, AlertTriangle, RotateCcw } from 'lucide-react';
 
 // =========================================================================================
@@ -19,7 +20,7 @@ export default function ResetWaybillsModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleReset = async () => {
-    if (!confirm('DİKKAT: Tüm irsaliyeler silinecektir. Devam etmek istiyor musunuz?')) return;
+    if (!(await confirmDialog('DİKKAT: Tüm irsaliyeler silinecektir. Devam etmek istiyor musunuz?', { tone: 'danger', confirmText: 'Sıfırla' }))) return;
 
     setIsSubmitting(true);
     try {
@@ -29,7 +30,7 @@ export default function ResetWaybillsModal({
       });
       onSuccess();
     } catch (err: any) {
-      alert('Sıfırlama sırasında hata oluştu: ' + err.message);
+      showToast('Sıfırlama sırasında hata oluştu: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);
     }

@@ -1,7 +1,9 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface ModalProps {
   isOpen: boolean;
@@ -14,6 +16,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   allowFullscreen?: boolean;
   defaultFullscreen?: boolean;
+  /** Başka bir modalın içinden açılıyorsa ESC yalnızca bu modalı kapatır. */
+  nested?: boolean;
 }
 
 export default function Modal({ 
@@ -26,9 +30,14 @@ export default function Modal({
   headerActions,
   footer,
   allowFullscreen = true,
-  defaultFullscreen = false
+  defaultFullscreen = false,
+  nested = false
 }: ModalProps) {
   const [isFullscreen, setIsFullscreen] = React.useState(defaultFullscreen);
+  const isMobile = useIsMobile();
+  // Telefonda modal her zaman tam ekran: küçük ekranda kenar boşluğu/yuvarlatma
+  // alanı çalıyor ve içerik kırpılıyordu.
+  const fullscreen = isFullscreen || isMobile;
 
   React.useEffect(() => {
     if (isOpen) {
@@ -38,17 +47,21 @@ export default function Modal({
 
   React.useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // İç içe modallarda ESC alttaki modalı da kapatırdı ve orada girilen
+      // veriler kaybolurdu; yakalama fazında dinleyip olayı burada kesiyoruz.
+      if (nested) e.stopPropagation();
+      onClose();
     };
     if (isOpen) {
-      window.addEventListener('keydown', handleEsc);
+      window.addEventListener('keydown', handleEsc, nested);
       document.body.style.overflow = 'hidden';
     }
     return () => {
-      window.removeEventListener('keydown', handleEsc);
+      window.removeEventListener('keydown', handleEsc, nested);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, nested]);
 
   const sizeClasses: Record<string, string> = {
     sm: 'max-w-lg',
@@ -61,7 +74,7 @@ export default function Modal({
     full: 'max-w-[98vw]'
   };
 
-  return (
+  const content = (
     <AnimatePresence>
       {isOpen && (
         <motion.div 
@@ -70,8 +83,9 @@ export default function Modal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className={cn(
-            "fixed inset-0 z-[60] flex items-center justify-center overflow-hidden transition-all",
-            isFullscreen ? "p-0 sm:p-1 md:p-2" : "p-2 sm:p-4 md:p-6"
+            "fixed inset-0 flex items-center justify-center overflow-hidden transition-all",
+            nested ? "z-[80]" : "z-[60]",
+            isMobile ? "p-0" : fullscreen ? "p-0 sm:p-1 md:p-2" : "p-2 sm:p-4 md:p-6"
           )}
         >
           <div
@@ -80,27 +94,29 @@ export default function Modal({
           />
           <motion.div
             key="modal-panel"
-            initial={{ opacity: 0, scale: 0.96, y: 15 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 15 }}
+            initial={isMobile ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.96, y: 15 }}
+            animate={isMobile ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+            exit={isMobile ? { opacity: 0, y: "100%" } : { opacity: 0, scale: 0.96, y: 15 }}
             transition={{ type: "spring", duration: 0.35, bounce: 0.1 }}
             className={cn(
               "relative z-10 bg-white dark:bg-slate-900 w-full shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700/80 transition-all duration-200",
-              isFullscreen 
-                ? "h-[98vh] max-h-[99vh] max-w-[99vw] rounded-xl sm:rounded-2xl" 
+              isMobile
+                ? "h-full max-h-full w-full max-w-full rounded-none border-0"
+                : fullscreen
+                ? "h-[98vh] max-h-[99vh] max-w-[99vw] rounded-xl sm:rounded-2xl"
                 : cn("max-h-[94vh] rounded-2xl md:rounded-3xl", sizeClasses[size] || sizeClasses.xl),
               className
             )}
           >
             {/* Modal Header */}
-            <div className="px-6 py-4.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 sticky top-0 z-20">
-              <h3 className="text-base font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2.5">
+            <div className="px-4 py-3.5 sm:px-6 sm:py-4.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0 sticky top-0 z-20">
+              <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shadow-sm shadow-indigo-600/30"></span>
                 {title}
               </h3>
               <div className="flex items-center gap-2">
                 {headerActions}
-                {allowFullscreen && (
+                {allowFullscreen && !isMobile && (
                   <button
                     type="button"
                     onClick={() => setIsFullscreen(prev => !prev)}
@@ -122,7 +138,7 @@ export default function Modal({
             </div>
 
             {/* Modal Scrollable Body */}
-            <div className="p-4 sm:p-6 md:p-7 overflow-y-auto overscroll-contain flex-1 min-h-0">
+            <div className="p-3 sm:p-6 md:p-7 overflow-y-auto overscroll-contain flex-1 min-h-0">
               {children}
             </div>
 
@@ -137,4 +153,9 @@ export default function Modal({
       )}
     </AnimatePresence>
   );
+
+  // İç içe modal document.body'ye taşınır: ev sahibi modalın <form> elemanının
+  // içinde kalırsa iç içe <form> geçersiz HTML olur ve iç formun submit olayı
+  // dış formun kaydetmesini de tetikler.
+  return nested ? createPortal(content, document.body) : content;
 }

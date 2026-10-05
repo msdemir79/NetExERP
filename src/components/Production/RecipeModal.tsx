@@ -9,14 +9,43 @@ import {
   Check,
   Package,
   Search,
-  Tag
+  Tag,
+  Boxes
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import Modal from '../Modal';
 import { productionService } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
+import { ingredientPerUnit } from '../../lib/inventoryCalculator';
+import { getCartonSize } from '../../lib/carton';
+import { api } from '../../api/client';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import type { Product, Recipe, RecipeIngredient } from '../../types';
-import ColorCombobox, { getProductAvailableColors } from './ColorCombobox';
+import { ColorSelect } from '../Colors/ColorSelect';
+import ColorSwatch from '../Colors/ColorSwatch';
 import CopyRecipeModal from './CopyRecipeModal';
+
+/**
+ * Bir malzeme kartına kayıtlı tüm renk adları (merkezî kart bağı + varyant ve
+ * koli barkodlarındaki tarihsel renkler). Reçete satırında malzeme rengi bu
+ * sözlükle eşleştirilir.
+ */
+function getProductAvailableColors(prod?: Product): string[] {
+  if (!prod) return [];
+  const colorSet = new Set<string>();
+
+  if (Array.isArray(prod.colors)) {
+    prod.colors.forEach(c => c && colorSet.add(c.trim().toUpperCase()));
+  }
+  if (Array.isArray(prod.variantBarcodes)) {
+    prod.variantBarcodes.forEach(v => v.color && colorSet.add(v.color.trim().toUpperCase()));
+  }
+  if (Array.isArray(prod.colorBoxBarcodes)) {
+    prod.colorBoxBarcodes.forEach(cb => cb.color && colorSet.add(cb.color.trim().toUpperCase()));
+  }
+
+  return Array.from(colorSet).filter(Boolean);
+}
 
 interface RecipeModalProps {
   isOpen: boolean;
@@ -42,14 +71,14 @@ const DEPARTMENTS = [
 ];
 
 const PRESET_PARTS = [
-  { label: 'Taban', department: 'MONTA', partName: 'TABAN', unit: 'Çift', isMatrix: true },
-  { label: 'Mostra', department: 'MONTA', partName: 'MOSTRA', unit: 'Çift', isMatrix: true },
-  { label: 'Fuspet', department: 'MONTA', partName: 'FUSPET', unit: 'Çift', isMatrix: true },
-  { label: 'Saya Derisi', department: 'KESİM', partName: 'SAYA', unit: 'dm²', isMatrix: false },
-  { label: 'Astar', department: 'KESİM', partName: 'DİL / GAMBA ASTAR', unit: 'dm²', isMatrix: false },
-  { label: 'Bağcık', department: 'BAĞCIK', partName: 'BAĞCIK', unit: 'Çift', isMatrix: false },
-  { label: 'Ayakkabı Kutusu', department: 'AMBALAJ', partName: 'KUTU', unit: 'Adet', isMatrix: false },
-  { label: 'Koli', department: 'AMBALAJ', partName: 'KOLİ', unit: 'Adet', isMatrix: false },
+  { label: 'Taban', department: 'MONTA', partName: 'TABAN', unit: 'Çift', isMatrix: true, cartonBasis: false },
+  { label: 'Mostra', department: 'MONTA', partName: 'MOSTRA', unit: 'Çift', isMatrix: true, cartonBasis: false },
+  { label: 'Fuspet', department: 'MONTA', partName: 'FUSPET', unit: 'Çift', isMatrix: true, cartonBasis: false },
+  { label: 'Saya Derisi', department: 'KESİM', partName: 'SAYA', unit: 'dm²', isMatrix: false, cartonBasis: false },
+  { label: 'Astar', department: 'KESİM', partName: 'DİL / GAMBA ASTAR', unit: 'dm²', isMatrix: false, cartonBasis: false },
+  { label: 'Bağcık', department: 'BAĞCIK', partName: 'BAĞCIK', unit: 'Çift', isMatrix: false, cartonBasis: false },
+  { label: 'Ayakkabı Kutusu', department: 'AMBALAJ', partName: 'KUTU', unit: 'Adet', isMatrix: false, cartonBasis: false },
+  { label: 'Koli', department: 'AMBALAJ', partName: 'KOLİ', unit: 'Adet', isMatrix: false, cartonBasis: true },
 ];
 
 export const RecipeModal: React.FC<RecipeModalProps> = ({
@@ -79,6 +108,15 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
 
   const productMap = useMemo(() => new Map(products.map(p => [p.id!, p])), [products]);
 
+  const assortmentTemplates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']);
+  const currentProduct = productMap.get(selectedProductId);
+  /** Mamulün koli içi adedi (asorti toplamı, yoksa koli çarpanı). Ambalaj satırlarının bazı buradan dolar. */
+  const cartonSize = useMemo(
+    () => getCartonSize(currentProduct, assortmentTemplates),
+    [currentProduct, assortmentTemplates]
+  );
+  const finishedUnit = currentProduct?.unit || 'Çift';
+
   // Load recipe for given product and color
   const loadRecipe = (productId: number, targetColor: string) => {
     setSelectedProductId(productId);
@@ -91,7 +129,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
       setRecipeIngredients(existing.ingredients.map(ing => ({
         ...ing,
         quantity: ing.quantity || 1,
-        wasteRate: ing.wasteRate || 0
+        basisQty: Number(ing.basisQty) > 0 ? Number(ing.basisQty) : 1
       })));
       setRecipeLaborCost(existing.laborCost || 0);
       setRecipeNotes(existing.notes || '');
@@ -109,7 +147,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
           return {
             ...ing,
             color: hasColor ? targetColor : ing.color,
-            wasteRate: ing.wasteRate || 0
+            basisQty: Number(ing.basisQty) > 0 ? Number(ing.basisQty) : 1
           };
         }));
         setRecipeLaborCost(generic.laborCost || 0);
@@ -125,9 +163,9 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
       partName: '',
       color: targetColor !== 'all' ? targetColor : undefined,
       quantity: 1,
+      basisQty: 1,
       unit: 'Adet',
-      isMatrixMatched: false,
-      wasteRate: 0
+      isMatrixMatched: false
     }]);
     setRecipeLaborCost(0);
     setRecipeNotes('');
@@ -145,7 +183,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
     const allProdRecipes = recipes.filter(r => r.productId === selectedProductId);
     const srcRecipe = allProdRecipes.find(r => (r.targetColor || 'all') === fromColor);
     if (!srcRecipe) {
-      alert(`"${fromColor}" varyantı için kayıtlı reçete bulunamadı.`);
+      showToast(`"${fromColor}" varyantı için kayıtlı reçete bulunamadı.`, 'warning');
       return;
     }
 
@@ -165,7 +203,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
         ...ing,
         color: adaptedColor,
         isMatrixMatched: ing.isMatrixMatched ?? isSemi,
-        wasteRate: ing.wasteRate || 0
+        basisQty: Number(ing.basisQty) > 0 ? Number(ing.basisQty) : 1
       };
     });
 
@@ -184,15 +222,20 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
         partName: '',
         color: selectedRecipeTargetColor !== 'all' ? selectedRecipeTargetColor : undefined,
         quantity: 1,
+        basisQty: 1,
         unit: 'Adet',
-        isMatrixMatched: false,
-        wasteRate: 0
+        isMatrixMatched: false
       }
     ]);
   };
 
   // Quick Preset Add
   const handleAddPreset = (preset: typeof PRESET_PARTS[0]) => {
+    // Koli gibi "koli başına 1" kalemlerde baz, mamulün koli içi adedinden doldurulur.
+    const basis = preset.cartonBasis && cartonSize > 1 ? cartonSize : 1;
+    if (preset.cartonBasis && cartonSize <= 1) {
+      showToast('Mamul kartında koli bilgisi (asorti veya koli çarpanı) tanımlı değil. Bazı elle girin.', 'warning');
+    }
     setRecipeIngredients(prev => [
       ...prev,
       {
@@ -201,9 +244,9 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
         partName: preset.partName,
         color: selectedRecipeTargetColor !== 'all' ? selectedRecipeTargetColor : undefined,
         quantity: 1,
+        basisQty: basis,
         unit: preset.unit,
-        isMatrixMatched: preset.isMatrix,
-        wasteRate: 0
+        isMatrixMatched: preset.isMatrix
       }
     ]);
   };
@@ -259,12 +302,12 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
   const handleSaveRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProductId) {
-      alert('Lütfen bir hedef model seçin.');
+      showToast('Lütfen bir hedef model seçin.', 'warning');
       return;
     }
     const validIngredients = recipeIngredients.filter(i => i.productId > 0 && i.quantity > 0);
     if (validIngredients.length === 0) {
-      alert('Reçete için en az bir hammadde veya yarı mamul ve geçerli miktar girilmelidir.');
+      showToast('Reçete için en az bir hammadde veya yarı mamul ve geçerli miktar girilmelidir.', 'warning');
       return;
     }
 
@@ -279,7 +322,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
       onSaveSuccess();
       onClose();
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
   };
 
@@ -296,13 +339,13 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
   const handleExecuteCopy = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProductId || copyTargetColors.length === 0) {
-      alert('Lütfen en az bir hedef renk seçin.');
+      showToast('Lütfen en az bir hedef renk seçin.', 'warning');
       return;
     }
 
     const validIngredients = recipeIngredients.filter(i => i.productId > 0 && i.quantity > 0);
     if (validIngredients.length === 0) {
-      alert('Kopyalanacak reçetede en az 1 geçerli malzeme bulunmalıdır.');
+      showToast('Kopyalanacak reçetede en az 1 geçerli malzeme bulunmalıdır.', 'warning');
       return;
     }
 
@@ -337,7 +380,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
         setCopyFeedbackMsg(null);
       }, 1200);
     } catch (err: any) {
-      alert(`Kopyalama hatası: ${err.message}`);
+      showToast(`Kopyalama hatası: ${err.message}`, 'error');
     }
   };
 
@@ -358,24 +401,31 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
     });
   }, [recipeIngredients, filterDepartment, gridSearchQuery, productMap]);
 
-  // Live Cost Calculations
-  const { totalMaterialCost, totalCost } = useMemo(() => {
+  // Maliyetler 1 mamul (çift) bazındadır; koli maliyeti buradan türetilir.
+  const { totalMaterialCost, totalCost, cartonCost } = useMemo(() => {
     let matCost = 0;
     recipeIngredients.forEach(ing => {
       if (ing.productId > 0 && ing.quantity > 0) {
-        const mat = productMap.get(ing.productId);
-        const unitPrice = mat?.buyingPrice || 0;
-        const wasteMultiplier = 1 + (Number(ing.wasteRate) || 0) / 100;
-        matCost += unitPrice * ing.quantity * wasteMultiplier;
+        const unitPrice = productMap.get(ing.productId)?.buyingPrice || 0;
+        matCost += unitPrice * ingredientPerUnit(ing);
       }
     });
+    const cost = matCost + (Number(recipeLaborCost) || 0);
     return {
       totalMaterialCost: matCost,
-      totalCost: matCost + (Number(recipeLaborCost) || 0)
+      totalCost: cost,
+      cartonCost: cartonSize > 1 ? cost * cartonSize : 0
     };
-  }, [recipeIngredients, recipeLaborCost, productMap]);
+  }, [recipeIngredients, recipeLaborCost, productMap, cartonSize]);
 
-  const currentProduct = productMap.get(selectedProductId);
+  // Grid alt toplam satırı (T.Miktar)
+  const gridTotals = useMemo(() => {
+    let qty = 0;
+    filteredRows.forEach(({ item }) => {
+      qty += Number(item.quantity) || 0;
+    });
+    return { qty };
+  }, [filteredRows]);
 
   return (
     <>
@@ -414,6 +464,15 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                 {currentProduct && (
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2 pt-0.5">
                     <span className="bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">Kod: {currentProduct.code}</span>
+                    {cartonSize > 0 && (
+                      <span
+                        className="bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded text-[10px] font-black flex items-center gap-1"
+                        title="Koli içi mamul adedi (asorti toplamı, yoksa koli çarpanı). Ambalaj satırlarının bazı buradan doldurulur."
+                      >
+                        <Boxes className="w-3 h-3" />
+                        {cartonSize} {finishedUnit.toLocaleLowerCase('tr')} / koli
+                      </span>
+                    )}
                     {currentProduct.moldCode && <span className="text-slate-600 dark:text-slate-300 font-bold">Kalıp: {currentProduct.moldCode}</span>}
                     {currentProduct.moldGroup && <span className="text-slate-400">({currentProduct.moldGroup})</span>}
                   </div>
@@ -467,6 +526,12 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                               : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300"
                           )}
                         >
+                          <ColorSwatch
+                            name={col}
+                            hexCode={currentProduct?.colorRefs?.find(ref => (ref.name || '').toLocaleUpperCase('tr') === col.toLocaleUpperCase('tr'))?.hexCode}
+                            size={14}
+                            className="rounded-full shrink-0"
+                          />
                           <span>{col}</span>
                           {hasColorRecipe ? (
                             <span className={cn(
@@ -482,21 +547,20 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                       );
                     })}
 
-                    {/* Quick Add other color */}
-                    <input
-                      type="text"
+                    {/* Kartta tanımlı olmayan bir renge reçete açmak için merkezî listeden seçim */}
+                    <ColorSelect
+                      compact
+                      allowClear={false}
+                      className="w-44"
                       placeholder="+ Başka Renk..."
-                      className="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 rounded-xl px-2.5 py-1 text-xs font-bold uppercase w-32 focus:outline-none focus:border-indigo-500 shadow-2xs"
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = (e.target as HTMLInputElement).value.trim();
-                          if (val) {
-                            loadRecipe(selectedProductId, val);
-                            (e.target as HTMLInputElement).value = '';
-                          }
-                        }
-                      }}
+                      valueName={
+                        selectedRecipeTargetColor &&
+                        selectedRecipeTargetColor !== 'all' &&
+                        !(currentProduct?.colors || []).includes(selectedRecipeTargetColor)
+                          ? selectedRecipeTargetColor
+                          : null
+                      }
+                      onChange={(_colorId, color) => { if (color) loadRecipe(selectedProductId, color.name); }}
                     />
                   </div>
                 ) : (
@@ -616,11 +680,21 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                         <span>Malzeme Rengi</span>
                       </div>
                     </th>
-                    <th className="py-2.5 px-2 text-center w-24 border-r border-slate-200 dark:border-slate-700">Birim Sarfiyat</th>
+                    <th className="py-2.5 px-2 text-center w-40 border-r border-slate-200 dark:border-slate-700" title="Miktar / kaç mamul için geçerli">
+                      <span className="block">Birim Sarfiyat</span>
+                      <span className="block text-[10px] font-bold normal-case tracking-normal text-slate-600 dark:text-slate-300">
+                        miktar / kaç {finishedUnit.toLocaleLowerCase('tr')}
+                      </span>
+                    </th>
                     <th className="py-2.5 px-2 text-center w-20 border-r border-slate-200 dark:border-slate-700">Birim</th>
-                    <th className="py-2.5 px-2 text-center w-16 border-r border-slate-200 dark:border-slate-700" title="Fire / Zayiat Oranı (%)">Fire %</th>
                     <th className="py-2.5 px-3 text-center w-36 border-r border-slate-200 dark:border-slate-700">Asorti Eşleme</th>
-                    <th className="py-2.5 px-3 text-right w-28 border-r border-slate-200 dark:border-slate-700">Tahmini Tutar</th>
+                    <th className="py-2.5 px-2 text-right w-24 border-r border-slate-200 dark:border-slate-700" title="Malzemenin kendi stok kartındaki alış fiyatı">
+                      <span className="block">Birim Fiyat</span>
+                      <span className="block text-[10px] font-bold normal-case tracking-normal text-slate-600 dark:text-slate-300">karttan</span>
+                    </th>
+                    <th className="py-2.5 px-3 text-right w-28 border-r border-slate-200 dark:border-slate-700" title={`1 ${finishedUnit} mamulün bu malzemeden taşıdığı maliyet`}>
+                      <span className="block">1 {finishedUnit} Tutar</span>
+                    </th>
                     <th className="py-2.5 px-2 text-center w-16">İşlem</th>
                   </tr>
                 </thead>
@@ -637,10 +711,9 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                   ) : (
                     filteredRows.map(({ item: ing, originalIndex: idx }, visualIdx) => {
                       const selectedMat = productMap.get(ing.productId);
-                      const availableColors = getProductAvailableColors(selectedMat);
                       const unitPrice = selectedMat?.buyingPrice || 0;
-                      const wasteMultiplier = 1 + (Number(ing.wasteRate) || 0) / 100;
-                      const lineCost = unitPrice * (ing.quantity || 0) * wasteMultiplier;
+                      const perUnit = ingredientPerUnit(ing);
+                      const lineCost = unitPrice * perUnit;
 
                       return (
                         <tr
@@ -727,36 +800,78 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                             </select>
                           </td>
 
-                          {/* 5. Malzeme Rengi (DYNAMIC COMBOBOX) */}
+                          {/* 5. Malzeme Rengi (merkezî renk kartından seçilir) */}
                           <td className="py-1.5 px-2 border-r border-slate-200 dark:border-slate-800">
-                            <ColorCombobox
-                              value={ing.color || ''}
-                              onChange={(newCol) => {
+                            <ColorSelect
+                              compact
+                              valueName={ing.color || null}
+                              highlightName={selectedRecipeTargetColor !== 'all' ? selectedRecipeTargetColor : undefined}
+                              placeholder="Renk Seç..."
+                              onChange={(_colorId, color) => {
                                 const next = [...recipeIngredients];
-                                next[idx].color = newCol || undefined;
+                                next[idx].color = color?.name || undefined;
                                 setRecipeIngredients(next);
                               }}
-                              availableColors={availableColors}
-                              targetModelColor={selectedRecipeTargetColor}
-                              placeholder="Renk Seç..."
                             />
                           </td>
 
-                          {/* 6. Birim Sarfiyat (Miktar) */}
+                          {/* 6. Birim Sarfiyat: miktar / kaç mamul için */}
                           <td className="py-1.5 px-2 border-r border-slate-200 dark:border-slate-800">
-                            <input
-                              type="number"
-                              step="0.00001"
-                              min="0.00001"
-                              required
-                              value={ing.quantity}
-                              onChange={e => {
-                                const next = [...recipeIngredients];
-                                next[idx].quantity = Number(e.target.value);
-                                setRecipeIngredients(next);
-                              }}
-                              className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-black text-center text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                            />
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                step="0.00001"
+                                min="0.00001"
+                                required
+                                value={ing.quantity}
+                                title={`Miktar (${ing.unit || 'Adet'})`}
+                                onChange={e => {
+                                  const next = [...recipeIngredients];
+                                  next[idx].quantity = Number(e.target.value);
+                                  setRecipeIngredients(next);
+                                }}
+                                className="w-1/2 min-w-0 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-black text-center text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                              />
+                              <span className="text-xs font-black text-slate-500 dark:text-slate-400">/</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="1"
+                                value={ing.basisQty || 1}
+                                title={`Kaç ${finishedUnit} mamul için geçerli`}
+                                onChange={e => {
+                                  const next = [...recipeIngredients];
+                                  next[idx].basisQty = Math.max(1, Number(e.target.value) || 1);
+                                  setRecipeIngredients(next);
+                                }}
+                                className="w-1/2 min-w-0 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-xs font-bold text-center text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                              />
+                            </div>
+                            <div className="mt-1 flex items-center justify-between gap-1">
+                              <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                1 {finishedUnit.toLocaleLowerCase('tr')} = {perUnit.toLocaleString('tr-TR', { maximumFractionDigits: 4 })} {ing.unit || 'Adet'}
+                              </span>
+                              {cartonSize > 1 && (
+                                <button
+                                  type="button"
+                                  title={`Koli adedini baz al (${cartonSize} ${finishedUnit.toLocaleLowerCase('tr')}/koli)`}
+                                  onClick={() => {
+                                    const next = [...recipeIngredients];
+                                    next[idx].basisQty = cartonSize;
+                                    setRecipeIngredients(next);
+                                  }}
+                                  className={cn(
+                                    "shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black border transition-colors cursor-pointer",
+                                    (ing.basisQty || 1) === cartonSize
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+                                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                                  )}
+                                >
+                                  <Boxes className="w-3 h-3" />
+                                  {cartonSize}
+                                </button>
+                              )}
+                            </div>
                           </td>
 
                           {/* 7. Birim */}
@@ -770,23 +885,6 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                                 setRecipeIngredients(next);
                               }}
                               className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-[11px] font-bold text-center text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase"
-                            />
-                          </td>
-
-                          {/* 8. Fire / Zayiat (%) */}
-                          <td className="py-1.5 px-2 border-r border-slate-200 dark:border-slate-800">
-                            <input
-                              type="number"
-                              step="0.5"
-                              min="0"
-                              max="100"
-                              value={ing.wasteRate || 0}
-                              onChange={e => {
-                                const next = [...recipeIngredients];
-                                next[idx].wasteRate = Number(e.target.value);
-                                setRecipeIngredients(next);
-                              }}
-                              className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 text-[11px] font-bold text-center text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                             />
                           </td>
 
@@ -811,7 +909,15 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                             </button>
                           </td>
 
-                          {/* 10. Tahmini Tutar */}
+                          {/* Birim Fiyat (malzemenin kendi kartından, kendi birimiyle) */}
+                          <td className="py-1.5 px-2 border-r border-slate-200 dark:border-slate-800 text-right font-mono font-bold text-[11px] text-slate-700 dark:text-slate-300">
+                            {unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                            <span className="block text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              / {selectedMat?.unit || ing.unit || 'Adet'}
+                            </span>
+                          </td>
+
+                          {/* 10. 1 Çift Tutar (birim fiyat × çift başı sarfiyat) */}
                           <td className="py-1.5 px-2 border-r border-slate-200 dark:border-slate-800 text-right font-mono font-bold text-[11px] text-slate-700 dark:text-slate-300">
                             {lineCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
                           </td>
@@ -842,6 +948,22 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
                     })
                   )}
                 </tbody>
+
+                <tfoot>
+                  <tr className="bg-slate-100 dark:bg-slate-800/80 text-[11px] font-black text-slate-700 dark:text-slate-200 border-t-2 border-slate-200 dark:border-slate-700">
+                    <td colSpan={5} className="py-2 px-3 text-right uppercase tracking-wider">Toplam</td>
+                    <td className="py-2 px-2 text-center font-mono" title="T.Miktar">
+                      {gridTotals.qty.toLocaleString('tr-TR', { maximumFractionDigits: 3 })}
+                    </td>
+                    <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-800" />
+                    <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-800" />
+                    <td className="py-2 px-2 border-r border-slate-200 dark:border-slate-800" />
+                    <td className="py-2 px-2 text-right font-mono">
+                      {totalMaterialCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                    </td>
+                    <td className="py-2 px-2" />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -866,7 +988,7 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
             <div className="lg:col-span-3 space-y-1">
               <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
                 <span>Birim İşçilik Maliyeti (₺)</span>
-                <span className="text-[9px] text-slate-400 font-normal">Çift Başına</span>
+                <span className="text-[10px] text-slate-600 dark:text-slate-300 font-bold">1 {finishedUnit} için</span>
               </label>
               <input
                 type="number"
@@ -880,18 +1002,29 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({
             </div>
 
             {/* Live Cost Summary Badges */}
-            <div className="lg:col-span-4 flex items-center justify-end gap-3 pt-2 lg:pt-0">
+            <div className="lg:col-span-4 flex flex-wrap items-center justify-end gap-2.5 pt-2 lg:pt-0">
               <div className="bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-right shadow-2xs">
-                <span className="text-[9px] font-bold text-slate-400 uppercase block">Toplam Malzeme</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase block">Malzeme / 1 {finishedUnit}</span>
                 <span className="text-xs font-black text-slate-800 dark:text-slate-200 font-mono">
                   {totalMaterialCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
                 </span>
               </div>
 
+              {cartonCost > 0 && (
+                <div className="bg-emerald-50 dark:bg-emerald-950/60 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 text-right shadow-2xs">
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase block">
+                    1 Koli Maliyeti ({cartonSize} {finishedUnit.toLocaleLowerCase('tr')})
+                  </span>
+                  <span className="text-xs font-black text-emerald-800 dark:text-emerald-200 font-mono">
+                    {cartonCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                  </span>
+                </div>
+              )}
+
               <div className="bg-indigo-50 dark:bg-indigo-950/60 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 text-right shadow-2xs">
-                <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase block">Tahmini Birim Maliyet</span>
+                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase block">Birim Maliyet (işçilik dahil)</span>
                 <span className="text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono">
-                  {totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺ / Çift
+                  {totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺ / {finishedUnit}
                 </span>
               </div>
             </div>

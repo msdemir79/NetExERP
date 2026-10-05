@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { cn } from '../../lib/utils';
-import { getColorSwatch } from '../../lib/colorSwatches';
+import { showToast } from '../../lib/feedback';
+import ColorSwatch from '../Colors/ColorSwatch';
+import { ColorSelect } from '../Colors/ColorSelect';
 import { ProductBrowserList } from './ProductBrowserList';
 import type { Product, AssortmentTemplate, StockCategoryType } from '../../types';
 
@@ -33,6 +35,7 @@ interface ProductSelectorModalProps {
     name: string;
     code: string;
     color?: string;
+    colorId?: number | null;
     size?: string;
     isFootwear?: boolean;
     assortmentTemplateId?: number;
@@ -69,6 +72,7 @@ export default function ProductSelectorModal({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedColor, setSelectedColor] = useState<string>('');
   const [customColor, setCustomColor] = useState<string>('');
+  const [customColorId, setCustomColorId] = useState<number | null>(null);
   const [isCustomColorMode, setIsCustomColorMode] = useState(false);
 
   // Quantity Management Modes: 'direct' | 'box' | 'matrix'
@@ -93,6 +97,7 @@ export default function ProductSelectorModal({
     const firstColor = colorsList.length > 0 ? colorsList[0] : '';
     setSelectedColor(firstColor);
     setCustomColor('');
+    setCustomColorId(null);
     setIsCustomColorMode(false);
 
     // Initial pricing
@@ -230,6 +235,10 @@ export default function ProductSelectorModal({
 
   // Calculation summaries
   const effectiveColor = isCustomColorMode ? customColor.trim() : selectedColor;
+  /** Seçili rengin merkezî kart bağı; satıra colorId olarak yazılır. */
+  const effectiveColorId = isCustomColorMode
+    ? customColorId
+    : selectedProduct?.colorRefs?.find(ref => (ref.name || '').toLocaleUpperCase('tr') === effectiveColor.trim().toLocaleUpperCase('tr'))?.id ?? null;
   const lineSubtotal = quantity * unitPrice;
   const discountAmount = lineSubtotal * (discountRate / 100);
   const discountedNet = lineSubtotal - discountAmount;
@@ -240,7 +249,7 @@ export default function ProductSelectorModal({
   const handleAddCurrentProduct = () => {
     if (!selectedProduct) return;
     if (quantity <= 0) {
-      alert('Lütfen geçerli bir miktar giriniz.');
+      showToast('Lütfen geçerli bir miktar giriniz.', 'warning');
       return;
     }
 
@@ -249,6 +258,7 @@ export default function ProductSelectorModal({
       name: selectedProduct.name,
       code: selectedProduct.code,
       color: effectiveColor || undefined,
+      colorId: effectiveColorId,
       isFootwear: selectedProduct.isFootwear,
       assortmentTemplateId: selectedProduct.assortmentTemplateId,
       pairsPerBox: pairsPerBox > 0 ? pairsPerBox : undefined,
@@ -271,8 +281,9 @@ export default function ProductSelectorModal({
     }, 1500);
   };
 
-  // Helper color swatch
-  const getColorStyle = (colName: string) => getColorSwatch(colName);
+  /** Ürüne bağlı merkezî renk kartının gerçek HEX değeri (yoksa null). */
+  const hexOf = (colName: string) =>
+    selectedProduct?.colorRefs?.find(ref => (ref.name || '').toLocaleUpperCase('tr') === (colName || '').trim().toLocaleUpperCase('tr'))?.hexCode || undefined;
 
   // Selected color image if any
   const currentColorImage = useMemo(() => {
@@ -434,11 +445,14 @@ export default function ProductSelectorModal({
                         setIsCustomColorMode(!isCustomColorMode);
                         if (!isCustomColorMode) {
                           setCustomColor(selectedColor || '');
+                          setCustomColorId(
+                            selectedProduct?.colorRefs?.find(ref => (ref.name || '').toLocaleUpperCase('tr') === (selectedColor || '').trim().toLocaleUpperCase('tr'))?.id ?? null
+                          );
                         }
                       }}
                       className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
                     >
-                      {isCustomColorMode ? 'Tanımlı Renklerden Seç' : '+ Farklı Renk Gir'}
+                      {isCustomColorMode ? 'Tanımlı Renklerden Seç' : '+ Tüm Renk Kartlarından Seç'}
                     </button>
                   </div>
 
@@ -447,7 +461,6 @@ export default function ProductSelectorModal({
                       {selectedProduct.colors && selectedProduct.colors.length > 0 ? (
                         selectedProduct.colors.map(color => {
                           const isSelected = selectedColor === color;
-                          const swatch = getColorStyle(color);
                           
                           // Check if variant barcode has specific stock
                           const variantInfo = selectedProduct.variantBarcodes?.find(v => v.color.toLowerCase() === color.toLowerCase());
@@ -465,10 +478,7 @@ export default function ProductSelectorModal({
                                   : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:bg-slate-800 hover:border-slate-300"
                               )}
                             >
-                              <span
-                                className="w-3.5 h-3.5 rounded-full border border-slate-400/60 shrink-0 shadow-2xs"
-                                style={{ backgroundColor: swatch.bg }}
-                              />
+                              <ColorSwatch name={color} hexCode={hexOf(color)} size={16} className="rounded-full shrink-0" />
                               <span className="uppercase">{color}</span>
                               {variantStock !== undefined && (
                                 <span className={cn(
@@ -496,15 +506,18 @@ export default function ProductSelectorModal({
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <input
-                        type="text"
-                        value={customColor}
-                        onChange={(e) => setCustomColor(e.target.value)}
-                        placeholder="Örn: Bordo Nubuk, Siyah Rugan, Taba Deri..."
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-indigo-300 rounded-xl text-xs font-bold uppercase outline-none focus:ring-2 focus:ring-indigo-500"
-                        autoFocus
+                      <ColorSelect
+                        value={customColorId}
+                        valueName={customColor}
+                        placeholder="Merkezî renk kartından seçin..."
+                        onChange={(colorId, color) => {
+                          setCustomColorId(colorId);
+                          setCustomColor(color?.name || '');
+                        }}
                       />
-                      <p className="text-[10px] text-slate-400">Özel sipariş veya listede olmayan bir renk adı belirtebilirsiniz.</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                        Renkler merkezî renk kartlarından seçilir; listede yoksa paneldeki <b>Yeni Renk</b> ile kart açabilirsiniz.
+                      </p>
                     </div>
                   )}
                 </div>

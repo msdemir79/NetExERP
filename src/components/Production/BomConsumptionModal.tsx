@@ -16,8 +16,11 @@ import {
   Calendar
 } from 'lucide-react';
 import Modal from '../Modal';
+import { StatusPill } from '../Common/DataGrid';
 import { api } from '../../api/client';
 import { productionService } from '../../services/productionService';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useColorMaster } from '../Colors/useColorMaster';
 import type { Product, Recipe } from '../../types';
 
 interface BomConsumptionModalProps {
@@ -56,6 +59,15 @@ export default function BomConsumptionModal({
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Renk seçenekleri merkezî renk kartlarından, beden seçenekleri stok ayarlarından gelir
+  const colorMaster = useColorMaster();
+  const systemSettings = useApiQuery(() => api.settings.get('global_settings'), [], ['settings']);
+  const shoeSizeList = systemSettings?.stock?.defaultShoeSizes?.length
+    ? systemSettings.stock.defaultShoeSizes
+    : ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45'];
+  const sizeOptions = Array.from(new Set(['Standart', ...shoeSizeList, selectedSize]));
+  const colorOptions = Array.from(new Set([selectedColor, ...colorMaster.map(c => c.name)])).filter(Boolean);
 
   // Load products list (finished footwear)
   useEffect(() => {
@@ -136,13 +148,17 @@ export default function BomConsumptionModal({
   };
 
   const selectedProduct = products.find(p => p.id === targetProductId);
+  const finishedUnit = preview?.finishedProduct?.unit || selectedProduct?.unit || 'Çift';
+
+  const sufficientCount = (preview?.ingredients || []).filter((i: any) => i.isSufficient).length;
+  const insufficientCount = (preview?.ingredients || []).filter((i: any) => !i.isSufficient).length;
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title="BOM (Ürün Reçetesi) & Otomatik Sarfiyat Düşümü"
-      className="max-w-3xl max-h-[90vh] overflow-y-auto"
+      className="max-w-5xl max-h-[90vh] overflow-y-auto"
     >
       <div className="space-y-4">
         {/* Info Banner */}
@@ -226,9 +242,11 @@ export default function BomConsumptionModal({
         ) : (
           /* Form & Live Preview */
           <div className="space-y-4">
-            {/* Input Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
-              <div className="md:col-span-2 space-y-1">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              {/* Sol: üretim formu */}
+              <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
+              <div className="col-span-2 space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">
                   Üretilen Ayakkabı Modeli
                 </label>
@@ -275,6 +293,68 @@ export default function BomConsumptionModal({
                   </button>
                 </div>
               </div>
+
+              {/* Color */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Renk
+                </label>
+                <select
+                  value={selectedColor}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
+                >
+                  {colorOptions.map(c => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Size */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Beden
+                </label>
+                <select
+                  value={selectedSize}
+                  onChange={(e) => setSelectedSize(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
+                >
+                  {sizeOptions.map(s => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Operator */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Operatör
+                </label>
+                <input
+                  type="text"
+                  value={operatorName}
+                  onChange={(e) => setOperatorName(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="col-span-2 space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Not
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
+                />
+              </div>
             </div>
 
             {/* Quick Quantity Presets */}
@@ -295,9 +375,10 @@ export default function BomConsumptionModal({
                 </button>
               ))}
             </div>
+              </div>
 
-            {/* LIVE BOM CONSUMPTION BREAKDOWN PREVIEW */}
-            <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+              {/* Sağ: hammadde ihtiyaç listesi + yeterlilik durumları */}
+            <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs flex flex-col">
               <div className="bg-slate-100 dark:bg-slate-800/80 px-4 py-2.5 flex items-center justify-between border-b border-slate-200 dark:border-slate-700">
                 <div className="flex items-center gap-2">
                   <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -343,8 +424,16 @@ export default function BomConsumptionModal({
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500">
-                            1 Çift Sarfiyatı: <strong className="text-slate-700 dark:text-slate-300 font-mono">{ing.quantityPerPair} {ing.unit}</strong>
-                            {' '}• Depo Stoğu: <span className="font-mono">{ing.currentStock} {ing.unit}</span>
+                            Sarfiyat:{' '}
+                            <strong className="text-slate-700 dark:text-slate-300 font-mono">
+                              {ing.quantityPerPair} {ing.unit} / 1 {finishedUnit}
+                            </strong>
+                            {Number(ing.basisQty) > 1 && (
+                              <span className="text-slate-600 dark:text-slate-400 font-semibold">
+                                {' '}({ing.basisQty} {finishedUnit} için {ing.basisQuantity} {ing.unit})
+                              </span>
+                            )}
+                            {' '}• Depo Stoğu: <span className="font-mono text-slate-700 dark:text-slate-300">{ing.currentStock} {ing.unit}</span>
                           </p>
                         </div>
 
@@ -359,10 +448,12 @@ export default function BomConsumptionModal({
                             <span className={`font-mono font-bold ${ing.remainingStockAfter < 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
                               {ing.remainingStockAfter} {ing.unit}
                             </span>
-                            {!isSufficient && (
-                              <span className="text-rose-600 font-bold ml-1 flex items-center gap-0.5">
-                                <AlertTriangle className="w-3 h-3" /> Yetersiz Stok
-                              </span>
+                          </div>
+                          <div className="mt-1 flex justify-end">
+                            {isSufficient ? (
+                              <StatusPill tone="green">YETERLİ</StatusPill>
+                            ) : (
+                              <StatusPill tone="red">YETERSİZ</StatusPill>
                             )}
                           </div>
                         </div>
@@ -381,6 +472,20 @@ export default function BomConsumptionModal({
                   </p>
                 </div>
               )}
+
+              {/* Toplamlar */}
+              {preview?.hasRecipe && !isLoadingPreview ? (
+                <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 py-2 flex items-center justify-between text-[11px] font-bold">
+                  <span className="text-slate-600 dark:text-slate-300">
+                    Kalem: <span className="font-mono text-slate-900 dark:text-slate-100">{preview.ingredients.length}</span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <StatusPill tone="green">{sufficientCount} Yeterli</StatusPill>
+                    {insufficientCount > 0 ? <StatusPill tone="red">{insufficientCount} Yetersiz</StatusPill> : null}
+                  </span>
+                </div>
+              ) : null}
+            </div>
             </div>
 
             {/* Action Buttons */}

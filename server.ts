@@ -3,10 +3,35 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { createApiRouter } from './server/api.js';
-import { testConnection } from './server/db.js';
+import { testConnection, closePool } from './server/db.js';
+import { uploadsDir } from './server/files.js';
 import { runSeed } from './server/seed.js';
 
 dotenv.config();
+
+/**
+ * Content-Security-Policy (yalnız üretimde uygulanır).
+ *
+ * `script-src 'self'` ana XSS savunmasıdır: dist/index.html yalnızca harici
+ * modül script'i içerir (inline script yok), dolayısıyla 'unsafe-inline'/'unsafe-eval'
+ * gerekmez. Stil/görsel/medya, Tailwind satır-içi stilleri, base64 ürün görselleri,
+ * barkod SVG/PNG önizlemeleri ve canlı kamera barkod okuyucunun blob:/mediastream:
+ * video akışı için bilinçli olarak esnek bırakılmıştır.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob: mediastream:",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+].join('; ');
 
 /**
  * Tarayıcı güvenlik başlıkları. (Harici bağımlılık olmadan helmet eşdeğeri.)
@@ -18,6 +43,14 @@ function securityHeaders(_req: Request, res: Response, next: NextFunction) {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   // Barkod/karekod okuyucu kamera erişimi aynı kaynak ile sınırlıdır.
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
+
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd) {
+    // CSP ve HSTS yalnız üretimde: geliştirme Vite HMR/ws ve inline stillerini kırmamak için.
+    res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+    // HTTPS arkasında HSTS (HTTP üzerinden tarayıcılar bu başlığı yok sayar).
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   next();
 }
 
@@ -60,6 +93,20 @@ async function startServer() {
   const HOST = process.env.HOST || '127.0.0.1';
 
   app.disable('x-powered-by');
+
+  /**
+   * Ters vekil sunucu (nginx vb.) arkasında doğru istemci IP'si için.
+   * TRUST_PROXY ayarlanmazsa kapalıdır (varsayılan, doğrudan bağlantı):
+   *   TRUST_PROXY=true      → tüm vekillere güven (yalnız tek vekil arkasında)
+   *   TRUST_PROXY=1         → yalnızca ilk vekil atlamasına güven (önerilen)
+   *   TRUST_PROXY=loopback  → loopback adreslerinden gelen X-Forwarded-For'a güven
+   * Doğru IP, giriş rate-limit'inin ve denetim izininin çalışması için kritiktir.
+   */
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy) {
+    app.set('trust proxy', trustProxy === 'true' ? true : trustProxy === '1' ? 1 : trustProxy);
+  }
+
   app.use(securityHeaders);
   app.use(express.json({ limit: '25mb' }));
   app.use(csrfGuard);
@@ -94,6 +141,20 @@ async function startServer() {
 
   // REST API (oturum + RBAC denetimli)
   app.use('/api', createApiRouter());
+
+  // Yüklenen görseller (#51): hash adıyla saklandığı için içerik değişmez,
+  // uzun süre önbelleklenebilir. fallthrough:false → olmayan dosya SPA'ya
+  // düşmez, doğrudan 404 verir.
+  app.use(
+    '/uploads',
+    express.static(uploadsDir(), {
+      maxAge: '365d',
+      immutable: true,
+      fallthrough: false,
+      index: false,
+      dotfiles: 'ignore',
+    }),
+  );
 
   // Vite (geliştirme) / statik dosyalar (üretim)
   if (process.env.NODE_ENV !== 'production') {
@@ -131,7 +192,7 @@ async function startServer() {
     console.error('');
   }
 
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`ProERP sunucusu http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} adresinde çalışıyor.`);
     if (HOST === '0.0.0.0') {
       console.warn('');
@@ -140,6 +201,47 @@ async function startServer() {
       console.warn('');
     }
   });
+
+  /**
+   * Zarif kapanış: HTTP sunucusunu ve DB havuzunu kapatır. Yeni bağlantılar
+   * reddedilir, açıkta kalan istekler için 10 sn sonra zorla çıkılır.
+   */
+  let shuttingDown = false;
+  async function shutdown(signal: string): Promise<void> {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n${signal} alındı — sunucu kapatılıyor...`);
+    const forceExit = setTimeout(() => {
+      console.error('Zarif kapanış zaman aşımına uğradı; süreç zorla sonlandırılıyor.');
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+    server.close(async () => {
+      try {
+        await closePool();
+      } catch (err) {
+        console.error('DB havuzu kapatılamadı:', err);
+      }
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+  }
+
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
+
+/**
+ * Yakalanmayan hatalar: üretimde sessiz çökme yerine loglanır. `uncaughtException`
+ * süreci belirsiz bir duruma sokabileceği için loglanıp kapatılır (PM2/systemd
+ * gibi bir süreç yöneticisi yeniden başlatır); `unhandledRejection` yalnızca loglanır.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  process.exit(1);
+});
 
 startServer();

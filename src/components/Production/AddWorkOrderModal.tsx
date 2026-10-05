@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Modal from '../Modal';
 import { cn } from '../../lib/utils';
 import { productionService } from '../../services/productionService';
-import type { Product } from '../../types';
+import { showToast } from '../../lib/feedback';
+import { ColorSelect } from '../Colors/ColorSelect';
+import ColorSwatch from '../Colors/ColorSwatch';
+import type { ColorMaster, Product } from '../../types';
 
 interface AddWorkOrderModalProps {
   isOpen: boolean;
@@ -11,17 +14,33 @@ interface AddWorkOrderModalProps {
   onCreated: () => void;
 }
 
+const foldName = (value: string) => (value || '').trim().toLocaleUpperCase('tr').replace(/İ/g, 'I');
+
 export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated }: AddWorkOrderModalProps) {
   const [manualWoProductId, setManualWoProductId] = useState<number>(0);
   const [manualWoColor, setManualWoColor] = useState<string>('');
+  const [manualWoColorId, setManualWoColorId] = useState<number | null>(null);
   const [manualWoSize, setManualWoSize] = useState<string>('');
 
   const productMap = useMemo(() => new Map((products || []).map((p) => [p.id!, p])), [products]);
+  const selectedProduct = manualWoProductId > 0 ? productMap.get(manualWoProductId) : undefined;
+  const colorRefs = selectedProduct?.colorRefs || [];
+
+  const pickProductColor = (name: string) => {
+    setManualWoColor(name);
+    setManualWoColorId(colorRefs.find((ref) => foldName(ref.name) === foldName(name))?.id ?? null);
+  };
+
+  const applyColorSelection = (colorId: number | null, color: ColorMaster | null) => {
+    setManualWoColor(color?.name || '');
+    setManualWoColorId(colorId);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
     setManualWoProductId(0);
     setManualWoColor('');
+    setManualWoColorId(null);
     setManualWoSize('');
   }, [isOpen]);
 
@@ -30,7 +49,6 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
     const formData = new FormData(e.currentTarget);
     const productId = Number(formData.get('productId'));
     const quantity = Number(formData.get('quantity'));
-    const color = formData.get('color') as string;
     const size = formData.get('size') as string;
     const targetDateStr = formData.get('targetDate') as string;
     const notes = formData.get('notes') as string;
@@ -39,7 +57,8 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
       await productionService.createWorkOrder({
         productId,
         quantity,
-        color: color || undefined,
+        color: manualWoColor || undefined,
+        colorId: manualWoColorId,
         size: size || undefined,
         targetDate: targetDateStr ? new Date(targetDateStr) : undefined,
         notes: notes || undefined,
@@ -47,7 +66,7 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
       onClose();
       onCreated();
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
   };
 
@@ -67,8 +86,16 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
               const pId = Number(e.target.value);
               setManualWoProductId(pId);
               const selectedP = productMap.get(pId);
-              if (selectedP?.colors && selectedP.colors.length > 0) {
+              const firstRef = (selectedP?.colorRefs || [])[0];
+              if (firstRef) {
+                setManualWoColor(firstRef.name);
+                setManualWoColorId(firstRef.id ?? null);
+              } else if (selectedP?.colors && selectedP.colors.length > 0) {
                 setManualWoColor(selectedP.colors[0]);
+                setManualWoColorId(null);
+              } else {
+                setManualWoColor('');
+                setManualWoColorId(null);
               }
             }}
             className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -80,22 +107,28 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
           </select>
         </div>
 
-        {manualWoProductId > 0 && productMap.get(manualWoProductId)?.colors && (
+        {selectedProduct?.colors && selectedProduct.colors.length > 0 && (
           <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
             <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Model Renk Seçimi:</label>
             <div className="flex flex-wrap gap-1.5">
-              {productMap.get(manualWoProductId)!.colors!.map((col) => (
+              {selectedProduct.colors.map((col) => (
                 <button
                   key={col}
                   type="button"
-                  onClick={() => setManualWoColor(col)}
+                  onClick={() => pickProductColor(col)}
                   className={cn(
-                    'text-xs font-black px-3 py-1.5 rounded-lg border transition-all uppercase',
-                    manualWoColor === col
+                    'text-xs font-black px-3 py-1.5 rounded-lg border transition-all uppercase flex items-center gap-1.5',
+                    foldName(manualWoColor) === foldName(col)
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                       : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 hover:border-indigo-300'
                   )}
                 >
+                  <ColorSwatch
+                    name={col}
+                    hexCode={colorRefs.find((ref) => foldName(ref.name) === foldName(col))?.hexCode}
+                    size={14}
+                    className="rounded-full shrink-0"
+                  />
                   {col}
                 </button>
               ))}
@@ -103,7 +136,7 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Üretim Miktarı (Çift / Adet)</label>
             <input
@@ -125,16 +158,15 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Renk / Varyant</label>
-            <input
-              type="text"
-              name="color"
-              value={manualWoColor}
-              onChange={(e) => setManualWoColor(e.target.value)}
-              placeholder="Örn: Siyah"
-              className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-900 dark:text-slate-100 focus:outline-none uppercase"
+            <ColorSelect
+              className="w-full"
+              value={manualWoColorId}
+              valueName={manualWoColor || null}
+              placeholder="Renk kartından seçin..."
+              onChange={applyColorSelection}
             />
           </div>
           <div className="space-y-1">

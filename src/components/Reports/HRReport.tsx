@@ -20,7 +20,7 @@ import { exportPayrollToExcel, exportPayrollToCsv } from '../../lib/exportServic
 import { settingsService } from '../../services/settingsService';
 import { cn } from '../../lib/utils';
 import { FileSpreadsheet } from 'lucide-react';
-import type { PayrollRecord, Employee } from '../../types';
+import type { PayrollRecord, Employee, AdvanceRequest, LeaveRequest } from '../../types';
 
 export default function HRReport() {
   const currentDate = new Date();
@@ -182,6 +182,59 @@ export default function HRReport() {
     }
   ];
 
+  const LEAVE_TYPE_LABELS: Record<string, string> = {
+    annual: 'Yıllık Ücretli İzin',
+    excuse: 'Mazeret İzni',
+    unpaid: 'Ücretsiz İzin',
+    sick: 'Sağlık / Rapor',
+    marriage: 'Evlilik İzni',
+    maternity: 'Doğum İzni',
+    bereavement: 'Vefat İzni'
+  };
+
+  const advanceColumns: GridColumn<AdvanceRequest>[] = [
+    { key: 'employeeName', title: 'Personel', render: (a) => <span className="font-black text-slate-900 dark:text-slate-100">{a.employeeName}</span> },
+    { key: 'amount', title: 'Tutar', align: 'right', render: (a) => <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₺{(a.amount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>, filterValue: (a) => String(a.amount) },
+    { key: 'date', title: 'Talep Tarihi', align: 'center', render: (a) => <span className="font-mono font-medium text-slate-600 dark:text-slate-300">{a.date ? new Date(a.date).toLocaleDateString('tr-TR') : '-'}</span>, filterValue: (a) => a.date ? new Date(a.date).toLocaleDateString('tr-TR') : '' },
+    { key: 'deductionPeriod', title: 'Kesinti Dönemi', align: 'center', render: (a) => <span className="font-mono font-medium text-slate-600 dark:text-slate-300">{a.month ? `${String(a.month).padStart(2, '0')}/${a.year}` : '-'}</span>, filterValue: (a) => a.month ? `${a.month}/${a.year}` : '' },
+    {
+      key: 'status', title: 'Durum', align: 'center', render: (a) => a.status === 'paid' ? (
+        <StatusPill tone="green"><CheckCircle2 className="w-3 h-3" />Ödendi</StatusPill>
+      ) : a.status === 'rejected' ? (
+        <StatusPill tone="red">Reddedildi</StatusPill>
+      ) : (
+        <StatusPill tone="amber"><Clock className="w-3 h-3" />Bekliyor</StatusPill>
+      ),
+      filterValue: (a) => a.status === 'paid' ? 'Ödendi' : a.status === 'rejected' ? 'Reddedildi' : 'Bekliyor'
+    },
+    {
+      key: 'isDeducted', title: 'Mahsup', align: 'center', render: (a) => a.isDeducted ? (
+        <StatusPill tone="blue">Bordroda Kesildi</StatusPill>
+      ) : (
+        <StatusPill tone="slate">Kesilmedi</StatusPill>
+      ),
+      filterValue: (a) => a.isDeducted ? 'Bordroda Kesildi' : 'Kesilmedi'
+    }
+  ];
+
+  const leaveColumns: GridColumn<LeaveRequest>[] = [
+    { key: 'employeeName', title: 'Personel', render: (l) => <span className="font-black text-slate-900 dark:text-slate-100">{l.employeeName}</span> },
+    { key: 'leaveType', title: 'İzin Tipi', render: (l) => <span className="font-semibold text-slate-700 dark:text-slate-200">{LEAVE_TYPE_LABELS[l.leaveType] || l.leaveType}</span>, filterValue: (l) => LEAVE_TYPE_LABELS[l.leaveType] || l.leaveType },
+    { key: 'startDate', title: 'Başlangıç', align: 'center', render: (l) => <span className="font-mono font-medium text-slate-600 dark:text-slate-300">{l.startDate ? new Date(l.startDate).toLocaleDateString('tr-TR') : '-'}</span>, filterValue: (l) => l.startDate ? new Date(l.startDate).toLocaleDateString('tr-TR') : '' },
+    { key: 'endDate', title: 'Bitiş', align: 'center', render: (l) => <span className="font-mono font-medium text-slate-600 dark:text-slate-300">{l.endDate ? new Date(l.endDate).toLocaleDateString('tr-TR') : '-'}</span>, filterValue: (l) => l.endDate ? new Date(l.endDate).toLocaleDateString('tr-TR') : '' },
+    { key: 'days', title: 'Gün', align: 'center', render: (l) => <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{l.days}</span> },
+    {
+      key: 'status', title: 'Durum', align: 'center', render: (l) => l.status === 'approved' ? (
+        <StatusPill tone="green"><CheckCircle2 className="w-3 h-3" />Onaylandı</StatusPill>
+      ) : l.status === 'rejected' ? (
+        <StatusPill tone="red">Reddedildi</StatusPill>
+      ) : (
+        <StatusPill tone="amber"><Clock className="w-3 h-3" />Onay Bekliyor</StatusPill>
+      ),
+      filterValue: (l) => l.status === 'approved' ? 'Onaylandı' : l.status === 'rejected' ? 'Reddedildi' : 'Onay Bekliyor'
+    }
+  ];
+
   return (
     <div className="space-y-6">
       
@@ -292,6 +345,28 @@ export default function HRReport() {
         </div>
       </div>
 
+      {/* Alt Sekme: Bordro / Avans & İzin */}
+      <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveSubTab('payroll')}
+          className={cn(
+            "px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
+            activeSubTab === 'payroll' ? "bg-white dark:bg-slate-900 text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
+          )}
+        >
+          Bordro
+        </button>
+        <button
+          onClick={() => setActiveSubTab('advances_leaves')}
+          className={cn(
+            "px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
+            activeSubTab === 'advances_leaves' ? "bg-white dark:bg-slate-900 text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900 dark:text-slate-100"
+          )}
+        >
+          Avans & İzin
+        </button>
+      </div>
+
       {/* KPI Kartları */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         
@@ -350,6 +425,7 @@ export default function HRReport() {
       </div>
 
       {/* Bordro İcmal Tablosu */}
+      {activeSubTab === 'payroll' && (
       <DataGrid<PayrollRecord>
         columns={payrollColumns}
         data={filteredPayrolls}
@@ -386,6 +462,62 @@ export default function HRReport() {
           </div>
         ) : undefined}
       />
+      )}
+
+      {/* Avans Talepleri & İzin Talepleri */}
+      {activeSubTab === 'advances_leaves' && (
+        <div className="space-y-6">
+          <DataGrid<AdvanceRequest>
+            columns={advanceColumns}
+            data={advances}
+            rowKey="id"
+            emptyMessage="Kayıt yok — henüz avans talebi bulunmuyor."
+            toolbar={
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                      Personel Avans Talepleri
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-semibold">Ödenen avanslar ve bordro mahsup durumu</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
+                  {advances.length} Kayıt Listeleniyor
+                </span>
+              </>
+            }
+          />
+
+          <DataGrid<LeaveRequest>
+            columns={leaveColumns}
+            data={leaves}
+            rowKey="id"
+            emptyMessage="Kayıt yok — henüz izin talebi bulunmuyor."
+            toolbar={
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                      Personel İzin Talepleri
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-semibold">İzin tipleri, tarih aralıkları ve onay durumları</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
+                  {leaves.length} Kayıt Listeleniyor
+                </span>
+              </>
+            }
+          />
+        </div>
+      )}
 
     </div>
   );

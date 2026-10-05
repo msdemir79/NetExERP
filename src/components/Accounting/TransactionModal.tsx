@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { contactService } from '../../services/contactService';
+import { ContactSelect } from '../Contacts/ContactSelect';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 
@@ -322,18 +323,13 @@ export default function TransactionModal({
                 </span>
               )}
             </div>
-            <select
-              value={contactId}
-              onChange={(e) => handleContactChange(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white dark:bg-slate-900"
-            >
-              <option value="">-- Cari Seçilmedi (Genel Kasa Hareketi) --</option>
-              {contacts?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} {c.code ? `(${c.code})` : ''} — [{c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri/Tedarikçi'}]
-                </option>
-              ))}
-            </select>
+            <ContactSelect
+              contacts={contacts ?? []}
+              value={contactId ? Number(contactId) : null}
+              placeholder="-- Cari Seçilmedi (Genel Kasa Hareketi) --"
+              emptyOptionLabel="Cari Seçilmedi (Genel Kasa Hareketi)"
+              onChange={(id) => handleContactChange(id ? String(id) : '')}
+            />
           </div>
 
           {/* Payment Method & Document No */}

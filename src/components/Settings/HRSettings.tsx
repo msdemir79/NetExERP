@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Clock, Calendar, Calculator, Shield, Save, Check } from 'lucide-react';
+import { showToast } from '../../lib/feedback';
 import type { AppSettings } from '../../types';
 
 // JS Date.getDay() indeksine göre sıralı gün listesi (0 = Pazar)
@@ -110,7 +111,7 @@ export default function HRSettings({ settings, onSave }: HRSettingsProps) {
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('İK ayarları kaydedilemedi:', err);
-      alert('İK ayarları kaydedilirken hata oluştu.');
+      showToast('İK ayarları kaydedilirken hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }

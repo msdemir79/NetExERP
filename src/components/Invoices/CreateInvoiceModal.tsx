@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { api } from '../../api/client';
 import { invoiceService } from '../../services/invoiceService';
-import type { Invoice, InvoiceItem, InvoiceType, InvoiceStatus, InvoiceScenario, Contact, Order } from '../../types';
+import type { ColorMaster, Invoice, InvoiceItem, InvoiceType, InvoiceStatus, InvoiceScenario, Contact, Order } from '../../types';
 import { Receipt, Plus, X, Trash2, ShoppingBag, Package, Check, Truck } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getCartonSize } from '../../lib/carton';
+import { showToast } from '../../lib/feedback';
+import { ColorSelect } from '../Colors/ColorSelect';
+import { ContactSelect } from '../Contacts/ContactSelect';
 import { OrderImportSelector, WaybillImportSelector } from './InvoiceImportSelectors';
 
 // -----------------------------------------------------------------------------------------
@@ -59,6 +63,7 @@ export default function CreateInvoiceModal({
   // Queries
   const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
   const products = useApiQuery(() => api.products.list(), [], ['products']);
+  const templates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']);
 
   // Generate initial invoice number and ETTN
   useEffect(() => {
@@ -251,6 +256,14 @@ export default function CreateInvoiceModal({
     setItems([...items, newItem]);
   };
 
+  /**
+   * Renk seçimi satıra hem metin (`color`, tarihsel kolon) hem merkezî kart bağı
+   * (`colorId`) olarak yazılır; serbest metin girişi yoktur.
+   */
+  const updateItemColor = (index: number, colorId: number | null, color: ColorMaster | null) => {
+    setItems(prev => prev.map((it, i) => (i === index ? { ...it, color: color?.name || undefined, colorId } : it)));
+  };
+
   // Update item field and recalculate line taxes
   const updateItemField = (index: number, field: string, value: any) => {
     const updated = [...items];
@@ -304,18 +317,18 @@ export default function CreateInvoiceModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contactId) {
-      alert('Lütfen bir müşteri veya tedarikçi cari seçiniz.');
+      showToast('Lütfen bir müşteri veya tedarikçi cari seçiniz.', 'warning');
       return;
     }
     if (items.length === 0) {
-      alert('Lütfen faturaya en az bir ürün veya hizmet satırı ekleyiniz.');
+      showToast('Lütfen faturaya en az bir ürün veya hizmet satırı ekleyiniz.', 'warning');
       return;
     }
 
     // Validate quantities
     for (const item of items) {
       if (item.quantity <= 0) {
-        alert(`"${item.productName}" satırında miktar 0'dan büyük olmalıdır.`);
+        showToast(`"${item.productName}" satırında miktar 0'dan büyük olmalıdır.`, 'warning');
         return;
       }
     }
@@ -350,7 +363,7 @@ export default function CreateInvoiceModal({
       onSuccess(newInvoiceId as number);
     } catch (err: any) {
       console.error(err);
-      alert('Fatura kaydedilirken bir hata oluştu: ' + err.message);
+      showToast('Fatura kaydedilirken bir hata oluştu: ' + err.message, 'error');
     }
   };
 
@@ -430,24 +443,18 @@ export default function CreateInvoiceModal({
                   </span>
                 )}
               </label>
-              <select
-                value={contactId}
-                onChange={(e) => {
-                  setContactId(e.target.value ? Number(e.target.value) : '');
+              <ContactSelect
+                contacts={filteredContacts}
+                value={contactId ? Number(contactId) : null}
+                createType={type === 'sales' ? 'customer' : 'supplier'}
+                placeholder="-- Cari Seçiniz --"
+                onChange={(id) => {
+                  setContactId(id ?? '');
                   setSelectedOrderId(undefined);
                   setSelectedOrderNumber('');
                   setItems([]);
                 }}
-                required
-                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              >
-                <option value="">-- Cari Seçiniz --</option>
-                {filteredContacts.map(c => (
-                  <option key={`inv-contact-opt-${c.id}`} value={c.id}>
-                    {c.name} {c.taxOffice ? `(${c.taxOffice} V.D. - ${c.taxNumber || ''})` : ''}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             {/* Invoice Number */}
@@ -587,7 +594,7 @@ export default function CreateInvoiceModal({
                 type="button"
                 onClick={() => {
                   if (!contactId) {
-                    alert('Lütfen önce bir cari seçiniz.');
+                    showToast('Lütfen önce bir cari seçiniz.', 'warning');
                     return;
                   }
                   setIsWaybillSelectorOpen(true);
@@ -602,7 +609,7 @@ export default function CreateInvoiceModal({
                 type="button"
                 onClick={() => {
                   if (!contactId) {
-                    alert('Lütfen önce bir cari seçiniz.');
+                    showToast('Lütfen önce bir cari seçiniz.', 'warning');
                     return;
                   }
                   setIsOrderSelectorOpen(true);
@@ -663,8 +670,8 @@ export default function CreateInvoiceModal({
                     items.map((item, idx) => {
                       const itemProd = products?.find(p => p.id === item.productId);
                       const isFootwear = itemProd?.isFootwear || (itemProd?.variantBarcodes && itemProd.variantBarcodes.length > 0);
-                      const prodColors = itemProd?.colors || [];
                       const prodSizes = itemProd?.assortment?.map(a => a.size) || [];
+                      const itemCarton = getCartonSize(itemProd, templates);
 
                       return (
                         <tr key={`inv-item-row-${item.productId || 'p'}-${idx}`} className="hover:bg-slate-50 dark:bg-slate-800/50/60 transition-colors">
@@ -677,40 +684,33 @@ export default function CreateInvoiceModal({
                               onChange={(e) => updateItemField(idx, 'productId', e.target.value)}
                               className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-200"
                             >
-                              {products?.map(p => (
-                                <option key={`inv-prod-opt-${p.id}`} value={p.id}>
-                                  [{p.code}] {p.name} {p.isFootwear ? `(Asortili - ${p.multiplier || 8}'li Koli)` : ''}
-                                </option>
-                              ))}
+                              {products?.map(p => {
+                                const carton = getCartonSize(p, templates);
+                                return (
+                                  <option key={`inv-prod-opt-${p.id}`} value={p.id}>
+                                    [{p.code}] {p.name} {carton > 1 ? `(Asortili - ${carton}'li Koli)` : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                             {isFootwear && (
                               <div className="text-[10px] text-indigo-600 font-medium mt-0.5">
                                 {item.size && item.size !== 'Asorti' && item.size !== 'Tüm Bedenler' 
                                   ? `Tek Beden: ${item.size}` 
-                                  : `Asorti Dağılımı (${itemProd?.multiplier ? `~${(item.quantity / (itemProd.multiplier || 1)).toFixed(1)} Koli` : 'Tüm Bedenler'})`}
+                                  : `Asorti Dağılımı (${itemCarton > 1 ? `~${(item.quantity / itemCarton).toFixed(1)} Koli` : 'Tüm Bedenler'})`}
                               </div>
                             )}
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="flex gap-1">
-                              {prodColors.length > 0 ? (
-                                <select
-                                  value={item.color || ''}
-                                  onChange={(e) => updateItemField(idx, 'color', e.target.value)}
-                                  className="w-20 px-1 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-[11px] font-medium text-slate-800 dark:text-slate-200"
-                                >
-                                  <option value="">Renk Seç</option>
-                                  {prodColors.map((c, cIdx) => <option key={`inv-color-${c}-${cIdx}`} value={c}>{c}</option>)}
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  placeholder="Renk"
-                                  value={item.color || ''}
-                                  onChange={(e) => updateItemField(idx, 'color', e.target.value)}
-                                  className="w-16 px-1.5 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-[11px]"
-                                />
-                              )}
+                              <ColorSelect
+                                compact
+                                className="w-28 shrink-0"
+                                value={item.colorId ?? null}
+                                valueName={item.color}
+                                placeholder="Renk"
+                                onChange={(colorId, color) => updateItemColor(idx, colorId, color)}
+                              />
 
                               {isFootwear ? (
                                 <select

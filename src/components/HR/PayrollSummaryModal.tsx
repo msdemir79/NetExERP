@@ -5,6 +5,7 @@ import { X, Printer, Download, Landmark, Banknote, ShieldCheck, Receipt } from '
 import type { Employee, PayrollRecord, HRModuleSettings } from '../../types';
 import type { PayrollPaymentSummary } from '../../lib/payrollSummary';
 import { downloadElementAsPdf } from '../../lib/pdfService';
+import { showToast } from '../../lib/feedback';
 
 interface PayrollSummaryModalProps {
   isOpen: boolean;
@@ -108,7 +109,7 @@ export default function PayrollSummaryModal({
       });
     } catch (err) {
       console.error('PDF indirme hatası:', err);
-      alert('PDF oluşturulamadı.');
+      showToast('PDF oluşturulamadı.', 'error');
     } finally {
       setDownloadingPdf(false);
     }

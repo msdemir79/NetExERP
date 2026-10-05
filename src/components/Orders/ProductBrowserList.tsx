@@ -1,6 +1,6 @@
 import { Package } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { getColorSwatch } from '../../lib/colorSwatches';
+import { getColorSwatch, hexFromColorRefs } from '../../lib/colorSwatches';
 import type { Product } from '../../types';
 
 interface ProductBrowserListProps {
@@ -86,7 +86,7 @@ export function ProductBrowserList({ filteredProducts, orderType, selectedProduc
                               key={c}
                               title={c}
                               className="w-2.5 h-2.5 rounded-full border border-slate-400/60 shadow-2xs"
-                              style={{ backgroundColor: style.bg }}
+                              style={{ backgroundColor: hexFromColorRefs(p.colorRefs, c) || style.bg }}
                             />
                           );
                         })}

@@ -3,11 +3,16 @@ import { Trash2 } from 'lucide-react';
 import Modal from '../Modal';
 import { api } from '../../api/client';
 import type { AssortmentTemplate } from '../../types';
+import { showToast, confirmDialog } from '../../lib/feedback';
 
 interface AssortmentTemplatesModalProps {
   isOpen: boolean;
   onClose: () => void;
   templates: AssortmentTemplate[] | undefined;
+  /** Başka bir modalın (ör. stok kartı) içinden açılıyorsa ESC yalnızca bu modalı kapatır. */
+  nested?: boolean;
+  /** Yeni şablon oluşturulduğunda çağrılır; seçici içinde açıldıysa şablon otomatik seçilir. */
+  onCreated?: (template: AssortmentTemplate) => void;
 }
 
 const DEFAULT_ITEMS: { size: string; quantity: number }[] = [
@@ -19,28 +24,37 @@ const DEFAULT_ITEMS: { size: string; quantity: number }[] = [
   { size: '45', quantity: 1 },
 ];
 
-export default function AssortmentTemplatesModal({ isOpen, onClose, templates }: AssortmentTemplatesModalProps) {
+export default function AssortmentTemplatesModal({ isOpen, onClose, templates, nested = false, onCreated }: AssortmentTemplatesModalProps) {
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateItems] = useState<{ size: string; quantity: number }[]>(DEFAULT_ITEMS);
 
   const handleSaveTemplate = async (e: FormEvent) => {
     e.preventDefault();
+    // Portal ile taşınmış olsa da React olayları ağaçta yukarı yayılır;
+    // ev sahibi formun (ör. stok kartı) submit'i tetiklenmesin.
+    e.stopPropagation();
     if (!newTemplateName.trim()) return;
 
+    const name = newTemplateName.trim();
     try {
-      await api.assortmentTemplates.create({
-        name: newTemplateName.trim(),
+      const id = await api.assortmentTemplates.create({
+        name,
         items: newTemplateItems,
       });
+      const saved = (await api.assortmentTemplates.get(id)) || ({ id, name, items: newTemplateItems } as AssortmentTemplate);
       setNewTemplateName('');
-      alert('Asorti şablonu başarıyla eklendi.');
+      onCreated?.(saved);
+      showToast('Asorti şablonu başarıyla eklendi.', 'success');
+      // Seçici içinden açıldıysa yeni şablon seçildi; kullanıcıyı ev sahibi forma döndür.
+      if (nested) onClose();
     } catch (err) {
       console.error('Template save error:', err);
+      showToast(err instanceof Error ? err.message : 'Asorti şablonu eklenemedi.', 'error');
     }
   };
 
   const handleDeleteTemplate = async (id: number) => {
-    if (confirm('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
+    if (await confirmDialog('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
       await api.assortmentTemplates.remove(id);
     }
   };
@@ -51,6 +65,7 @@ export default function AssortmentTemplatesModal({ isOpen, onClose, templates }:
       onClose={onClose}
       title="Asorti & Numara Şablonları"
       className="max-w-2xl"
+      nested={nested}
     >
       <div className="space-y-6">
         {/* Create new template */}

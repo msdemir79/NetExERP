@@ -6,7 +6,115 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* Semantik tasarım tokenları.
+   Değerler mevcut Tailwind slate/indigo paletiyle birebir aynı; .dark altında
+   yeniden tanımlandıkları için bileşenlerde dark: öneki gerekmez. */
+@theme inline {
+  --color-canvas: var(--surface-canvas);
+  --color-surface: var(--surface-card);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-fg: var(--fg);
+  --color-fg-strong: var(--fg-strong);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-inverted: var(--fg-inverted);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --radius-control: 0.75rem; /* rounded-xl */
+  --radius-card: 1rem; /* rounded-2xl */
+  --radius-pill: 9999px;
+
+  --shadow-card: 0 1px 2px -1px rgb(15 23 42 / 0.06), 0 1px 3px 0 rgb(15 23 42 / 0.04);
+  --shadow-raised: 0 12px 32px -8px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+
+  --text-label: 10px;
+  --text-2xs: 11px;
+}
+
 @layer base {
+  :root {
+    --surface-canvas: #f8fafc; /* slate-50 */
+    --surface-card: #ffffff;
+    --surface-raised: #f8fafc; /* slate-50 */
+    --surface-hover: #f1f5f9; /* slate-100 */
+    --surface-active: #0f172a; /* slate-900 */
+
+    --line: #e2e8f0; /* slate-200 */
+    --line-strong: #cbd5e1; /* slate-300 */
+
+    --fg: #1e293b; /* slate-800 */
+    --fg-strong: #0f172a; /* slate-900 */
+    --fg-muted: #64748b; /* slate-500 */
+    --fg-inverted: #ffffff;
+
+    --brand: #4f46e5; /* indigo-600 */
+    --brand-hover: #4338ca; /* indigo-700 */
+    --brand-fg: #4f46e5; /* indigo-600 */
+    --brand-soft: #eef2ff; /* indigo-50 */
+    --on-brand: #ffffff;
+    --ring: rgb(99 102 241 / 0.35); /* indigo-500 */
+
+    --success: #059669; /* emerald-600 */
+    --success-soft: #ecfdf5; /* emerald-50 */
+    --warning: #d97706; /* amber-600 */
+    --warning-soft: #fffbeb; /* amber-50 */
+    --danger: #e11d48; /* rose-600 */
+    --danger-soft: #fff1f2; /* rose-50 */
+    --info: #0284c7; /* sky-600 */
+    --info-soft: #f0f9ff; /* sky-50 */
+  }
+
+  .dark {
+    --surface-canvas: #020617; /* slate-950 */
+    --surface-card: #0f172a; /* slate-900 */
+    --surface-raised: #1e293b; /* slate-800 */
+    --surface-hover: #1e293b; /* slate-800 */
+    --surface-active: #f8fafc; /* slate-50 */
+
+    --line: #334155; /* slate-700 */
+    --line-strong: #475569; /* slate-600 */
+
+    --fg: #e2e8f0; /* slate-200 */
+    --fg-strong: #f8fafc; /* slate-50 */
+    --fg-muted: #94a3b8; /* slate-400 */
+    --fg-inverted: #0f172a; /* slate-900 */
+
+    --brand: #6366f1; /* indigo-500 */
+    --brand-hover: #4f46e5; /* indigo-600 */
+    --brand-fg: #818cf8; /* indigo-400 */
+    --brand-soft: rgb(99 102 241 / 0.15);
+    --on-brand: #ffffff;
+
+    --success: #34d399; /* emerald-400 */
+    --success-soft: rgb(16 185 129 / 0.15);
+    --warning: #fbbf24; /* amber-400 */
+    --warning-soft: rgb(245 158 11 / 0.15);
+    --danger: #fb7185; /* rose-400 */
+    --danger-soft: rgb(244 63 94 / 0.15);
+    --info: #38bdf8; /* sky-400 */
+    --info-soft: rgb(14 165 233 / 0.15);
+  }
+
   html {
     font-size: 14px;
     letter-spacing: -0.011em;

@@ -1,7 +1,9 @@
 import React from 'react';
-import { Copy, Check, CheckCircle2 } from 'lucide-react';
+import { Copy, Check, CheckCircle2, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import Modal from '../Modal';
+import { ColorSelect } from '../Colors/ColorSelect';
+import ColorSwatch from '../Colors/ColorSwatch';
 import type { Product, Recipe } from '../../types';
 
 interface CopyRecipeModalProps {
@@ -31,6 +33,10 @@ const CopyRecipeModal: React.FC<CopyRecipeModalProps> = ({
   selectedProductId,
   materialCount
 }) => {
+  /** Ürün kartında tanımlı olmayıp seçilen hedef renkler (ayrıca listelenir). */
+  const cardColors = currentProduct?.colors || [];
+  const extraTargetColors = copyTargetColors.filter(col => !cardColors.includes(col));
+
   return (
     <Modal
       isOpen={isCopyModalOpen}
@@ -89,7 +95,15 @@ const CopyRecipeModal: React.FC<CopyRecipeModalProps> = ({
                   )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase tracking-wider">{col}</span>
+                    <span className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider">
+                      <ColorSwatch
+                        name={col}
+                        hexCode={currentProduct?.colorRefs?.find(ref => (ref.name || '').toLocaleUpperCase('tr') === col.toLocaleUpperCase('tr'))?.hexCode}
+                        size={14}
+                        className="rounded-full shrink-0"
+                      />
+                      {col}
+                    </span>
                     {isSelected && <Check className="w-3.5 h-3.5" />}
                   </div>
                   <div className={cn("text-[10px]", isSelected ? "text-indigo-100" : "text-slate-400")}>
@@ -100,28 +114,39 @@ const CopyRecipeModal: React.FC<CopyRecipeModalProps> = ({
             })}
           </div>
 
-          {/* Custom target color input */}
-          <div className="pt-2">
-            <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
-              Listede olmayan özel bir renk ekle:
+          {/* Kartta tanımlı olmayan hedef renkler merkezî listeden seçilir */}
+          <div className="pt-2 space-y-2">
+            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block">
+              Listede olmayan bir renk ekle:
             </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Örn: Siyah / Beyaz veya Taba"
-                className="flex-1 border border-slate-300 dark:border-slate-600 rounded-xl p-2 text-xs font-bold uppercase bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const val = (e.target as HTMLInputElement).value.trim();
-                    if (val && !copyTargetColors.includes(val)) {
-                      setCopyTargetColors([...copyTargetColors, val]);
-                      (e.target as HTMLInputElement).value = '';
-                    }
-                  }
-                }}
-              />
-            </div>
+            <ColorSelect
+              placeholder="Merkezî renk kartından seçin..."
+              onChange={(_colorId, color) => {
+                const name = (color?.name || '').trim();
+                if (name && !copyTargetColors.includes(name)) setCopyTargetColors([...copyTargetColors, name]);
+              }}
+            />
+
+            {extraTargetColors.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {extraTargetColors.map(col => (
+                  <span
+                    key={`extra-col-${col}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 text-[11px] font-black uppercase text-indigo-800 dark:text-indigo-200"
+                  >
+                    {col}
+                    <button
+                      type="button"
+                      title="Listeden çıkar"
+                      onClick={() => setCopyTargetColors(copyTargetColors.filter(c => c !== col))}
+                      className="text-indigo-400 hover:text-rose-600 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

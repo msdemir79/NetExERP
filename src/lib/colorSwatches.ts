@@ -38,6 +38,48 @@ const COLOR_PALETTE: { [key: string]: { bg: string; border: string; textDark?: b
   'naturel': { bg: '#f5f5f4', border: '#e7e5e4', textDark: true }
 };
 
+/** Türkçe büyük/küçük harf farkını katlar: SIYAH = Siyah = siyah. */
+function foldTurkishKey(value: string): string {
+  return (value || '')
+    .trim()
+    .toLocaleUpperCase('tr')
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C');
+}
+
+const FOLDED_PALETTE = new Map<string, string>(
+  Object.entries(COLOR_PALETTE).map(([key, value]) => [foldTurkishKey(key), value.bg.toUpperCase()]),
+);
+
+/**
+ * Exact palette HEX for a color name, or null when the palette has no such entry.
+ * Unlike getColorSwatch this never matches by contained keyword, so a non-null
+ * result is safe to persist (data migrations rely on it not inventing values).
+ */
+export function getPaletteHex(colorName: string): string | null {
+  const hex = FOLDED_PALETTE.get(foldTurkishKey(colorName));
+  return hex && /^#[0-9A-F]{6}$/.test(hex) ? hex : null;
+}
+
+/**
+ * Ürüne bağlı merkezî renk kartlarından (colorRefs) ada göre gerçek HEX'i bulur.
+ * Liste/rapor ekranları renk ADI ile çalışmaya devam eder; kartı olmayan eski
+ * kayıtlar için undefined döner ve çağıran palet yedeğine düşer.
+ */
+export function hexFromColorRefs(
+  refs: { name?: string | null; hexCode?: string | null }[] | undefined | null,
+  colorName?: string | null,
+): string | undefined {
+  if (!refs?.length || !colorName) return undefined;
+  const key = foldTurkishKey(colorName);
+  const hit = refs.find((ref) => foldTurkishKey(ref.name || '') === key);
+  return hit?.hexCode || undefined;
+}
+
 /**
  * Resolve a swatch for a color name (exact match first, then longest contained keyword).
  */

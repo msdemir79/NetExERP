@@ -15,6 +15,7 @@ import {
   Barcode,
   Upload,
   Keyboard,
+  Loader2,
 } from 'lucide-react';
 import Modal from '../Modal';
 import { api } from '../../api/client';
@@ -22,6 +23,7 @@ import { settingsService } from '../../services/settingsService';
 import { waybillService } from '../../services/waybillService';
 import { inventoryService } from '../../services/inventoryService';
 import { productionService } from '../../services/productionService';
+import { showToast } from '../../lib/feedback';
 import type { Product, WorkOrder, Contact, Waybill } from '../../types';
 import {
   StockCountPanel,
@@ -279,7 +281,7 @@ export default function CameraBarcodeScannerModal({
         });
         setIsTorchOn(nextState);
       } else {
-        alert('Bu kamerada fener (torch) özelliği desteklenmiyor.');
+        showToast('Bu kamerada fener (torch) özelliği desteklenmiyor.', 'warning');
       }
     } catch (err) {
       console.warn('Fener açılamadı:', err);
@@ -298,7 +300,7 @@ export default function CameraBarcodeScannerModal({
         handleCodeDetected(result);
       }
     } catch (err: any) {
-      alert('Seçilen görselde okunabilir barkod bulunamadı.');
+      showToast('Seçilen görselde okunabilir barkod bulunamadı.', 'warning');
     }
   };
 
@@ -496,7 +498,8 @@ export default function CameraBarcodeScannerModal({
       await inventoryService.adjustInventoryQuantity(
         matchedProduct.id,
         diff,
-        `Kamera Canlı Barkod Sayımı Düzeltmesi (Sayılan: ${countedQty}, Önceki: ${currentSysStock} ${matchedVariant?.size ? 'Beden: ' + matchedVariant.size : ''})`
+        `Kamera Canlı Barkod Sayımı Düzeltmesi (Sayılan: ${countedQty}, Önceki: ${currentSysStock} ${matchedVariant?.size ? 'Beden: ' + matchedVariant.size : ''})`,
+        matchedVariant ? { color: matchedVariant.color, size: matchedVariant.size } : undefined
       );
 
       // Refresh product
@@ -513,7 +516,7 @@ export default function CameraBarcodeScannerModal({
       setCountNotice(`Stok başarıyla güncellendi! Yeni Fiili Stok: ${countedQty} ${matchedProduct.unit || 'Çift'}`);
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      alert(`Stok kaydedilirken hata: ${err.message}`);
+      showToast(`Stok kaydedilirken hata: ${err.message}`, 'error');
     }
   };
 
@@ -536,12 +539,12 @@ export default function CameraBarcodeScannerModal({
       }
 
       if (soundEnabled) playScannerBeep('stage');
-      alert(`Mal kabulü tamamlandı! Toplam ${receiptBasket.reduce((sum, it) => sum + it.quantity, 0)} birim depoya alındı.`);
+      showToast(`Mal kabulü tamamlandı! Toplam ${receiptBasket.reduce((sum, it) => sum + it.quantity, 0)} birim depoya alındı.`, 'success');
       setReceiptBasket([]);
       setReceiptDocumentNo('');
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      alert(`Mal kabulü işlenirken hata: ${err.message}`);
+      showToast(`Mal kabulü işlenirken hata: ${err.message}`, 'error');
     }
   };
 
@@ -603,7 +606,7 @@ export default function CameraBarcodeScannerModal({
       setDispatchBasket([]);
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      alert(`İrsaliye oluşturulurken hata: ${err.message}`);
+      showToast(`İrsaliye oluşturulurken hata: ${err.message}`, 'error');
     }
   };
 
@@ -623,7 +626,7 @@ export default function CameraBarcodeScannerModal({
       setTargetStageFromBarcode(null);
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      alert(`İş emri aşaması güncellenirken hata: ${err.message}`);
+      showToast(`İş emri aşaması güncellenirken hata: ${err.message}`, 'error');
     }
   };
 
@@ -726,6 +729,31 @@ export default function CameraBarcodeScannerModal({
             </div>
 
             <div className="flex items-center gap-1.5">
+              {/* Processing Indicator */}
+              {isProcessing && (
+                <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+                  <Loader2 className="w-3.5 h-3.5 text-indigo-300 animate-spin" />
+                  <span className="text-[11px] font-bold">İşleniyor…</span>
+                </div>
+              )}
+
+              {/* Camera Selection Dropdown */}
+              {availableCameras.length > 0 && (
+                <select
+                  value={selectedCameraId}
+                  onChange={(e) => handleCameraChange(e.target.value)}
+                  className="max-w-40 p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer text-[11px] font-bold"
+                  title="Kamera Seç"
+                  aria-label="Kamera seçimi"
+                >
+                  {availableCameras.map(c => (
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                      {c.label || 'Kamera'}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               {/* Torch Toggle */}
               <button
                 type="button"

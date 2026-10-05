@@ -76,7 +76,25 @@ async function main() {
         count++;
       } catch (err) {
         console.log('HATA');
-        console.error(`\n"${file}" uygulanamadı: ${err?.message || err}\n`);
+        console.error(`\n"${file}" uygulanamadı: ${err?.message || err}`);
+        console.error(
+          [
+            '',
+            '⚠ Kısmi uygulama mümkün: MySQL DDL ifadelerini otomatik commit eder,',
+            '  bu yüzden bu dosya birden fazla ifade içeriyorsa bazıları uygulanmış,',
+            '  bazıları uygulanmamış olabilir. Dosya schema_migrations\'a İŞLENMEDİ.',
+            '',
+            '  Ne yapmalı:',
+            `  1. "${file}" içeriğini ve yukarıdaki hata mesajını inceleyin.`,
+            '  2. Veritabanının gerçek durumunu kontrol edin (SHOW COLUMNS / SHOW TABLES',
+            '     / information_schema) — ifadenin yarısı uygulanmış olabilir.',
+            '  3. Gerekirse `npm run db:backup` ile yedek alıp düzeltin, sonra tekrar',
+            '     `npm run db:migrate` çalıştırın.',
+            '  4. Taze bir kurulumda (npm run db:setup) bu dosya zaten taban çizgisinde',
+            '     işaretlenir; orada schema.sql güncel kabul edilir.',
+            '',
+          ].join('\n'),
+        );
         throw err;
       }
     }

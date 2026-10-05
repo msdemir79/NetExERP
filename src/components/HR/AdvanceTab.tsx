@@ -6,6 +6,7 @@ import {
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import type { Employee, AdvanceRequest } from '../../types';
 import { hrService } from '../../services/hrService';
+import { showToast } from '../../lib/feedback';
 
 interface AdvanceTabProps {
   employees: Employee[];
@@ -67,7 +68,7 @@ export default function AdvanceTab({ employees, onAdvancesUpdated }: AdvanceTabP
       setIsModalOpen(false);
       setReason('');
     } catch (err: any) {
-      alert(err?.message || 'Avans talebi eklenemedi.');
+      showToast(err?.message || 'Avans talebi eklenemedi.', 'error');
     } finally {
       setIsSubmitting(false);
     }

@@ -30,6 +30,7 @@ const NUMBER_COLUMN: Record<string, string> = {
   invoices: 'invoiceNumber',
   waybills: 'waybillNumber',
   orders: 'orderNumber',
+  colors: 'code',
 };
 
 /** Yevmiye fişi tipi → numara öneki. Bilinmeyen tipler 'YEV' (mahsup) alır. */
@@ -50,6 +51,11 @@ export interface AllocateNumberOptions {
   year?: number;
   /** Benzersiz numara kolonu; verilmezse NUMBER_COLUMN'dan çözülür. */
   column?: string;
+  /**
+   * Yıl içermeyen sıra numaraları (ör. renk kodu `R-0001`). Numara ömür boyu
+   * arttığı için sayaç tek satırda (year=0) tutulur ve biçim `${prefix}-${pad}` olur.
+   */
+  omitYear?: boolean;
 }
 
 /** Sayaç satırını atomik artırır; satır yoksa (affectedRows=0) false döner. */
@@ -69,7 +75,7 @@ export async function allocateDocumentNumber(
   conn: PoolConnection,
   opts: AllocateNumberOptions,
 ): Promise<string> {
-  const year = opts.year ?? new Date().getFullYear();
+  const year = opts.omitYear ? 0 : (opts.year ?? new Date().getFullYear());
   const column = opts.column || NUMBER_COLUMN[opts.table];
   if (!column) throw new Error(`allocateDocumentNumber: '${opts.table}' için numara kolonu bilinmiyor.`);
 
@@ -78,7 +84,7 @@ export async function allocateDocumentNumber(
 
   // 2) YAVAŞ YOL (ilk kullanım): satırı mevcut maksimumdan tembel başlat.
   if (!bumped) {
-    const like = `${opts.prefix}-${year}-%`;
+    const like = opts.omitYear ? `${opts.prefix}-%` : `${opts.prefix}-${year}-%`;
     // Kilitsiz snapshot read: hedef tablodaki en büyük sıra numarasını bul.
     const seedRows = await conn.query<any[]>(
       `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(\`${column}\`, '-', -1) AS UNSIGNED)), 0) AS seed
@@ -103,5 +109,80 @@ export async function allocateDocumentNumber(
     [opts.table, opts.prefix, year],
   );
   const n = Number((rows[0] as any[])[0]?.lastNumber || 0);
-  return `${opts.prefix}-${year}-${String(n).padStart(opts.pad, '0')}`;
+  const padded = String(n).padStart(opts.pad, '0');
+  return opts.omitYear ? `${opts.prefix}-${padded}` : `${opts.prefix}-${year}-${padded}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Barkod sıra numarası üretimi (toplu, kilitli)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Barkodlar belge numaralarından farklıdır: tire içermez, `barcodeType`'a göre
+ * EAN-13 (12 hane + checksum) ya da CODE-128/39 (prefix + sıra) biçimlenir.
+ * Biçimden bağımsız TEK bir monotonic sayaç (scope='barcodes') tutulur; böylece
+ * tip/önek ayarı değişse bile sıra numaraları çakışmaz.
+ */
+const BARCODE_SCOPE = 'barcodes';
+const BARCODE_COUNTER_PREFIX = 'SEQ';
+const BARCODE_COUNTER_YEAR = 0;
+
+/** Sayaç satırını `n` kadar atomik artırır; satır yoksa (affectedRows=0) false. */
+async function bumpCounterBy(conn: PoolConnection, scope: string, prefix: string, year: number, n: number): Promise<boolean> {
+  const [r] = await conn.query(
+    `UPDATE \`documentNumbers\` SET \`lastNumber\` = \`lastNumber\` + ?, \`updatedAt\` = NOW()
+      WHERE \`scope\` = ? AND \`prefix\` = ? AND \`year\` = ?`,
+    [n, scope, prefix, year],
+  );
+  return ((r as any)?.affectedRows ?? 0) === 1;
+}
+
+/**
+ * `count` adet benzersiz barkod sıra numarasını tek atomik adımda rezerve eder
+ * ve [start..end] aralığındaki tam sayıları döner. Sayaç satırı ilk kullanımda
+ * `seed` değerinden (settings.nextBarcodeSequence) tembel başlatılır; böylece
+ * daha önce istemcide üretilen barkodlarla süreklilik korunur.
+ */
+export async function allocateBarcodeSequences(conn: PoolConnection, count: number, seed: number): Promise<number[]> {
+  const n = Math.floor(Number(count) || 0);
+  if (n <= 0) return [];
+
+  let bumped = await bumpCounterBy(conn, BARCODE_SCOPE, BARCODE_COUNTER_PREFIX, BARCODE_COUNTER_YEAR, n);
+  if (!bumped) {
+    const seedValue = Math.max(0, Math.floor(Number(seed) || 0));
+    await conn.query(
+      `INSERT IGNORE INTO \`documentNumbers\` (\`scope\`, \`prefix\`, \`year\`, \`lastNumber\`) VALUES (?, ?, ?, ?)`,
+      [BARCODE_SCOPE, BARCODE_COUNTER_PREFIX, BARCODE_COUNTER_YEAR, seedValue],
+    );
+    bumped = await bumpCounterBy(conn, BARCODE_SCOPE, BARCODE_COUNTER_PREFIX, BARCODE_COUNTER_YEAR, n);
+    if (!bumped) throw new Error('allocateBarcodeSequences: barkod sayacı başlatılamadı.');
+  }
+
+  const rows = await conn.query<any[]>(
+    `SELECT \`lastNumber\` FROM \`documentNumbers\` WHERE \`scope\` = ? AND \`prefix\` = ? AND \`year\` = ?`,
+    [BARCODE_SCOPE, BARCODE_COUNTER_PREFIX, BARCODE_COUNTER_YEAR],
+  );
+  const end = Number((rows[0] as any[])[0]?.lastNumber || 0);
+  const start = end - n + 1;
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(start + i);
+  return out;
+}
+
+/**
+ * Sıra numarasını ayarlanan barkod tipine göre biçimler. İstemcideki
+ * `settingsService.generateAutomatedBarcodes` ile BİREBİR aynı çıktıyı verir
+ * (EAN-13: prefix + 9 haneli sıra + mod-10 checksum; diğerleri: prefix + sıra).
+ */
+export function formatBarcodeValue(seq: number, type: string, prefix: string): string {
+  const p = prefix || '';
+  if (type === 'EAN-13') {
+    const numPart = String(seq).padStart(Math.max(0, 12 - p.length), '0');
+    const raw12 = `${p}${numPart}`.slice(0, 12).padStart(12, '0');
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += parseInt(raw12[i], 10) * (i % 2 === 0 ? 1 : 3);
+    const check = (10 - (sum % 10)) % 10;
+    return `${raw12}${check}`;
+  }
+  return `${p}${seq}`;
 }

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { financeService } from '../../services/financeService';
+import { ContactSelect } from '../Contacts/ContactSelect';
+import { showToast } from '../../lib/feedback';
 import type { CheckNote, CheckStatus, Contact, BankAccount } from '../../types';
 
 export type CheckActionType = 'collect' | 'endorse' | 'bank_collection' | 'bounce';
@@ -30,6 +32,10 @@ export default function CheckActionModal({
   const handleSaveCheckAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!check?.id) return;
+    if (checkActionType === 'endorse' && !checkEndorseContactId) {
+      showToast('Lütfen ciro edilecek tedarikçiyi seçiniz.', 'warning');
+      return;
+    }
 
     try {
       let targetStatus: CheckStatus = 'collected';
@@ -46,9 +52,9 @@ export default function CheckActionModal({
       });
 
       onClose();
-      alert('Çek işlem kaydı güncellendi ve muhasebe yevmiye fişi oluşturuldu.');
+      showToast('Çek işlem kaydı güncellendi ve muhasebe yevmiye fişi oluşturuldu.', 'success');
     } catch (err: any) {
-      alert(`Çek işlemi hatası: ${err.message}`);
+      showToast(`Çek işlemi hatası: ${err.message}`, 'error');
     }
   };
 
@@ -113,17 +119,14 @@ export default function CheckActionModal({
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Ciro Edilecek Tedarikçi *
               </label>
-              <select
-                required
-                value={checkEndorseContactId}
-                onChange={(e) => setCheckEndorseContactId(Number(e.target.value))}
-                className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white dark:bg-slate-900"
-              >
-                <option value="">Tedarikçi Seçiniz...</option>
-                {contacts.filter(c => c.type === 'supplier' || c.type === 'both').map(c => (
-                  <option key={c.id} value={c.id}>{c.name} (Bakiye: ₺{c.balance.toLocaleString('tr-TR')})</option>
-                ))}
-              </select>
+              <ContactSelect
+                contacts={contacts}
+                value={checkEndorseContactId ? Number(checkEndorseContactId) : null}
+                allowTypes={['supplier', 'both']}
+                placeholder="Tedarikçi Seçiniz..."
+                showBalance
+                onChange={(id) => setCheckEndorseContactId(id ?? '')}
+              />
             </div>
           )}
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ShoppingCart, Truck, Receipt, Save, Check, ShieldCheck, Percent, Clock } from 'lucide-react';
+import { showToast } from '../../lib/feedback';
 import type { AppSettings } from '../../types';
 
 interface OrderSettingsProps {
@@ -50,7 +51,7 @@ export default function OrderSettings({ settings, onSave }: OrderSettingsProps) 
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Ayarlar kaydedilemedi:', err);
-      alert('Sipariş ve sevkiyat ayarları kaydedilirken hata oluştu.');
+      showToast('Sipariş ve sevkiyat ayarları kaydedilirken hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }

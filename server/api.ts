@@ -27,27 +27,27 @@ import {
   verifyPassword,
   type AuthContext,
 } from './auth.js';
-import { writeAudit, writeAuditInTx, resourceAuditEntry, AUDITED_RESOURCES } from './audit.js';
+import { writeAudit, writeAuditInTx, resourceAuditEntry, auditTracksChanges, AUDITED_RESOURCES } from './audit.js';
 import type { PoolConnection } from 'mysql2/promise';
 import { broadcast, sseHandler } from './sse.js';
 import { createBusinessOpsRouter } from './businessOps.js';
 import { versionSupported } from './schema.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
 import { allocateDocumentNumber, journalPrefixFor } from './numbering.js';
+import { HttpError } from './errors.js';
+import { storeImageFromDataUrl } from './files.js';
+import {
+  applyRecipeTargetColor,
+  attachProductColors,
+  normalizeColorPayload,
+  prepareColorWrite,
+  propagateColorRename,
+  syncProductColorsFromBody,
+} from './colorService.js';
 
 /* ------------------------------------------------------------------ */
 /* Yardımcılar                                                         */
 /* ------------------------------------------------------------------ */
-
-class HttpError extends Error {
-  status: number;
-  code?: string;
-  constructor(status: number, message: string, code?: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
 
 /** Gelen değeri kolon tipine göre MySQL'in kabul edeceği hale getirir. */
 function coerce(def: ResourceDef, column: string, value: any): any {
@@ -204,10 +204,15 @@ async function assertVersionMatch(def: ResourceDef, pk: any, expected: number): 
 }
 
 /**
- * Yevmiye fişi disiplini: borç/alacak toplamları sunucuda da doğrulanır ve
- * toplam alanları sunucu tarafından yeniden hesaplanır (tek doğruluk kaynağı).
+ * Kaynak bazlı iş kuralı doğrulamaları (senkron). Generic CRUD ve /ops/commit
+ * aynı kancayı kullanır; böylece iş kuralları hiçbir yazma yolundan atlanamaz.
  */
 function applyResourceRules(resource: string, data: Record<string, any>): void {
+  if (resource === 'colors') {
+    normalizeColorPayload(data);
+    return;
+  }
+  // Yevmiye fişi disiplini: denge sunucuda doğrulanır, toplamlar sunucuda hesaplanır.
   if (resource !== 'journalEntries') return;
   if (!('lines' in data)) return;
 
@@ -538,6 +543,22 @@ function assertSuperAdmin(auth: AuthContext | undefined, message: string): void 
  * denetim kaydı uyduramaz. Yalnızca AUDITED_RESOURCES listesindeki kaynaklar
  * ve başarılı (satır etkileyen) işlemler kaydedilir.
  */
+/**
+ * İzlenen alanlarda (renk künyesi, ürün renk listesi) eski → yeni karşılaştırması
+ * için kaydın güncelleme öncesi anlık görüntüsü. Yalnızca denetim izine fark
+ * yazılan kaynaklarda ve aynı transaction içinde okunur.
+ */
+async function snapshotForAudit(
+  conn: PoolConnection,
+  def: ResourceDef,
+  resource: string,
+  pk: any,
+): Promise<Record<string, any> | null> {
+  if (!AUDITED_RESOURCES[resource] || !auditTracksChanges(resource)) return null;
+  const result = await conn.query(`SELECT * FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ? LIMIT 1`, [pk]);
+  return ((result as any)?.[0] as any[])?.[0] ?? null;
+}
+
 async function auditResourceInTx(
   conn: PoolConnection,
   resource: string,
@@ -545,8 +566,9 @@ async function auditResourceInTx(
   id: string | number | null,
   req: Request,
   body?: unknown,
+  before?: Record<string, any> | null,
 ): Promise<void> {
-  const entry = resourceAuditEntry(resource, action, id, body);
+  const entry = resourceAuditEntry(resource, action, id, body, before);
   if (!entry) return;
   await writeAuditInTx(conn, entry, { auth: req.auth, ip: clientIp(req) });
 }
@@ -847,6 +869,20 @@ export function createApiRouter(): Router {
   router.get('/events', sseHandler);
 
   /* ---------------------------------------------------------------- */
+  /* Görsel yükleme (#51): base64 data URL → disk dosyası + /uploads   */
+  /* URL'i. Ürün/renk görselleri ve firma logosu artık DB'de base64    */
+  /* olarak tutulmaz; istemci bu uçtan dönen URL'i ilgili alana yazar. */
+  /* ---------------------------------------------------------------- */
+  router.post('/files', async (req, res, next) => {
+    try {
+      const stored = storeImageFromDataUrl(req.body?.dataUrl);
+      res.json({ data: { url: stored.url, bytes: stored.bytes } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
   /* İşlem uçları: stok hareketi, reçete sarfiyatı, cari bakiye        */
   /* (tek transaction + satır kilidi)                                 */
   /* ---------------------------------------------------------------- */
@@ -911,7 +947,9 @@ export function createApiRouter(): Router {
       for (const m of mutations) {
         const meta = getMeta(m.resource);
         if (!getDef(m.resource)) throw new HttpError(400, `Bilinmeyen kaynak: ${m.resource}`);
-        if (meta.readOnly) {
+        if (meta.readOnly && !disableFkChecks) {
+          // Yedek geri yükleme (yalnızca Süper Admin, FK denetimi kapalı) salt-okunur
+          // bağ tablolarını (ör. productColors) olduğu gibi geri yazabilir.
           throw new HttpError(403, `"${m.resource}" kaynağı yalnızca okunabilir.`, 'READ_ONLY_RESOURCE');
         }
         // Hareket defteri tabloları toplu işlemde yalnızca `clear` (Süper Admin) ile yazılabilir.
@@ -1106,7 +1144,7 @@ export function createApiRouter(): Router {
       if (meta.noHardDelete && isDelete && !isClear) {
         throw new HttpError(
           403,
-          `"${resource}" transactional bir kayıttır; doğrudan silme kapalıdır. İptal/ters kayıt için kontrollü işlemleri (ops) kullanın.`,
+          `"${resource}" kayıtları kalıcı olarak silinemez. Transactional kayıtlarda iptal/ters kayıt için kontrollü işlemleri (ops), ana veri kartlarında ise pasifleştirmeyi kullanın.`,
           'TRANSACTIONAL_NO_DELETE',
         );
       }
@@ -1124,7 +1162,12 @@ export function createApiRouter(): Router {
       const q = parseListQuery(req);
       const result = await listRows(resource, def, q);
       if (q.countOnly) res.json({ count: result });
-      else res.json({ data: stripHiddenRows(resource, result as any[]) });
+      else {
+        // Ürün renkleri artık productColors bağında tutulur; okuma yolunda
+        // merkezi kartlardan zenginleştirilir (colors/colorRefs).
+        const rows = resource === 'products' ? await attachProductColors(result as any[]) : (result as any[]);
+        res.json({ data: stripHiddenRows(resource, rows) });
+      }
     } catch (err) {
       next(err);
     }
@@ -1141,7 +1184,8 @@ export function createApiRouter(): Router {
         [coerce(def, def.primaryKey, req.params.id)]
       );
       if (!row) throw new HttpError(404, 'Kayıt bulunamadı.');
-      res.json({ data: stripHidden(resource, row) });
+      const enriched = resource === 'products' ? (await attachProductColors([row as any]))[0] : row;
+      res.json({ data: stripHidden(resource, enriched) });
     } catch (err) {
       next(err);
     }
@@ -1172,6 +1216,10 @@ export function createApiRouter(): Router {
           if (def.timestamps.includes('createdAt') && !data.createdAt) data.createdAt = new Date();
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
           applyResourceRules(resource, data);
+          // Renk kodu boşsa kilitli sayaçtan üretilir; kod benzersizliği burada
+          // açıkça denetlenir (UNIQUE çakışması 500'e düşmesin).
+          if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
+          if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
           // Yevmiye fiş numarası her zaman sunucuda, kilitli sayaçtan üretilir
           // (item 8). İstemciden gelen entryNumber yok sayılır; böylece eşzamanlı
           // isteklerde UNIQUE çakışması (ER_DUP_ENTRY → 500) oluşmaz.
@@ -1191,7 +1239,10 @@ export function createApiRouter(): Router {
           }
           const { sql, params } = insertSql(def, data);
           const [r] = await conn.query(sql, params);
-          created.push(data[def.primaryKey] ?? (r as any).insertId);
+          const newId = data[def.primaryKey] ?? (r as any).insertId;
+          created.push(newId);
+          // Ürünün renk bağları aynı transaction içinde productColors'a yazılır.
+          if (resource === 'products' && newId) await syncProductColorsFromBody(conn, Number(newId), row);
         }
         // Kritik kaynak oluşturulmaları aynı transaction içinde auditlenir.
         for (const id of created) await auditResourceInTx(conn, resource, 'create', id, req, rows[0]);
@@ -1221,7 +1272,10 @@ export function createApiRouter(): Router {
 
       const data = pickColumns(resource, def, req.body, { partial: true });
       if (def.timestamps.includes('updatedAt')) data.updatedAt = new Date();
-      if (!Object.keys(data).length) throw new HttpError(400, 'Güncellenecek alan yok.');
+      // Ürün kartında yalnızca renk seçimi değişmiş olabilir (colorIds); bu
+      // durumda kolon gövdesi boş olsa da yazma işlemi geçerlidir.
+      const hasColorSync = resource === 'products' && (Array.isArray(req.body?.colorIds) || Array.isArray(req.body?.colors));
+      if (!Object.keys(data).length && !hasColorSync) throw new HttpError(400, 'Güncellenecek alan yok.');
 
       applyResourceRules(resource, data);
       // Parola gövde alanı yazma öncesi doğrulanır (yarım kalmış güncelleme olmasın).
@@ -1233,21 +1287,33 @@ export function createApiRouter(): Router {
       if (expected !== null && !withVersion) {
         throw new HttpError(400, 'Bu kurulumda iyimser kilitleme etkin değil (version kolonu yok). `npm run db:migrate` çalıştırın.', 'MIGRATION_REQUIRED');
       }
-      const { sql, params } = updateSql(
-        def,
-        data,
-        expected === null
-          ? `WHERE \`${def.primaryKey}\` = ?`
-          : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
-        withVersion,
-      );
       const affected = await withTransaction(async (conn) => {
-        const [r] = await conn.query(sql, expected === null ? [...params, pk] : [...params, pk, expected]);
-        const changes = (r as any)?.affectedRows ?? 0;
-        if (!changes) return 0;
-        // Kritik kaynak güncellemeleri aynı transaction içinde auditlenir.
-        await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body);
-        return changes;
+        const before = await snapshotForAudit(conn, def, resource, pk);
+        // Renk kodu değişiyorsa benzersizlik transaction içinde denetlenir.
+        if (resource === 'colors') await prepareColorWrite(conn, data, { id: pk });
+        if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
+
+        let changes = 0;
+        if (Object.keys(data).length) {
+          const { sql, params } = updateSql(
+            def,
+            data,
+            expected === null
+              ? `WHERE \`${def.primaryKey}\` = ?`
+              : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
+            withVersion,
+          );
+          const [r] = await conn.query(sql, expected === null ? [...params, pk] : [...params, pk, expected]);
+          changes = (r as any)?.affectedRows ?? 0;
+          if (!changes) return 0;
+          // Kritik kaynak güncellemeleri aynı transaction içinde auditlenir.
+          await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body, before);
+          // Renk adı değiştiyse ürünü kullanan kart JSON'ları da aynı transaction'da güncellenir.
+          if (resource === 'colors') await propagateColorRename(conn, Number(pk), before, data);
+        }
+
+        const links = resource === 'products' ? await syncProductColorsFromBody(conn, Number(pk), req.body) : 0;
+        return changes || links;
       });
       if (!affected) {
         // Sürüm koşulu verildiyse 404 mü 409 mu olduğunu ayırt et.
@@ -1284,19 +1350,25 @@ export function createApiRouter(): Router {
         if (expected !== null && !withVersion) {
           throw new HttpError(400, 'Bu kurulumda iyimser kilitleme etkin değil (version kolonu yok). `npm run db:migrate` çalıştırın.', 'MIGRATION_REQUIRED');
         }
-        const { sql, params } = updateSql(
-          def,
-          data,
-          expected === null
-            ? `WHERE \`${def.primaryKey}\` = ?`
-            : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
-          withVersion,
-        );
         const affected = await withTransaction(async (conn) => {
+          const before = await snapshotForAudit(conn, def, resource, id);
+          if (resource === 'colors') await prepareColorWrite(conn, data, { id });
+          if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
+          // SQL, transaction içinde kesinleşen alanlardan (renk kodu, targetColorId) kurulur.
+          const { sql, params } = updateSql(
+            def,
+            data,
+            expected === null
+              ? `WHERE \`${def.primaryKey}\` = ?`
+              : `WHERE \`${def.primaryKey}\` = ? AND \`version\` = ?`,
+            withVersion,
+          );
           const [r] = await conn.query(sql, expected === null ? [...params, id] : [...params, id, expected]);
           const changes = (r as any)?.affectedRows ?? 0;
           if (!changes) return 0;
-          await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body);
+          await auditResourceInTx(conn, resource, 'update', req.params.id, req, req.body, before);
+          if (resource === 'colors') await propagateColorRename(conn, Number(id), before, data);
+          if (resource === 'products') await syncProductColorsFromBody(conn, Number(id), req.body);
           return changes;
         });
         if (!affected) {
@@ -1318,10 +1390,14 @@ export function createApiRouter(): Router {
         );
         if (def.timestamps.includes('createdAt') && !insertData.createdAt) insertData.createdAt = new Date();
         applyResourceRules(resource, insertData);
-        const { sql, params } = insertSql(def, insertData);
         await withTransaction(async (conn) => {
+          // Renk kodu transaction içinde (kilitli sayaçtan) üretilir; INSERT SQL'i bu yüzden burada kurulur.
+          if (resource === 'colors') await prepareColorWrite(conn, insertData, { id });
+          if (resource === 'recipes') await applyRecipeTargetColor(conn, insertData);
+          const { sql, params } = insertSql(def, insertData);
           await conn.query(sql, params);
           await auditResourceInTx(conn, resource, 'create', req.params.id, req, req.body);
+          if (resource === 'products') await syncProductColorsFromBody(conn, Number(id), req.body);
         });
         if (resource === 'users' && req.body?.password) {
           await setUserPassword(Number(id), String(req.body.password));
@@ -1364,6 +1440,8 @@ export function createApiRouter(): Router {
             const updateData = pickColumns(resource, def, row, { partial: true });
             const keys = Object.keys(updateData).filter((k) => k !== def.primaryKey);
             if (keys.length) {
+              if (resource === 'colors') await prepareColorWrite(conn, updateData, { id: pk });
+              if (resource === 'recipes') await applyRecipeTargetColor(conn, updateData);
               const { sql, params } = updateSql(
                 def,
                 updateData,
@@ -1373,13 +1451,18 @@ export function createApiRouter(): Router {
               const [r] = await conn.query(sql, [...params, coerce(def, def.primaryKey, pk)]);
               if ((r as any).affectedRows) {
                 created.push(pk);
+                if (resource === 'products') await syncProductColorsFromBody(conn, Number(pk), row);
                 continue;
               }
             }
           }
+          if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
+          if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
           const { sql, params } = insertSql(def, data);
           const [r] = await conn.query(sql, params);
-          created.push(data[def.primaryKey] ?? (r as any).insertId);
+          const newId = data[def.primaryKey] ?? (r as any).insertId;
+          created.push(newId);
+          if (resource === 'products' && newId) await syncProductColorsFromBody(conn, Number(newId), row);
         }
         // Kritik kaynakların toplu yazımları tek özet kayıt olarak auditlenir.
         if (AUDITED_RESOURCES[resource]) {

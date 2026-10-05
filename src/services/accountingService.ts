@@ -1,4 +1,4 @@
-import { api, callOp, equalsIgnoreCase } from '../api/client';
+import { api, callOp, equalsIgnoreCase, getMizanSummary } from '../api/client';
 import type { 
   Account, 
   JournalEntry, 
@@ -8,53 +8,11 @@ import type {
 } from '../types';
 import { assertBalancedJournalEntry } from '../lib/accountingValidator';
 import { assertServicePermission } from './authGuard';
+import type { MizanRow, MizanLevelFilter } from '../lib/accountCodes';
 
-export interface MizanRow {
-  code: string;
-  name: string;
-  type: string;
-  level: number;
-  totalDebit: number;    // Toplam Borç
-  totalCredit: number;   // Toplam Alacak
-  debitBalance: number;  // Borç Bakiyesi
-  creditBalance: number; // Alacak Bakiyesi
-}
-
-/**
- * TDHP Hesap Planı Hiyerarşik Sıralama Karşılaştırıcısı:
- * 1 (Sınıf) -> 10 (Grup) -> 100 (Ana Hesap) -> 100.01 (Alt Hesap) -> 100.01.001 (Muavin Hesap)
- * 120 -> 120.01 -> 120.01.001 (Aslanlar Ayakkabı) -> 120.02 -> 120.02.001 -> 121
- */
-export function compareAccountCodes(codeA: string, codeB: string): number {
-  if (!codeA) return -1;
-  if (!codeB) return 1;
-  const segsA = codeA.trim().split('.');
-  const segsB = codeB.trim().split('.');
-  const minLen = Math.min(segsA.length, segsB.length);
-
-  for (let i = 0; i < minLen; i++) {
-    const sA = segsA[i];
-    const sB = segsB[i];
-    if (sA !== sB) {
-      if (i === 0) {
-        // Ana kök hesap kodu (1, 10, 100, 120, 121, 320...)
-        // Alfabetik / leksikografik karşılaştırma: '1' < '10' < '100' < '101' < '11' < '12' < '120' < '121' < '2' < '3'
-        return sA.localeCompare(sB);
-      }
-      // Noktadan sonraki alt ve muavin segmentler (örn: '01' vs '02' vs '001')
-      const numA = parseInt(sA, 10);
-      const numB = parseInt(sB, 10);
-      if (!isNaN(numA) && !isNaN(numB)) {
-        if (numA !== numB) {
-          return numA - numB;
-        }
-        return sA.localeCompare(sB);
-      }
-      return sA.localeCompare(sB, undefined, { numeric: true });
-    }
-  }
-  return segsA.length - segsB.length;
-}
+// Mizan tipi ve TDHP kod karşılaştırıcısı artık paylaşılan modülde (sunucu da kullanır).
+export type { MizanRow } from '../lib/accountCodes';
+export { compareAccountCodes } from '../lib/accountCodes';
 
 export const accountingService = {
   // --- Account Management ---
@@ -866,109 +824,19 @@ export const accountingService = {
   },
 
   // --- Trial Balance (Mizan Raporu) ---
+  /**
+   * Mizan artık sunucuda hesaplanır: journalEntries satırları SQL GROUP BY ile
+   * kesin hesap kodu bazında toplanır, üst kodlara yuvarlanır ve yalnızca hazır
+   * MizanRow[] döner. Eskiden her filtre değişiminde tüm accounts + journalEntries
+   * (tüm satırlarla) istemciye indiriliyordu.
+   */
   async getMizanReport(options?: {
     startDate?: Date;
     endDate?: Date;
     onlyWithBalance?: boolean;
-    levelFilter?: 'all' | 'class' | 'group' | 'main' | 'sub';
+    levelFilter?: MizanLevelFilter;
   }): Promise<MizanRow[]> {
-    const rawAccounts = await api.accounts.list();
-    const uniqueMap = new Map<string, Account>();
-    rawAccounts.forEach(acc => {
-      const codeKey = acc.code.trim();
-      if (!uniqueMap.has(codeKey)) {
-        uniqueMap.set(codeKey, acc);
-      }
-    });
-    const accounts = Array.from(uniqueMap.values());
-    const journalEntries = await api.journalEntries.list();
-
-    // Filter entries by date if specified
-    const filteredEntries = journalEntries.filter(entry => {
-      if (options?.startDate && new Date(entry.date) < new Date(options.startDate)) return false;
-      if (options?.endDate && new Date(entry.date) > new Date(options.endDate)) return false;
-      return true;
-    });
-
-    // Map account code -> { totalDebit, totalCredit }
-    const totalsMap = new Map<string, { totalDebit: number; totalCredit: number }>();
-
-    filteredEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        const code = line.accountCode;
-        const current = totalsMap.get(code) || { totalDebit: 0, totalCredit: 0 };
-        current.totalDebit += Number(line.debit) || 0;
-        current.totalCredit += Number(line.credit) || 0;
-        totalsMap.set(code, current);
-
-        // Also propagate to parent account codes (e.g. 100.01 -> 100, 10, 1)
-        const parts = code.split('.');
-        const mainCode = parts[0];
-        if (mainCode && mainCode !== code) {
-          const mainCurr = totalsMap.get(mainCode) || { totalDebit: 0, totalCredit: 0 };
-          mainCurr.totalDebit += Number(line.debit) || 0;
-          mainCurr.totalCredit += Number(line.credit) || 0;
-          totalsMap.set(mainCode, mainCurr);
-        }
-
-        if (mainCode.length >= 2) {
-          const groupCode = mainCode.substring(0, 2);
-          if (groupCode !== mainCode) {
-            const grpCurr = totalsMap.get(groupCode) || { totalDebit: 0, totalCredit: 0 };
-            grpCurr.totalDebit += Number(line.debit) || 0;
-            grpCurr.totalCredit += Number(line.credit) || 0;
-            totalsMap.set(groupCode, grpCurr);
-          }
-        }
-
-        const classCode = mainCode.substring(0, 1);
-        if (classCode !== mainCode) {
-          const clsCurr = totalsMap.get(classCode) || { totalDebit: 0, totalCredit: 0 };
-          clsCurr.totalDebit += Number(line.debit) || 0;
-          clsCurr.totalCredit += Number(line.credit) || 0;
-          totalsMap.set(classCode, clsCurr);
-        }
-      });
-    });
-
-    // Build Mizan rows
-    const rows: MizanRow[] = accounts.map(acc => {
-      const t = totalsMap.get(acc.code) || { totalDebit: 0, totalCredit: 0 };
-      const totalDebit = Number(t.totalDebit.toFixed(2));
-      const totalCredit = Number(t.totalCredit.toFixed(2));
-      
-      const diff = totalDebit - totalCredit;
-      const debitBalance = diff > 0 ? Number(diff.toFixed(2)) : 0;
-      const creditBalance = diff < 0 ? Number(Math.abs(diff).toFixed(2)) : 0;
-
-      return {
-        code: acc.code,
-        name: acc.name,
-        type: acc.type,
-        level: acc.level,
-        totalDebit,
-        totalCredit,
-        debitBalance,
-        creditBalance
-      };
-    });
-
-    // Sort by TDHP code order (1, 10, 100, 100.01, 100.01.001 ...)
-    rows.sort((a, b) => compareAccountCodes(a.code, b.code));
-
-    // Apply filters
-    return rows.filter(r => {
-      if (options?.onlyWithBalance && r.totalDebit === 0 && r.totalCredit === 0) {
-        return false;
-      }
-      if (options?.levelFilter && options.levelFilter !== 'all') {
-        if (options.levelFilter === 'class' && r.level !== 1) return false;
-        if (options.levelFilter === 'group' && r.level !== 2) return false;
-        if (options.levelFilter === 'main' && r.level !== 3) return false;
-        if (options.levelFilter === 'sub' && r.level < 4) return false;
-      }
-      return true;
-    });
+    return getMizanSummary(options);
   },
 
   // --- General Ledger (Defter-i Kebir) ---

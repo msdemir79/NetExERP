@@ -3,6 +3,7 @@ import type { Role, RolePermissions, AppModule, ModulePermission } from '../type
 export const ALL_APP_MODULES: { id: AppModule; name: string; description: string; category: string }[] = [
   { id: 'dashboard', name: 'Yönetici Paneli', description: 'Genel durum, KPI kartları ve özet grafikler', category: 'Genel' },
   { id: 'inventory', name: 'Stok Yönetimi', description: 'Ürün kartları, hammadde, asorti ve depo hareketleri', category: 'Operasyon' },
+  { id: 'colors', name: 'Renk Tanımları', description: 'Merkezi renk kartları: renk kodu, HEX/RGB, Pantone ve üretici renk kodu', category: 'Operasyon' },
   { id: 'orders', name: 'Sipariş Yönetimi', description: 'Müşteri ve satıcı siparişleri, onay süreçleri', category: 'Satış & Pazarlama' },
   { id: 'waybills', name: 'İrsaliyeler', description: 'Gelen ve giden sevk irsaliyeleri, mal kabul', category: 'Lojistik & Depo' },
   { id: 'invoices', name: 'Faturalar', description: 'e-Arşiv ve e-Fatura kesimi, alış faturaları', category: 'Finans & Muhasebe' },
@@ -80,6 +81,7 @@ export const INITIAL_ROLES: Role[] = [
       invoices: { view: true, create: true, edit: true, delete: false, export: true, approve: true },
       finance: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       inventory: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
+      colors: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       reports: { view: true, create: false, edit: false, delete: false, export: true, approve: false }
     }
   },
@@ -93,6 +95,7 @@ export const INITIAL_ROLES: Role[] = [
       ...createBlankPermissions(),
       dashboard: { view: true, create: false, edit: false, delete: false, export: false, approve: false },
       inventory: { view: true, create: true, edit: true, delete: false, export: true, approve: true },
+      colors: { view: true, create: true, edit: true, delete: true, export: true, approve: false },
       waybills: { view: true, create: true, edit: true, delete: false, export: true, approve: true },
       orders: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       production: { view: true, create: false, edit: false, delete: false, export: false, approve: false },
@@ -111,6 +114,7 @@ export const INITIAL_ROLES: Role[] = [
       dashboard: { view: true, create: false, edit: false, delete: false, export: false, approve: false },
       production: { view: true, create: true, edit: true, delete: true, export: true, approve: true },
       inventory: { view: true, create: true, edit: true, delete: false, export: true, approve: false },
+      colors: { view: true, create: true, edit: true, delete: false, export: true, approve: false },
       orders: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       reports: { view: true, create: false, edit: false, delete: false, export: true, approve: false }
     }
@@ -155,6 +159,7 @@ export const INITIAL_ROLES: Role[] = [
     permissions: {
       dashboard: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       inventory: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
+      colors: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       orders: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       waybills: { view: true, create: false, edit: false, delete: false, export: true, approve: false },
       invoices: { view: true, create: false, edit: false, delete: false, export: true, approve: false },

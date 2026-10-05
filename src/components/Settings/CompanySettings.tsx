@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Building2, Save, Check, Database, Download, Upload, AlertTriangle, RefreshCw, FileText, Image as ImageIcon, Trash2, UploadCloud, RotateCcw, CheckCircle2, X } from 'lucide-react';
-import { api, commit, reseedDatabase, type Mutation } from '../../api/client';
+import { api, commit, reseedDatabase, uploadImage, type Mutation } from '../../api/client';
 import { invoiceService } from '../../services/invoiceService';
 import { useAuth } from '../../context/AuthContext';
 import Modal from '../Modal';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import type { AppSettings, CompanySettings as CompanySettingsType } from '../../types';
 
 interface CompanySettingsProps {
@@ -79,14 +80,22 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
     if (!file) return;
 
     if (file.size > 2 * 1024 * 1024) {
-      alert('Logo görsel boyutu maksimum 2MB olmalıdır.');
+      showToast('Logo görsel boyutu maksimum 2MB olmalıdır.', 'warning');
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const base64 = reader.result as string;
-      setComp(prev => ({ ...prev, logo: base64 }));
+      try {
+        // Logo artık settings.company JSON içinde base64 tutulmaz; sunucuya
+        // yüklenip URL saklanır (#51).
+        const url = await uploadImage(base64);
+        setComp(prev => ({ ...prev, logo: url }));
+      } catch (err) {
+        console.error('Logo yüklenemedi:', err);
+        showToast('Logo yüklenirken bir hata oluştu.', 'error');
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -108,13 +117,13 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Firma ayarları kaydedilemedi:', err);
-      alert('Firma bilgileri kaydedilirken hata oluştu.');
+      showToast('Firma bilgileri kaydedilirken hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Full Database Backup to JSON
+  // Kayıtları JSON olarak dışa aktar (tam yedek değil: görsel/sayaç/audit yok).
   const handleExportBackup = async () => {
     setIsBackingUp(true);
     try {
@@ -122,6 +131,8 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
         exportedAt: new Date().toISOString(),
         version: '1.0',
         products: await api.products.list(),
+        colors: await api.colors.list(),
+        productColors: await api.productColors.list(),
         contacts: await api.contacts.list(),
         orders: await api.orders.list(),
         orderItems: await api.orderItems.list(),
@@ -154,18 +165,18 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Yedekleme hatası:', err);
-      alert('Veritabanı yedeği alınırken bir sorun oluştu.');
+      showToast('Veritabanı yedeği alınırken bir sorun oluştu.', 'error');
     } finally {
       setIsBackingUp(false);
     }
   };
 
-  // Restore Database from JSON
+  // JSON dosyasını içe aktar (tam sistem geri yükleme değil).
   const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!confirm('DİKKAT: Yedeği geri yüklemek mevcut tüm veritabanı kayıtlarının üzerine yazabilir. Devam etmek istiyor musunuz?')) {
+    if (!(await confirmDialog('DİKKAT: JSON verilerini içe aktarmak mevcut kayıtların üzerine yazabilir (görseller, sayaçlar ve denetim izi dahil değildir). Devam etmek istiyor musunuz?', { tone: 'danger', confirmText: 'İçe Aktar' }))) {
       e.target.value = '';
       return;
     }
@@ -180,7 +191,11 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
         mutations.push({ op: 'clear', resource });
         if (rows.length) mutations.push({ op: 'insertMany', resource, rows });
       };
+      // Renk kartları ürünlerden önce geri yüklenir: productColors bağı hem
+      // products'a hem colors'a FK ile bağlıdır.
+      pushRestore('colors', data.colors);
       pushRestore('products', data.products);
+      pushRestore('productColors', data.productColors);
       pushRestore('contacts', data.contacts);
       pushRestore('orders', data.orders);
       pushRestore('orderItems', data.orderItems);
@@ -205,11 +220,11 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
 
       await commit(mutations, { disableFkChecks: true });
 
-      alert('Yedek başarıyla geri yüklendi! Sayfa yenilenecek.');
+      showToast('JSON verileri içe aktarıldı! Sayfa yenilenecek.', 'success');
       window.location.reload();
     } catch (err) {
       console.error('Geri yükleme hatası:', err);
-      alert('Yedek dosyası okunamadı veya biçimi geçersiz.');
+      showToast('Yedek dosyası okunamadı veya biçimi geçersiz.', 'error');
     } finally {
       e.target.value = '';
     }
@@ -481,7 +496,7 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
             </div>
             <div>
               <h3 className="text-base font-bold uppercase tracking-wider">Veritabanı Yedekleme & Sistem Araçları</h3>
-              <p className="text-slate-400 text-xs font-medium">Tam JSON veritabanı yedeği alma, geri yükleme ve demo veri yükleyici</p>
+              <p className="text-slate-400 text-xs font-medium">JSON veri dışa/içe aktarma, hareket ve demo sıfırlama. Tam sistem yedeği (SQL + görseller) sunucu tarafında <code className="text-slate-300">npm run db:backup</code> ile alınır.</p>
             </div>
           </div>
         </div>
@@ -518,8 +533,8 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <Download className="w-4 h-4" />
               </div>
-              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Tam Veritabanı Yedeği</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Stoklar, siparişler, irsaliyeler, cariler ve ayarları tek bir JSON dosyasında bilgisayarınıza indirir.</p>
+              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Veri Dışa Aktarma (JSON)</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Stoklar, siparişler, irsaliyeler, cariler ve ayarları tek bir JSON dosyasında indirir. <strong className="text-slate-600 dark:text-slate-300">Tam yedek DEĞİLDİR:</strong> görselleri (uploads), sayaçları ve denetim izini içermez. Taşınabilir tam yedek için sunucuda <code>npm run db:backup</code>.</p>
               {!isSuperAdmin && (
                 <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Tüm modülleri okuma yetkisi gerektirir (Süper Admin).</p>
               )}
@@ -533,7 +548,7 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
               <Download className="w-4 h-4" />
-              {isBackingUp ? 'İndiriliyor...' : 'Yedeği İndir (JSON)'}
+              {isBackingUp ? 'İndiriliyor...' : 'Verileri Dışa Aktar (JSON)'}
             </button>
           </div>
 
@@ -543,8 +558,8 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
                 <Upload className="w-4 h-4" />
               </div>
-              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Yedekten Geri Yükle</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Daha önce aldığınız bir ProERP JSON yedek dosyasını sisteme yükleyerek verileri yeniler.</p>
+              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">JSON Verileri İçe Aktar</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Daha önce dışa aktardığınız bir JSON dosyasını yükleyerek kayıtları yeniler. <strong className="text-slate-600 dark:text-slate-300">Tam sistem geri yükleme DEĞİLDİR</strong> (görseller/sayaçlar/denetim izi dönmez); tam yedekten dönüş için sunucuda <code>npm run db:restore</code>.</p>
               {!isSuperAdmin && (
                 <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
               )}
@@ -552,7 +567,7 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
 
             <label className={`w-full text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-xs ${isSuperAdmin ? 'bg-sky-600 hover:bg-sky-700 cursor-pointer' : 'bg-slate-400 cursor-not-allowed'}`}>
               <Upload className="w-4 h-4" />
-              Yedek Dosyası Seç
+              JSON Dosyası Seç
               <input
                 type="file"
                 accept=".json"

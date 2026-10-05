@@ -19,6 +19,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { BarcodeSvg } from '../BarcodeSvg';
+import PermissionGate from '../Common/PermissionGate';
+import ColorSettings from './ColorSettings';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import type { AppSettings, AssortmentTemplate } from '../../types';
 
 interface StockSettingsProps {
@@ -134,7 +137,7 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Ayarlar kaydedilemedi:', err);
-      alert('Ayarlar kaydedilirken bir hata oluştu.');
+      showToast('Ayarlar kaydedilirken bir hata oluştu.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -144,7 +147,7 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
     if (!newItemSize || newItemQty <= 0) return;
     const cleanSize = newItemSize.trim().toUpperCase();
     if (templateItems.some(i => i.size === cleanSize)) {
-      alert(`${cleanSize} numarası zaten listede ekli.`);
+      showToast(`${cleanSize} numarası zaten listede ekli.`, 'warning');
       return;
     }
     setTemplateItems([...templateItems, { size: cleanSize, quantity: newItemQty }]);
@@ -160,11 +163,11 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
   const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!templateName.trim()) {
-      alert('Lütfen şablon adı girin.');
+      showToast('Lütfen şablon adı girin.', 'warning');
       return;
     }
     if (templateItems.length === 0) {
-      alert('Lütfen en az bir beden ve miktar ekleyin.');
+      showToast('Lütfen en az bir beden ve miktar ekleyin.', 'warning');
       return;
     }
 
@@ -200,7 +203,7 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
   };
 
   const handleDeleteTemplate = async (id: number) => {
-    if (confirm('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
+    if (await confirmDialog('Bu asorti şablonunu silmek istediğinize emin misiniz?', { tone: 'danger', confirmText: 'Sil' })) {
       await inventoryService.deleteAssortmentTemplate(id);
       if (editingTemplateId === id) cancelEditTemplate();
     }
@@ -497,6 +500,20 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
             </div>
           </div>
 
+          {/* Auto Barcode on Product Create */}
+          <label className="flex items-start gap-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoBarcode}
+              onChange={e => setAutoBarcode(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer"
+            />
+            <span className="space-y-0.5">
+              <span className="block text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-widest">Yeni ürün oluştururken otomatik barkod üret</span>
+              <span className="block text-[10px] text-slate-500 dark:text-slate-400">Ürün kaydedildiğinde yukarıdaki format ve sayaca göre barkod otomatik oluşturulur.</span>
+            </span>
+          </label>
+
           {/* Barcode Simulation Preview */}
           <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="space-y-1 text-center sm:text-left">
@@ -574,6 +591,11 @@ export default function StockSettings({ settings, onSave }: StockSettingsProps) 
           </div>
         </form>
       </div>
+
+      {/* SECTION 4: MERKEZİ RENK TANIMLARI (COLOR MASTER) */}
+      <PermissionGate module="colors" action="view">
+        <ColorSettings />
+      </PermissionGate>
     </div>
   );
 }

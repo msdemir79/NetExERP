@@ -2,6 +2,7 @@ import React from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { inventoryService } from '../../services/inventoryService';
+import { showToast } from '../../lib/feedback';
 import {
   Package,
   Search,
@@ -26,6 +27,7 @@ import { printHtml } from '../../lib/printService';
 import { exportToCsv } from '../../lib/exportService';
 import type { Product, AssortmentTemplate, StockCategoryType } from '../../types';
 import { CATEGORY_TYPE_META } from './stockCategoryMeta';
+import { getCartonSize } from '../../lib/carton';
 import StockDetailRow from './StockDetailRow';
 
 export type StockClassification = 'all' | 'mamul' | 'mamul_disi';
@@ -76,7 +78,7 @@ export default function StockDetailReport() {
       setTimeout(() => setSyncSuccess(false), 2500);
     } catch (e) {
       console.error(e);
-      alert('Stok senkronizasyonu sırasında hata oluştu.');
+      showToast('Stok senkronizasyonu sırasında hata oluştu.', 'error');
     } finally {
       setIsSyncing(false);
     }
@@ -143,8 +145,8 @@ export default function StockDetailReport() {
       const isFootwear = isMamul || p.isFootwear || (p.variantBarcodes && p.variantBarcodes.length > 0);
       const template = p.assortmentTemplateId ? templateMap.get(p.assortmentTemplateId) : undefined;
       const templateItems = p.assortment || template?.items || [];
-      // multiplier 1 = tanımsız (Inventory varsayılanı); bu durumda asorti toplamı koli adedi sayılır
-      const templateMultiplier = (p.multiplier && p.multiplier > 1 ? p.multiplier : 0) || templateItems.reduce((acc, curr) => acc + (curr.quantity || 0), 0) || 1;
+      // Koli içi adet: asorti toplamı öncelikli, yoksa karttaki koli çarpanı (tek kaynak: lib/carton)
+      const templateMultiplier = getCartonSize(p, templates) || 1;
 
       // Determine unique colors
       const colorSet = new Set<string>();
@@ -398,7 +400,7 @@ export default function StockDetailReport() {
   // Printable Tabular Report (HTML)
   const handlePrint = () => {
     if (!processedProducts || processedProducts.length === 0) {
-      alert('Yazdırılacak ürün bulunamadı.');
+      showToast('Yazdırılacak ürün bulunamadı.', 'warning');
       return;
     }
 

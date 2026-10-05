@@ -7,6 +7,7 @@ import DataGrid, { GridColumn } from '../Common/DataGrid';
 import { AssortmentTemplate } from '../../types';
 import { BarcodeTemplatesManager } from './BarcodeTemplatesManager';
 import { cn } from '../../lib/utils';
+import { showToast, confirmDialog } from '../../lib/feedback';
 
 export default function Templates() {
   const [activeTab, setActiveTab] = useState<'barcode' | 'assortment'>('barcode');
@@ -21,7 +22,7 @@ export default function Templates() {
   const handleAddTemplateItem = () => {
     if (!newTemplateItem.size || newTemplateItem.quantity <= 0) return;
     if (newTemplateItems.find(i => i.size === newTemplateItem.size)) {
-      alert('Bu beden zaten eklenmiş.');
+      showToast('Bu beden zaten eklenmiş.', 'warning');
       return;
     }
     setNewTemplateItems([...newTemplateItems, { ...newTemplateItem }]);
@@ -46,7 +47,7 @@ export default function Templates() {
   };
 
   const deleteTemplate = async (id: number) => {
-    if (confirm('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
+    if (await confirmDialog('Bu asorti şablonunu silmek istediğinize emin misiniz?')) {
       await api.assortmentTemplates.remove(id);
     }
   };

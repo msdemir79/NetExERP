@@ -37,7 +37,6 @@ export function useAppSummary(): {
   productCount: number;
   recentTransactions: DashboardSummary['recentTransactions'];
   recentOrders: DashboardSummary['recentOrders'];
-  cashFlowByDay: DashboardSummary['cashFlowByDay'];
   loading: boolean;
 } {
   const { data, loading } = useApiQueryFull<DashboardSummary>(
@@ -51,7 +50,6 @@ export function useAppSummary(): {
     productCount: data?.productCount ?? 0,
     recentTransactions: data?.recentTransactions ?? [],
     recentOrders: data?.recentOrders ?? [],
-    cashFlowByDay: data?.cashFlowByDay ?? [],
     loading: loading && !data,
   }), [data, loading]);
 }

@@ -63,6 +63,22 @@ export const META: Record<string, ResourceMeta> = {
   },
   assortmentTemplates: { module: 'inventory', searchable: ['name'], defaultOrder: 'name ASC' },
   barcodeTemplates: { module: 'inventory', searchable: ['name', 'description'], defaultOrder: 'name ASC' },
+  /**
+   * Merkezi renk kartları (color master). Stok, üretim, sipariş, irsaliye ve
+   * fatura ekranlarının ortak referans verisidir; okuma için oturum yeterlidir.
+   * Fiziksel silme YOKTUR: kullanılan/kullanılmayan her renk pasifleştirilir.
+   * rgbCode yalnızca hexCode'tan türetilir, istemci yazamaz.
+   */
+  colors: {
+    module: 'colors',
+    readAuthOnly: true,
+    searchable: ['code', 'name', 'groupName', 'pantoneCode', 'manufacturerCode'],
+    defaultOrder: 'name ASC',
+    noHardDelete: true,
+    protectedColumns: ['rgbCode'],
+  },
+  /** Ürün ↔ renk bağı; yalnızca ürün kartı yazımında (productColors senkronu) güncellenir. */
+  productColors: { module: 'colors', searchable: [], defaultOrder: 'sortOrder ASC', readOnly: true },
   products: {
     module: 'inventory',
     /**
@@ -100,6 +116,13 @@ export const META: Record<string, ResourceMeta> = {
   transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC', noHardDelete: true, protectedColumns: ['status', 'cancelledAt', 'reversalOfId'] },
   /** Firma künyesi/logo gibi kabuk ayarları arayüzün her yerinde okunur. */
   settings: { module: 'settings', searchable: [], defaultOrder: 'id ASC', readAuthOnly: true },
+  /**
+   * Belge/fiş numarası sayaçları (scope, prefix, year, lastNumber). Yalnızca
+   * sunucu tarafı numbering.ts tarafından atomik UPDATE/INSERT ile yönetilir;
+   * istemci hiçbir zaman yazamaz (readOnly) ve okuma `settings` iznine bağlıdır
+   * (META dışı kalıp `dashboard` fallback'ine düşmesin diye açıkça tanımlandı).
+   */
+  documentNumbers: { module: 'settings', searchable: ['scope', 'prefix'], defaultOrder: 'scope ASC, prefix ASC, year ASC', readOnly: true },
   orders: {
     module: 'orders',
     searchable: ['orderNumber', 'notes'],

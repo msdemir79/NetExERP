@@ -18,6 +18,7 @@ import {
 import type { Role, RolePermissions, AppModule, PermissionAction } from '../../types';
 import { ALL_APP_MODULES, PERMISSION_ACTIONS, createBlankPermissions, createFullPermissions } from '../../data/initialRoles';
 import { userService } from '../../services/userService';
+import { showToast } from '../../lib/feedback';
 
 interface RolePermissionsMatrixProps {
   roles: Role[];
@@ -189,7 +190,7 @@ export default function RolePermissionsMatrix({
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
-      alert(err.message || 'Yetki matrisi kaydedilemedi.');
+      showToast(err.message || 'Yetki matrisi kaydedilemedi.', 'error');
     } finally {
       setIsSaving(false);
     }

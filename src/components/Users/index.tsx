@@ -17,6 +17,7 @@ import {
 import PageHeader from '../PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { userService } from '../../services/userService';
+import { showToast, confirmDialog } from '../../lib/feedback';
 import UserModal from './UserModal';
 import RoleModal from './RoleModal';
 import RolePermissionsMatrix from './RolePermissionsMatrix';
@@ -81,11 +82,11 @@ export default function UsersManagement() {
 
   const handleDeleteUser = async (user: AppUser) => {
     if (!user.id) return;
-    if (window.confirm(`"${user.fullName}" kullanıcısını silmek istediğinize emin misiniz?`)) {
+    if (await confirmDialog(`"${user.fullName}" kullanıcısını silmek istediğinize emin misiniz?`, { tone: 'danger', confirmText: 'Sil' })) {
       try {
         await userService.deleteUser(user.id);
       } catch (err: any) {
-        alert(err.message || 'Kullanıcı silinemedi.');
+        showToast(err.message || 'Kullanıcı silinemedi.', 'error');
       }
     }
   };
@@ -97,7 +98,7 @@ export default function UsersManagement() {
       ? `"${user.fullName}" kullanıcısı aktif edilsin mi?` 
       : `"${user.fullName}" kullanıcısı pasif duruma getirilsin mi? (Sisteme giriş yapamaz)`;
     
-    if (window.confirm(msg)) {
+    if (await confirmDialog(msg, { tone: 'default' })) {
       await userService.toggleUserStatus(user.id, nextStatus);
     }
   };
@@ -114,20 +115,20 @@ export default function UsersManagement() {
 
   const handleDeleteRole = async (role: Role) => {
     if (!role.id) return;
-    if (window.confirm(`"${role.name}" rolünü silmek istediğinize emin misiniz?`)) {
+    if (await confirmDialog(`"${role.name}" rolünü silmek istediğinize emin misiniz?`, { tone: 'danger', confirmText: 'Sil' })) {
       try {
         await userService.deleteRole(role.id);
         if (selectedRoleId === role.id && roles[0]?.id) {
           setSelectedRoleId(roles[0].id);
         }
       } catch (err: any) {
-        alert(err.message || 'Rol silinemedi.');
+        showToast(err.message || 'Rol silinemedi.', 'error');
       }
     }
   };
 
   const handleResetRolesToDefault = async () => {
-    if (window.confirm('Ön tanımlı fabrika rollerini ve yetki matrislerini varsayılan ayarlara sıfırlamak istiyor musunuz?')) {
+    if (await confirmDialog('Ön tanımlı fabrika rollerini ve yetki matrislerini varsayılan ayarlara sıfırlamak istiyor musunuz?', { tone: 'danger', confirmText: 'Sıfırla' })) {
       await userService.resetRolesToDefaults();
     }
   };

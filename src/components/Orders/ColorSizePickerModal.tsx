@@ -1,37 +1,55 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Palette } from 'lucide-react';
 import Modal from '../Modal';
-import { getColorSwatch } from '../../lib/colorSwatches';
+import { ColorSelect } from '../Colors/ColorSelect';
+import ColorSwatch from '../Colors/ColorSwatch';
 import { cn } from '../../lib/utils';
 import type { Product } from '../../types';
 
 interface Props {
   product: Product | null;
   onClose: () => void;
-  onSelect: (color: string) => void;
+  /** Renk adı (satır metni) ve merkezî renk kartı bağı birlikte döner. */
+  onSelect: (color: string, colorId?: number | null) => void;
 }
 
 export default function ColorSizePickerModal({ product, onClose, onSelect }: Props) {
   const [highlight, setHighlight] = useState(0);
-  const [customColor, setCustomColor] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setHighlight(0);
-    setCustomColor('');
   }, [product?.id]);
 
   useEffect(() => {
     if (product) bodyRef.current?.focus();
   }, [product]);
 
-  const { colors, sizes, matrix, rowTotals } = useMemo(() => {
+  const { colors, sizes, matrix, rowTotals, hexByColor, idByColor } = useMemo(() => {
     if (!product) {
-      return { colors: [] as string[], sizes: [] as string[], matrix: new Map<string, number>(), rowTotals: new Map<string, number>() };
+      return {
+        colors: [] as string[],
+        sizes: [] as string[],
+        matrix: new Map<string, number>(),
+        rowTotals: new Map<string, number>(),
+        hexByColor: new Map<string, string>(),
+        idByColor: new Map<string, number>(),
+      };
     }
     const colorSet = new Set<string>();
     (product.colors || []).forEach(c => c && colorSet.add(c));
     (product.variantBarcodes || []).forEach(v => v.color && colorSet.add(v.color));
+
+    // Merkezî renk kartı künyesi: gerçek HEX ve colorId buradan gelir.
+    const hexMap = new Map<string, string>();
+    const idMap = new Map<string, number>();
+    (product.colorRefs || []).forEach(ref => {
+      const key = (ref.name || '').trim().toLocaleUpperCase('tr');
+      if (!key) return;
+      if (ref.hexCode) hexMap.set(key, ref.hexCode);
+      if (ref.id != null) idMap.set(key, Number(ref.id));
+      colorSet.add(ref.name);
+    });
 
     const sizeSet = new Set<string>();
     (product.variantBarcodes || []).forEach(v => v.size && sizeSet.add(String(v.size)));
@@ -49,14 +67,22 @@ export default function ColorSizePickerModal({ product, onClose, onSelect }: Pro
       totals.set(v.color, (totals.get(v.color) || 0) + (v.stock || 0));
     });
 
-    return { colors: Array.from(colorSet), sizes: sizeList, matrix: stockMatrix, rowTotals: totals };
+    return {
+      colors: Array.from(colorSet),
+      sizes: sizeList,
+      matrix: stockMatrix,
+      rowTotals: totals,
+      hexByColor: hexMap,
+      idByColor: idMap,
+    };
   }, [product]);
 
   if (!product) return null;
 
-  const pick = (color: string) => {
+  const pick = (color: string, colorId?: number | null) => {
     if (!color || !color.trim()) return;
-    onSelect(color.trim());
+    const name = color.trim();
+    onSelect(name, colorId ?? idByColor.get(name.toLocaleUpperCase('tr')) ?? null);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -101,27 +127,15 @@ export default function ColorSizePickerModal({ product, onClose, onSelect }: Pro
         </div>
 
         {colors.length === 0 ? (
-          <div className="space-y-2 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-            <p className="text-xs font-bold text-amber-900">Bu ürün için tanımlı standart renk bulunmuyor.</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customColor}
-                onChange={(e) => setCustomColor(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); pick(customColor); } }}
-                placeholder="Örn: Bordo Nubuk, Siyah Rugan, Taba Deri..."
-                className="flex-1 p-2.5 bg-white border border-amber-300 rounded-xl text-xs font-bold uppercase outline-none focus:ring-2 focus:ring-amber-400"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => pick(customColor)}
-                disabled={!customColor.trim()}
-                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer"
-              >
-                Seç
-              </button>
-            </div>
+          <div className="space-y-2 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl">
+            <p className="text-xs font-bold text-amber-900 dark:text-amber-200">Bu ürün için tanımlı standart renk bulunmuyor.</p>
+            <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+              Renkler merkezî renk kartlarından seçilir. Listedeki renk yeterli değilse <b>Yeni Renk</b> ile kart açabilirsiniz.
+            </p>
+            <ColorSelect
+              placeholder="Merkezî renk kartından seçin..."
+              onChange={(colorId, color) => { if (color) pick(color.name, colorId); }}
+            />
           </div>
         ) : (
           <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
@@ -142,7 +156,6 @@ export default function ColorSizePickerModal({ product, onClose, onSelect }: Pro
                 </thead>
                 <tbody>
                   {colors.map((color, i) => {
-                    const swatch = getColorSwatch(color);
                     const isHl = i === highlight;
                     return (
                       <tr
@@ -156,7 +169,7 @@ export default function ColorSizePickerModal({ product, onClose, onSelect }: Pro
                       >
                         <td className="px-3 py-2">
                           <span className="flex items-center gap-2 text-xs font-bold uppercase text-slate-800 dark:text-slate-100">
-                            <span className="w-3.5 h-3.5 rounded-full border border-slate-400/60 shrink-0 shadow-2xs" style={{ backgroundColor: swatch.bg }} />
+                            <ColorSwatch name={color} hexCode={hexByColor.get(color.trim().toLocaleUpperCase('tr'))} size={16} className="rounded-full shrink-0" />
                             {color}
                           </span>
                         </td>

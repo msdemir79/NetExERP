@@ -124,3 +124,56 @@ export function calculateWeightedAverageCost(
 export function calculateAvailableLotQuantity(totalLotQty: number, allocatedQty: number): number {
   return Math.max(0, Number((totalLotQty - allocatedQty).toFixed(2)));
 }
+
+/* ------------------------------------------------------------------ */
+/* Reçete (BOM) sarfiyat bazı                                          */
+/* ------------------------------------------------------------------ */
+
+export interface RecipeBasisLine {
+  quantity?: number;
+  /** Kaç mamul için geçerli (örn. 8'li koli = 8). Boş/0 → 1 mamul. */
+  basisQty?: number;
+}
+
+/**
+ * Tam adede yuvarlanan sayılabilir birimler. Liste dışındaki her birim
+ * (METR, PLAK, dm² gibi kısaltmalar dahil) bölünebilir sayılır: bilinmeyen bir
+ * birimi yukarı yuvarlamak hammaddeden fazladan düşmek anlamına gelir.
+ */
+const COUNTABLE_UNITS = ['adet', 'koli', 'kutu', 'paket', 'çift', 'kasa', 'poşet', 'torba', 'takım', 'set', 'çuval'];
+
+export function isCountableUnit(unit?: string): boolean {
+  return COUNTABLE_UNITS.includes((unit || '').trim().toLocaleLowerCase('tr'));
+}
+
+/**
+ * Malzeme miktarını birimine göre yuvarlar: koli, kutu, adet gibi sayılabilir
+ * birimlerde tam adede yukarı (1,25 koli → 2 koli), diğerlerinde kayan nokta
+ * temizliğiyle virgülden sonra 2 basamak.
+ */
+export function roundMaterialQuantity(qty: number, unit?: string): number {
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  // Kayan nokta artefaktı (2/3 × 3 = 2.0000000000000004) fazladan birim yuvarlatmasın.
+  const cleaned = Number(qty.toFixed(6));
+  return isCountableUnit(unit) ? Math.ceil(cleaned) : roundUpQuantity(cleaned, 2);
+}
+
+/**
+ * Reçete satırının 1 mamul (çift/adet) başına etkin sarfiyatı = miktar / baz.
+ * Bölme en sona bırakılır; kesirli bazlarda (1 koli / 12 çift) hassasiyet kaybolmaz.
+ */
+export function ingredientPerUnit(line: RecipeBasisLine): number {
+  const basis = Number(line?.basisQty) > 0 ? Number(line.basisQty) : 1;
+  return (Number(line?.quantity) || 0) / basis;
+}
+
+/**
+ * Üretilen mamul adedi için gereken malzeme miktarı (baz + birim yuvarlaması).
+ */
+export function requiredIngredientQuantity(
+  line: RecipeBasisLine,
+  producedQty: number,
+  unit?: string
+): number {
+  return roundMaterialQuantity(ingredientPerUnit(line) * (Number(producedQty) || 0), unit);
+}

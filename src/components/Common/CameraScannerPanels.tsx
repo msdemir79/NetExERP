@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { Product, WorkOrder, Contact, Waybill } from '../../types';
+import { ContactSelect } from '../Contacts/ContactSelect';
 
 export interface ReceiptBasketItem {
   productId: number;
@@ -208,16 +209,14 @@ export function GoodsReceiptPanel({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">Tedarikçi Firma</label>
-                <select
-                  value={supplierId}
-                  onChange={(e) => setSupplierId(Number(e.target.value))}
-                  className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-medium text-xs"
-                >
-                  <option value={0}>Genel Tedarikçi / Depo Transferi</option>
-                  {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                <ContactSelect
+                  contacts={suppliers}
+                  value={supplierId || null}
+                  createType="supplier"
+                  placeholder="Genel Tedarikçi / Depo Transferi"
+                  emptyOptionLabel="Genel Tedarikçi / Depo Transferi"
+                  onChange={(id) => setSupplierId(id ?? 0)}
+                />
               </div>
 
               <div className="space-y-1">
@@ -346,16 +345,14 @@ export function WaybillDispatchPanel({
           <div className="space-y-3">
             <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs space-y-1">
               <label className="font-bold text-slate-700 dark:text-slate-300">Sevk Edilecek Cari / Müşteri</label>
-              <select
-                value={customerId}
-                onChange={(e) => setCustomerId(Number(e.target.value))}
-                className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 font-medium text-xs"
-              >
-                <option value={0}>Perakende / Muhtelif Alıcı</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <ContactSelect
+                contacts={customers}
+                value={customerId || null}
+                createType="customer"
+                placeholder="Perakende / Muhtelif Alıcı"
+                emptyOptionLabel="Perakende / Muhtelif Alıcı"
+                onChange={(id) => setCustomerId(id ?? 0)}
+              />
             </div>
 
             {/* Dispatch Scanned Items Basket */}

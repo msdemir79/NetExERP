@@ -16,11 +16,13 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { WorkOrderSheet } from './WorkOrderSheet';
+import { ColorSelect } from '../Colors/ColorSelect';
 import type { WorkOrder, Product, Recipe, RecipeIngredient, Contact } from '../../types';
 import { cn } from '../../lib/utils';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas-pro';
 import { printHtml, openPrintWindow } from '../../lib/printService';
+import { ingredientPerUnit, roundMaterialQuantity } from '../../lib/inventoryCalculator';
 import { sanitizeCssColor } from '../../lib/pdfService';
 
 interface DetailedWorkOrderCardModalProps {
@@ -67,6 +69,7 @@ export default function DetailedWorkOrderCardModal({
   const [orderNumber, setOrderNumber] = React.useState('');
   const [orderDateStr, setOrderDateStr] = React.useState('');
   const [colorName, setColorName] = React.useState('');
+  const [colorId, setColorId] = React.useState<number | null>(null);
   const [customSizes, setCustomSizes] = React.useState<{ size: string; quantity: number }[]>([]);
 
   // Sync state whenever workOrder or product changes
@@ -82,7 +85,15 @@ export default function DetailedWorkOrderCardModal({
       const oDate = workOrder.orderDate ? new Date(workOrder.orderDate) : new Date();
       setOrderDateStr(oDate.toLocaleDateString('tr-TR'));
       
-      setColorName(workOrder.color || (product?.colors && product.colors[0]) || 'SİYAH/BEYAZ');
+      const initialColor = workOrder.color || (product?.colors && product.colors[0]) || '';
+      setColorName(initialColor);
+      setColorId(
+        workOrder.colorId
+        ?? (product?.colorRefs || []).find(
+          ref => (ref.name || '').trim().toLocaleUpperCase('tr') === initialColor.trim().toLocaleUpperCase('tr')
+        )?.id
+        ?? null
+      );
       
       if (workOrder.assortmentBreakdown && workOrder.assortmentBreakdown.length > 0) {
         setCustomSizes(workOrder.assortmentBreakdown);
@@ -183,7 +194,7 @@ export default function DetailedWorkOrderCardModal({
       { department: 'MONTA', rawName: 'MEMORY FOAM PATİK', partName: 'FUSPET', color: 'GRİ', quantity: 1, unit: 'ÇİFT' },
       
       // TEMİZLEME
-      { department: 'TEMİZLEME', rawName: 'BESTOF PATİK 8 Lİ KOLİ', partName: 'KOLİ', color: '-', quantity: 0.125, unit: 'ADET' },
+      { department: 'TEMİZLEME', rawName: 'BESTOF PATİK 8 Lİ KOLİ', partName: 'KOLİ', color: '-', quantity: 1, basisQty: 8, unit: 'ADET' },
       { department: 'TEMİZLEME', rawName: 'BESTOF PATİK KUTU', partName: 'KUTU', color: '-', quantity: 1, unit: 'ADET' },
       { department: 'TEMİZLEME', rawName: 'İÇ KAĞIT BASKISIZ', partName: 'İÇ KAĞIT', color: '-', quantity: 2, unit: 'ADET' },
       { department: 'TEMİZLEME', rawName: 'BESTOF BASKILI PELUR', partName: 'PELUR', color: 'BASKI:SİYAH', quantity: 1, unit: 'ADET' },
@@ -228,8 +239,8 @@ export default function DetailedWorkOrderCardModal({
       }
 
       // Total quantity for the work order batch
-      const unitPerPair = Number(ing.quantity) || 0;
-      const batchQty = unitPerPair * totalProductionPairs;
+      const unitPerPair = ingredientPerUnit(ing);
+      const batchQty = roundMaterialQuantity(unitPerPair * totalProductionPairs, ing.unit || prod?.unit);
 
       // Smart part name / explanation
       let partName = ing.partName || ing.notes || '';
@@ -463,6 +474,7 @@ export default function DetailedWorkOrderCardModal({
         customerCode,
         orderNumber,
         color: colorName,
+        colorId,
         assortmentBreakdown: customSizes
       });
     }
@@ -661,12 +673,14 @@ export default function DetailedWorkOrderCardModal({
 
               <div>
                 <label className="text-[10px] text-amber-800 uppercase block mb-1">Üretilecek Renk / Varyant</label>
-                <input
-                  type="text"
-                  value={colorName}
-                  onChange={e => setColorName(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-amber-300 rounded-lg p-2 uppercase text-slate-900 dark:text-slate-100 font-bold"
-                  placeholder="örn: SİYAH/BEYAZ"
+                <ColorSelect
+                  value={colorId}
+                  valueName={colorName || null}
+                  placeholder="Renk kartından seçin..."
+                  onChange={(nextColorId, color) => {
+                    setColorId(nextColorId);
+                    setColorName(color?.name || '');
+                  }}
                 />
               </div>
 

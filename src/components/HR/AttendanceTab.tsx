@@ -26,6 +26,7 @@ import { hrService } from '../../services/hrService';
 import { exportAttendanceToExcel, exportAttendanceToCsv } from '../../lib/exportService';
 import { MONTH_NAMES, formatWeekendDays, STATUS_CONFIG } from './attendanceConstants';
 import { BulkAttendanceModal, LockPeriodModal, CellEditorModal, type ActiveCell } from './AttendanceModals';
+import { showToast as showFeedbackToast } from '../../lib/feedback';
 
 interface AttendanceTabProps {
   employees: Employee[];
@@ -190,6 +191,7 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   // Filtered employees
+  const departments = Array.from(new Set(employees.map(e => e.department)));
   const filteredEmployees = employees.filter(emp => {
     if (sgkFilter !== 'all' && emp.sgkStatus !== sgkFilter) return false;
     if (deptFilter !== 'all' && emp.department !== deptFilter) return false;
@@ -279,7 +281,7 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
       }
 
       if (targetIds.length === 0) {
-        alert('Lütfen en az bir personel seçiniz.');
+        showFeedbackToast('Lütfen en az bir personel seçiniz.', 'warning');
         return;
       }
 
@@ -532,6 +534,18 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
             </button>
           </div>
 
+          {/* Department Filter */}
+          <select
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+            className="px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none shrink-0"
+          >
+            <option value="all">Tüm Departmanlar</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+
           {/* Quick Auto Populate 1-Click */}
           <button
             onClick={handleAutoPopulate}
@@ -750,7 +764,15 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
       </div>
 
       {/* Puantaj Matrisi (Calendar Matrix Table) */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+      <div className="relative bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+        {loading && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-xl">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Puantaj Yükleniyor...</span>
+            </div>
+          </div>
+        )}
         <table className="w-full text-xs text-left border-collapse min-w-[1100px]">
           <thead>
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 font-bold">

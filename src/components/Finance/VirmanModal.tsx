@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRightLeft, X } from 'lucide-react';
 import { financeService } from '../../services/financeService';
+import { showToast } from '../../lib/feedback';
 import type { CashBox, BankAccount } from '../../types';
 
 interface VirmanModalProps {
@@ -24,11 +25,11 @@ export default function VirmanModal({ isOpen, cashBoxes, bankAccounts, onClose }
     e.preventDefault();
     const amount = Number(virmanAmount);
     if (!virmanFromId || !virmanToId || isNaN(amount) || amount <= 0) {
-      alert('Lütfen kaynak, hedef ve geçerli bir tutar seçiniz.');
+      showToast('Lütfen kaynak, hedef ve geçerli bir tutar seçiniz.', 'warning');
       return;
     }
     if (virmanFromType === virmanToType && virmanFromId === virmanToId) {
-      alert('Kaynak ve hedef hesap aynı olamaz.');
+      showToast('Kaynak ve hedef hesap aynı olamaz.', 'warning');
       return;
     }
 
@@ -44,9 +45,9 @@ export default function VirmanModal({ isOpen, cashBoxes, bankAccounts, onClose }
       onClose();
       setVirmanAmount('');
       setVirmanDesc('');
-      alert('Virman işlemi başarıyla tamamlandı ve muhasebeleştirildi.');
+      showToast('Virman işlemi başarıyla tamamlandı ve muhasebeleştirildi.', 'success');
     } catch (err: any) {
-      alert(`Virman hatası: ${err.message}`);
+      showToast(`Virman hatası: ${err.message}`, 'error');
     }
   };
 
@@ -71,7 +72,7 @@ export default function VirmanModal({ isOpen, cashBoxes, bankAccounts, onClose }
         <form onSubmit={handleSaveVirman} className="space-y-4">
           <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
             <span className="text-xs font-bold text-gray-700">Kaynak Hesap (Paranın Çıkacağı)</span>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Tür</label>
                 <select
@@ -111,7 +112,7 @@ export default function VirmanModal({ isOpen, cashBoxes, bankAccounts, onClose }
 
           <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
             <span className="text-xs font-bold text-gray-700">Hedef Hesap (Paranın Giriş Yapacağı)</span>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Tür</label>
                 <select

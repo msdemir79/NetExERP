@@ -46,7 +46,7 @@ async function tableColumns(table: string): Promise<Set<string>> {
 const JSON_COLUMNS: Record<string, string[]> = {
   assortmentTemplates: ['items'],
   barcodeTemplates: ['config'],
-  products: ['colorBoxBarcodes', 'variantBarcodes', 'colors', 'assortment', 'colorImages'],
+  products: ['colorBoxBarcodes', 'variantBarcodes', 'assortment', 'colorImages'],
   recipes: ['ingredients'],
   workOrders: ['assortmentBreakdown', 'stages'],
   settings: ['company', 'stock', 'order', 'production', 'finance', 'hr'],
@@ -495,7 +495,25 @@ async function doSeed(): Promise<{ created: boolean }> {
     createdAnything = true;
   }
 
-  // 10. Örnek ürünler, reçete ve iş emri
+  // 10. Merkezi renk kartları (color master)
+  if ((await tableCount('colors')) === 0) {
+    // HEX değerleri src/lib/colorSwatches.ts paletiyle birebir aynıdır (uydurma değer yok).
+    const colorRows = [
+      { code: 'R-0001', name: 'SİYAH', groupName: 'Temel', hexCode: '#0F172A', rgbCode: '15, 23, 42' },
+      { code: 'R-0002', name: 'BEYAZ', groupName: 'Temel', hexCode: '#FFFFFF', rgbCode: '255, 255, 255' },
+      { code: 'R-0003', name: 'TABA', groupName: 'Temel', hexCode: '#B45309', rgbCode: '180, 83, 9' },
+      { code: 'R-0004', name: 'LACİVERT', groupName: 'Temel', hexCode: '#1E3A8A', rgbCode: '30, 58, 138' },
+      { code: 'R-0005', name: 'NATUREL', groupName: 'Astar', hexCode: '#F5F5F4', rgbCode: '245, 245, 244' },
+    ];
+    for (const c of colorRows) {
+      await insertRow(null, 'colors', { ...c, isActive: 1, createdAt: new Date(), updatedAt: new Date() });
+    }
+    createdAnything = true;
+  }
+  const siyahColor = await queryOne<{ id: number }>('SELECT `id` FROM `colors` WHERE `name` = ? LIMIT 1', ['SİYAH']);
+  const siyahColorId = Number((siyahColor as any)?.id || 0);
+
+  // 11. Örnek ürünler, reçete ve iş emri
   if ((await tableCount('products')) === 0) {
     const deriId = await insertRow(null, 'products', {
       code: 'HAM-DERI-01',
@@ -607,7 +625,6 @@ async function doSeed(): Promise<{ created: boolean }> {
       hasSizeVariants: true,
       moldCode: '018',
       moldGroup: 'ERKEK KLASİK (40-45)',
-      colors: ['Siyah'],
       shelf: 'M-12',
       location: 'Mamul Sevkiyat Deposu',
       accountingCode: '157.01',
@@ -620,6 +637,10 @@ async function doSeed(): Promise<{ created: boolean }> {
         { size: '45', color: 'Siyah', barcode: '869200104501', stock: 10 },
       ],
     });
+
+    if (siyahColorId) {
+      await insertRow(null, 'productColors', { productId: shoe1Id, colorId: siyahColorId, sortOrder: 0, createdAt: new Date() });
+    }
 
     await insertRow(null, 'recipes', {
       productId: shoe1Id,

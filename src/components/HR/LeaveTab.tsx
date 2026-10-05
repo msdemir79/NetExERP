@@ -10,6 +10,7 @@ import {
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
 import type { Employee, LeaveRequest, LeaveType } from '../../types';
 import { hrService } from '../../services/hrService';
+import { confirmDialog } from '../../lib/feedback';
 
 interface LeaveTabProps {
   employees: Employee[];
@@ -134,7 +135,7 @@ export default function LeaveTab({ employees, onLeavesUpdated }: LeaveTabProps) 
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Bu izin kaydını silmek istediğinize emin misiniz?')) return;
+    if (!(await confirmDialog('Bu izin kaydını silmek istediğinize emin misiniz?', { confirmText: 'Sil' }))) return;
     try {
       await hrService.deleteLeaveRequest(id);
       await loadLeaves();
@@ -414,7 +415,7 @@ export default function LeaveTab({ employees, onLeavesUpdated }: LeaveTabProps) 
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1 uppercase">
                     Başlangıç Tarihi
