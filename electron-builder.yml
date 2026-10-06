@@ -13,14 +13,14 @@ copyright: Copyright © 2026
 # Otomatik güncelleme: electron-updater bu repodaki Releases'ten
 # latest.yml + kurulum paketini indirir (public repo → istemcide token yok).
 # GitHub Actions aynı hedefe release yayınlar (bkz. .github/workflows/release.yml).
-# draft: false ZORUNLU — GitHubPublisher varsayılanı draft:true olur; draft
+# releaseType: release ZORUNLU — GitHubPublisher varsayılanı draft'tır; draft
 # release'lar kimlik doğrulamasız istemcilere görünmediğinden electron-updater
 # güncellemeyi hiç göremezdi.
 publish:
   provider: github
   owner: msdemir79
   repo: NetExERP
-  draft: false
+  releaseType: release
 
 directories:
   output: release
