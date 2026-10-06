@@ -1,0 +1,76 @@
+# ProERP sürüm yayın akışı.
+#
+# Tetikleme: v* etiketi (ör. v1.0.1) — `npm run release -- patch` bu etiketi
+# oluşturur; buradan sonrası tamamen otomatiktir:
+#   testler → derleme → Windows kurulum paketi → GitHub Release
+#   (latest.yml + blockmap + SHA-512) → masaüstü istemciler güncellemeyi görür.
+#
+# Kod imzalama (opsiyonel): repo secrets'a CSC_LINK (PFX base64) ve
+# CSC_KEY_PASSWORD eklendiğinde electron-builder otomatik imzalar;
+# eklenmemişse derleme uyarıyla imzasız devam eder (zorunlu tutulmaz).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Kaynak kodu indir
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Sürüm tutarlılık kontrolü (etiket = package.json)
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Etiket ($TAG_VERSION) ile package.json sürümü ($PKG_VERSION) eşleşmiyor."
+            exit 1
+          fi
+          echo "Sürüm tutarlı: $TAG_VERSION"
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Tip denetimi (lint)
+        run: npm run lint
+
+      - name: Birim testleri
+        run: npm test
+
+      - name: Derleme + masaüstü sahneliği
+        run: npm run desktop:build
+
+      - name: Windows kurulum paketini oluştur ve GitHub Release'e yayınla
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          ARGS=""
+          NOTES_FILE="release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            ARGS="-c.releaseInfo.releaseNotesFile=$NOTES_FILE"
+            echo "Sürüm notları kullanılıyor: $NOTES_FILE"
+          else
+            echo "::warning::Sürüm notu dosyası yok ($NOTES_FILE); release notu boş olacak."
+          fi
+          npx electron-builder --win --x64 --publish always $ARGS

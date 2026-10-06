@@ -16,7 +16,8 @@ import {
   Barcode, 
   Truck, 
   Receipt,
-  RotateCcw
+  RotateCcw,
+  RefreshCw
 } from 'lucide-react';
 import StockSettings from './StockSettings';
 import OrderSettings from './OrderSettings';
@@ -24,6 +25,7 @@ import ProductionSettings from './ProductionSettings';
 import FinanceSettings from './FinanceSettings';
 import HRSettings from './HRSettings';
 import CompanySettings from './CompanySettings';
+import UpdateSettings from './UpdateSettings';
 import UsersManagement from '../Users';
 import PageHeader from '../PageHeader';
 import type { AppSettings } from '../../types';
@@ -125,6 +127,14 @@ export default function SettingsHub() {
       icon: Building2,
       badge: 'Yedek & Antet',
       description: 'Firma künyesi, veritabanı JSON yedeği ve demo veri araçları'
+    },
+    {
+      id: 'system',
+      label: 'Sistem & Güncellemeler',
+      shortLabel: 'Sistem & Güncelleme',
+      icon: RefreshCw,
+      badge: 'Sürüm & Update',
+      description: 'Uygulama sürümü, otomatik güncelleme denetimi ve sistem bilgileri'
     }
   ];
 
@@ -157,7 +167,7 @@ export default function SettingsHub() {
       />
 
       {/* MODULE TABS NAVIGATION */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -199,6 +209,7 @@ export default function SettingsHub() {
         {activeTab === 'hr' && <HRSettings settings={settings} onSave={handleSaveSettings} />}
         {activeTab === 'users' && <UsersManagement />}
         {activeTab === 'company' && <CompanySettings settings={settings} onSave={handleSaveSettings} />}
+        {activeTab === 'system' && <UpdateSettings />}
       </div>
     </div>
   );
