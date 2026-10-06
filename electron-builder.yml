@@ -1,0 +1,63 @@
+# Electron Builder yapılandırması — ProERP Windows masaüstü paketi.
+#
+# Mimari notları:
+#   - Uygulama kodu (electron/) asar içine girer; main.cjs yalnız Electron
+#     yerleşik modüllerini kullanır.
+#   - Backend (server.cjs + web arayüzü + şema + node_modules) asar DIŞINDA
+#     resources/backend/ altına konur: fork ile ELECTRON_RUN_AS_NODE=1 altında
+#     çalıştırılan Node süreci asar arşivini okuyamaz.
+appId: com.dmrayakabi.proerp
+productName: ProERP
+copyright: Copyright © 2026
+
+# Otomatik güncelleme: electron-updater bu repodaki Releases'ten
+# latest.yml + kurulum paketini indirir (public repo → istemcide token yok).
+# GitHub Actions aynı hedefe release yayınlar (bkz. .github/workflows/release.yml).
+publish:
+  provider: github
+  owner: msdemir79
+  repo: NetExERP
+
+directories:
+  output: release
+  # build/ .gitignore'dadır (CI'da yok); ikon electron/ altından verilir.
+  buildResources: electron
+
+files:
+  - electron/**/*
+
+# NOT: Kaynak dizin electron-build/backend DEĞİL electron-build'in kendisi.
+# electron-builder'ın createFilter'i, kopyalama kaynağının kökünde duran
+# node_modules dizini koşulsuz hariç tutar (app-builder-lib/util/filter.js,
+# "filter the root node_modules" dalı). Kaynağı bir üst seviyeye taşıyınca
+# backend/node_modules "alt node_modules" sayılır ve kopyalanır.
+extraResources:
+  - from: electron-build
+    to: .
+
+asar: true
+
+compression: normal
+
+win:
+  icon: electron/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - tr_TR
+  language: 1055
+  multiLanguageInstaller: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: ProERP
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: ProERP-Setup-${version}.exe

@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>ProERP — İlk Kurulum</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    flex: none; display: flex; align-items: center; gap: 14px;
+    padding: 18px 26px;
+    border-bottom: 1px solid #1e293b;
+    background: #111c30;
+  }
+  .logo {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 900; color: #ffffff; letter-spacing: -1px;
+  }
+  .brand { font-size: 17px; font-weight: 800; }
+  .brand span { color: #60a5fa; }
+  .version { font-size: 12px; color: #94a3b8; font-weight: 600; margin-left: auto; }
+
+  .steps {
+    flex: none; display: flex; gap: 8px; padding: 14px 26px 0;
+  }
+  .step {
+    flex: 1; display: flex; align-items: center; gap: 9px;
+    font: 700 12.5px "Segoe UI", sans-serif; color: #64748b;
+    padding: 8px 12px; border-radius: 8px;
+    background: #16213a; border: 1px solid #1e293b;
+  }
+  .step .num {
+    width: 22px; height: 22px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: #233150; color: #94a3b8; font-weight: 800; font-size: 11.5px;
+  }
+  .step.active { color: #e2e8f0; border-color: #2563eb; background: #16283f; }
+  .step.active .num { background: #2563eb; color: #ffffff; }
+  .step.done { color: #86efac; }
+  .step.done .num { background: #166534; color: #ffffff; }
+
+  main { flex: 1; overflow-y: auto; padding: 20px 26px 10px; }
+  main::-webkit-scrollbar { width: 10px; }
+  main::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+
+  .pane { display: none; }
+  .pane.visible { display: block; }
+  h2 { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
+  .sub { font-size: 12.5px; color: #94a3b8; line-height: 1.55; margin-bottom: 16px; }
+  .sub b { color: #e2e8f0; }
+
+  .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .choice {
+    text-align: left; cursor: pointer;
+    background: #16213a; border: 2px solid #233150; border-radius: 13px;
+    padding: 18px 18px 16px; color: #e2e8f0;
+    font-family: inherit; transition: border-color 0.15s, background 0.15s;
+  }
+  .choice:hover { background: #182743; }
+  .choice.selected { border-color: #2563eb; background: #16283f; }
+  .choice .ci { font-size: 26px; margin-bottom: 10px; }
+  .choice h3 { font-size: 14.5px; font-weight: 800; margin-bottom: 6px; }
+  .choice p { font-size: 12px; color: #94a3b8; line-height: 1.55; }
+
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; max-width: 560px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field.wide { grid-column: 1 / -1; }
+  label { font-size: 12px; font-weight: 700; color: #cbd5e1; }
+  label small { color: #94a3b8; font-weight: 600; }
+  input {
+    font: 600 13px "Segoe UI", sans-serif; color: #f1f5f9;
+    background: #0b1220; border: 1px solid #334155; border-radius: 8px;
+    padding: 9px 12px; outline: none;
+  }
+  input:focus { border-color: #2563eb; }
+  input::placeholder { color: #64748b; }
+
+  .panel {
+    border-radius: 11px; padding: 13px 15px; margin-top: 16px;
+    font-size: 12.5px; line-height: 1.6; display: none;
+  }
+  .panel.visible { display: block; }
+  .panel.ok    { background: #0d2818; border: 1px solid #166534; color: #bbf7d0; }
+  .panel.warn  { background: #2a2107; border: 1px solid #854d0e; color: #fde68a; }
+  .panel.error { background: #2a0f12; border: 1px solid #7f1d1d; color: #fecaca; }
+  .panel code { font-family: Consolas, monospace; font-size: 12px; color: inherit; }
+
+  footer {
+    flex: none; display: flex; gap: 10px; align-items: center;
+    padding: 14px 26px; border-top: 1px solid #1e293b; background: #111c30;
+  }
+  .spacer { flex: 1; }
+  button.act {
+    font: 700 13.5px "Segoe UI", sans-serif; cursor: pointer;
+    padding: 10px 22px; border-radius: 9px;
+    background: #273449; color: #e2e8f0; border: 1px solid #334155;
+  }
+  button.act:hover { background: #324158; }
+  button.act:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary {
+    background: #2563eb; border-color: #2563eb; color: #ffffff;
+  }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  .footnote { font-size: 11.5px; color: #94a3b8; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">N</div>
+    <div class="brand">Net<span>Ex</span>ERP — İlk Kurulum</div>
+    <div class="version" id="version"></div>
+  </header>
+
+  <div class="steps">
+    <div class="step" id="st1"><span class="num">1</span> Kurulum Tipi</div>
+    <div class="step" id="st2"><span class="num">2</span> <span id="st2text">Veritabanı</span></div>
+    <div class="step" id="st3"><span class="num">3</span> Başlatma</div>
+  </div>
+
+  <main>
+    <!-- Adım 1: Kurulum tipi -->
+    <section class="pane" id="pane1">
+      <h2>Bu bilgisayar nasıl kullanılacak?</h2>
+      <div class="sub">Bu seçim daha sonra Ayarlar'dan değiştirilebilir.</div>
+      <div class="choice-grid">
+        <button class="choice" id="modeLocal">
+          <div class="ci">&#128421;</div>
+          <h3>Bu bilgisayara kur</h3>
+          <p>MySQL veritabanı bu makinede çalışır. Tüm veriler bu bilgisayarda tutulur (tek-PC kurulumu).</p>
+        </button>
+        <button class="choice" id="modeRemote">
+          <div class="ci">&#127760;</div>
+          <h3>Fabrika sunucusuna bağlan</h3>
+          <p>Bu makine, ağ üzerindeki merkezi ProERP sunucusuna istemci olarak bağlanır (LAN kurulumu).</p>
+        </button>
+      </div>
+    </section>
+
+    <!-- Adım 2a: Yerel MySQL -->
+    <section class="pane" id="pane2local">
+      <h2>MySQL veritabanı bağlantısı</h2>
+      <div class="sub">
+        MySQL servisinin kurulu ve çalışır durumda olması gerekir. Uygulama bu veritabanına bağlanan
+        <b>proerp</b> kullanıcısını kullanır; varsa mevcut hesabı girin.
+      </div>
+      <div class="form">
+        <div class="field">
+          <label for="dbHost">Sunucu (Host)</label>
+          <input id="dbHost" value="localhost" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="dbPort">Port</label>
+          <input id="dbPort" value="3306" inputmode="numeric" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="dbName">Veritabanı Adı</label>
+          <input id="dbName" value="proerp" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="dbUser">Kullanıcı</label>
+          <input id="dbUser" value="proerp" autocomplete="off">
+        </div>
+        <div class="field wide">
+          <label for="dbPass">Şifre <small>(uygulama kullanıcısı)</small></label>
+          <input id="dbPass" type="password" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="panel" id="dbResult"></div>
+
+      <!-- Veritabanı yoksa: yönetici ile oluştur -->
+      <div id="adminBox" style="display:none; margin-top:14px;">
+        <div class="sub" style="margin-bottom:10px;">
+          Veritabanı bu sunucuda <b>bulunamadı</b>. Oluşturmak için MySQL yönetici (örn. <b>root</b>)
+          hesabı gereklidir. Hiçbir mevcut veri silinmez; yalnızca yeni veritabanı ve kullanıcı oluşturulur.
+        </div>
+        <div class="form">
+          <div class="field">
+            <label for="adminUser">MySQL Yönetici Kullanıcısı</label>
+            <input id="adminUser" value="root" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="adminPass">Yönetici Şifresi</label>
+            <input id="adminPass" type="password" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Adım 2b: Uzak sunucu -->
+    <section class="pane" id="pane2remote">
+      <h2>Sunucu adresi</h2>
+      <div class="sub">
+        Fabrikadaki merkezi ProERP sunucusunun adresini girin (örn. <b>http://192.168.1.50:3000</b>).
+        Sunucuda ProERP zaten çalışıyor olmalıdır; bu makinede ek kurulum yapılmaz.
+      </div>
+      <div class="form">
+        <div class="field wide">
+          <label for="remoteUrl">Sunucu Adresi</label>
+          <input id="remoteUrl" placeholder="http://192.168.1.50:3000" autocomplete="off">
+        </div>
+      </div>
+      <div class="panel" id="remoteResult"></div>
+    </section>
+
+    <!-- Adım 3: Yerel son ayarlar -->
+    <section class="pane" id="pane3local">
+      <h2>Başlatma ayarları</h2>
+      <div class="sub">Uygulama arka planında yerel bir sunucu başlatır; aşağıdaki port bu sunucu içindir.</div>
+      <div class="form">
+        <div class="field">
+          <label for="appPort">Uygulama Portu</label>
+          <input id="appPort" value="3000" inputmode="numeric" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="seedPass">İlk Kullanıcı Parolası <small>(isteğe bağlı)</small></label>
+          <input id="seedPass" type="password" autocomplete="new-password" placeholder="Boş bırakılırsa otomatik üretilir">
+        </div>
+      </div>
+      <div class="panel warn visible" style="display:block;">
+        Boş bırakırsanız ilk kullanıcı parolası otomatik üretilir ve uygulama ilk açılışta <b>bir kez</b>
+        gösterilir — kaydetmeyi unutmayın. (En az 8 karakter, yalnız rakam olamaz.)
+      </div>
+      <div class="panel" id="localResult"></div>
+    </section>
+
+    <!-- Adım 3b: Uzak onay -->
+    <section class="pane" id="pane3remote">
+      <h2>Kurulum tamamlandı</h2>
+      <div class="sub" style="margin-bottom:8px;">Aşağıdaki sunucuya bağlanmak üzere kaydediliyor:</div>
+      <div class="panel ok visible" id="remoteSummary" style="display:block;"></div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footnote" id="footnote"></div>
+    <div class="spacer"></div>
+    <button class="act" id="btnBack">Geri</button>
+    <button class="act primary" id="btnNext">İleri</button>
+  </footer>
+
+  <script>
+    'use strict';
+    var setup = window.proerpSetup;
+    var state = {
+      step: 1,
+      mode: 'local',
+      dbTested: false,
+      remoteTested: false,
+      // 'initDatabase' | 'applySchema' | 'runMigrations' | null
+      pendingAction: null,
+      configured: false,
+    };
+
+    var el = function (id) { return document.getElementById(id); };
+    var panes = { 1: 'pane1', 2: null, 3: null };
+
+    function showPanel(node, cls, html) {
+      node.className = 'panel visible ' + cls;
+      node.innerHTML = html;
+    }
+    function hidePanel(node) {
+      node.className = 'panel';
+      node.innerHTML = '';
+    }
+    function busy(btn, text) {
+      btn.disabled = true;
+      btn.dataset.label = btn.textContent;
+      btn.textContent = text || 'Lütfen bekleyin...';
+    }
+    function unbusy(btn) {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    }
+
+    function currentConfig() {
+      if (state.mode === 'remote') {
+        return { mode: 'remote', remoteUrl: el('remoteUrl').value.trim() };
+      }
+      return {
+        mode: 'local',
+        port: Number(el('appPort').value) || 3000,
+        db: {
+          host: el('dbHost').value.trim(),
+          port: Number(el('dbPort').value) || 3306,
+          name: el('dbName').value.trim(),
+          user: el('dbUser').value.trim(),
+          password: el('dbPass').value,
+        },
+        seedPassword: el('seedPass').value,
+      };
+    }
+
+    function render() {
+      panes[2] = state.mode === 'local' ? 'pane2local' : 'pane2remote';
+      panes[3] = state.mode === 'local' ? 'pane3local' : 'pane3remote';
+      for (var s = 1; s <= 3; s++) {
+        var pane = el(panes[s]);
+        pane.classList.toggle('visible', state.step === s);
+        var step = el('st' + s);
+        step.classList.toggle('active', state.step === s);
+        step.classList.toggle('done', state.step > s);
+      }
+      el('st2text').textContent = state.mode === 'local' ? 'Veritabanı' : 'Sunucu';
+
+      el('btnBack').style.visibility = state.step === 1 ? 'hidden' : 'visible';
+      var next = el('btnNext');
+      if (state.step === 3) {
+        next.textContent = 'Kaydet ve Başlat';
+        next.disabled = state.mode === 'remote' ? !state.remoteTested : false;
+      } else if (state.step === 2) {
+        var ready = state.mode === 'local' ? state.dbTested && !state.pendingAction : state.remoteTested;
+        next.textContent = ready ? 'İleri' : 'Sına ve Devam Et';
+        next.disabled = false;
+      } else {
+        next.textContent = 'İleri';
+        next.disabled = true;
+      }
+      el('footnote').textContent = state.mode === 'local' && state.step === 2
+        ? 'Mevcut üretim verisi asla silinmez; yalnız eksik tablolar eklenir.'
+        : '';
+    }
+
+    /* ---------------- Adım 1 ---------------- */
+
+    el('modeLocal').addEventListener('click', function () {
+      state.mode = 'local';
+      el('modeLocal').classList.add('selected');
+      el('modeRemote').classList.remove('selected');
+      state.step = 2;
+      render();
+    });
+    el('modeRemote').addEventListener('click', function () {
+      state.mode = 'remote';
+      el('modeRemote').classList.add('selected');
+      el('modeLocal').classList.remove('selected');
+      state.step = 2;
+      render();
+    });
+
+    /* ---------------- Adım 2: yerel ---------------- */
+
+    function localDbReady() {
+      return el('dbHost').value.trim() && el('dbName').value.trim() && el('dbUser').value.trim();
+    }
+
+    el('dbPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') testDb(); });
+
+    async function testDb() {
+      var btn = el('btnNext');
+      if (!localDbReady()) { showPanel(el('dbResult'), 'error', 'Sunucu, veritabanı adı ve kullanıcı alanları zorunludur.'); return; }
+      busy(btn, 'Sınanıyor...');
+      hidePanel(el('dbResult'));
+      el('adminBox').style.display = 'none';
+      state.pendingAction = null;
+      try {
+        var res = await setup.testConnection(currentConfig());
+        if (!res.ok) {
+          showPanel(el('dbResult'), 'error',
+            '<b>Bağlantı kurulamadı.</b><br>' + escapeHtml(res.error || '') +
+            '<br>Sunucu adresini, portu, kullanıcı adını ve şifreyi kontrol edin; MySQL servisinin çalıştığından emin olun.');
+          state.dbTested = false;
+        } else if (!res.databaseExists) {
+          showPanel(el('dbResult'), 'warn',
+            '<b>Sunucuya bağlanıldı</b> (MySQL ' + escapeHtml(res.serverVersion || '') + '), ancak <b>' +
+            escapeHtml(el('dbName').value.trim()) + '</b> veritabanı yok. Aşağıdaki yönetici bilgileriyle oluşturabilirsiniz.');
+          el('adminBox').style.display = 'block';
+          state.dbTested = true;
+          state.pendingAction = 'initDatabase';
+        } else if (!res.hasSchema) {
+          showPanel(el('dbResult'), 'warn',
+            '<b>Bağlantı başarılı</b> ancak veritabanı boş. <b>İleri</b> ile tablolar oluşturulur; mevcut veriler korunur.');
+          state.dbTested = true;
+          state.pendingAction = 'applySchema';
+        } else if (res.pendingMigrations > 0) {
+          showPanel(el('dbResult'), 'warn',
+            '<b>Bağlantı başarılı.</b> Veritabanında <b>' + res.pendingMigrations +
+            '</b> bekleyen güncelleme (migrasyon) var. <b>İleri</b> ile uygulanır — mevcut veriler korunur.');
+          state.dbTested = true;
+          state.pendingAction = 'runMigrations';
+        } else {
+          showPanel(el('dbResult'), 'ok',
+            '<b>Bağlantı başarılı.</b> MySQL ' + escapeHtml(res.serverVersion || '') + ' — şema güncel.');
+          state.dbTested = true;
+        }
+      } catch (err) {
+        showPanel(el('dbResult'), 'error', escapeHtml(String(err && err.message || err)));
+        state.dbTested = false;
+      }
+      unbusy(btn);
+      render();
+    }
+
+    /* ---------------- Adım 2: uzak ---------------- */
+
+    el('remoteUrl').addEventListener('keydown', function (e) { if (e.key === 'Enter') testRemote(); });
+
+    async function testRemote() {
+      var btn = el('btnNext');
+      var url = el('remoteUrl').value.trim();
+      if (!url) { showPanel(el('remoteResult'), 'error', 'Sunucu adresi zorunludur.'); return; }
+      busy(btn, 'Sınanıyor...');
+      hidePanel(el('remoteResult'));
+      try {
+        var res = await setup.testRemote(url);
+        if (res.ok) {
+          showPanel(el('remoteResult'), 'ok', '<b>Sunucuya ulaşıldı:</b> ' + escapeHtml(res.origin));
+          el('remoteUrl').value = res.origin;
+          state.remoteTested = true;
+        } else {
+          showPanel(el('remoteResult'), 'error',
+            '<b>Ulaşılamadı.</b> ' + escapeHtml(res.error || '') +
+            '<br>Sunucunun çalıştığından ve bu makineyle aynı ağda olduğundan emin olun.');
+          state.remoteTested = false;
+        }
+      } catch (err) {
+        showPanel(el('remoteResult'), 'error', escapeHtml(String(err && err.message || err)));
+        state.remoteTested = false;
+      }
+      unbusy(btn);
+      render();
+    }
+
+    /* ---------------- Gezinme ---------------- */
+
+    el('btnBack').addEventListener('click', function () {
+      if (state.step > 1) { state.step--; render(); }
+    });
+
+    el('btnNext').addEventListener('click', async function () {
+      if (state.step === 2) {
+        if (state.mode === 'local') {
+          if (!state.dbTested) { await testDb(); return; }
+          if (state.pendingAction) { await applyPendingAction(); return; }
+          state.step = 3;
+          render();
+        } else {
+          if (!state.remoteTested) { await testRemote(); return; }
+          el('remoteSummary').textContent = el('remoteUrl').value.trim();
+          state.step = 3;
+          render();
+        }
+        return;
+      }
+      if (state.step === 3) { await finishSetup(); }
+    });
+
+    /** Sınamada saptanan eksik adımı uygular, sonra yeniden sınayıp hazır ise ilerler. */
+    async function applyPendingAction() {
+      var btn = el('btnNext');
+      var cfg = currentConfig();
+      var action = state.pendingAction;
+      var labels = {
+        initDatabase: 'Veritabanı oluşturuluyor...',
+        applySchema: 'Tablolar oluşturuluyor...',
+        runMigrations: 'Güncellemeler uygulanıyor...',
+      };
+
+      var adminUser = '';
+      var adminPassword = '';
+      if (action === 'initDatabase') {
+        adminUser = el('adminUser').value.trim();
+        adminPassword = el('adminPass').value;
+        if (!adminUser) {
+          showPanel(el('dbResult'), 'error', 'Veritabanı oluşturmak için MySQL yönetici kullanıcı adı gerekli.');
+          return;
+        }
+      }
+
+      busy(btn, labels[action]);
+      try {
+        var res;
+        if (action === 'initDatabase') {
+          res = await setup.initDatabase({ dbCfg: cfg, adminUser: adminUser, adminPassword: adminPassword, createAppUser: true });
+          el('adminPass').value = '';
+        } else if (action === 'applySchema') {
+          res = await setup.applySchema(cfg);
+        } else {
+          res = await setup.runMigrations(cfg);
+        }
+        if (!res.ok) {
+          showPanel(el('dbResult'), 'error', '<b>İşlem başarısız.</b><br>' + escapeHtml(res.error || ''));
+          unbusy(btn);
+          render();
+          return;
+        }
+        state.pendingAction = null;
+        unbusy(btn);
+        // Doğrulama amaçlı yeniden sına; hazır olursa otomatik ilerle.
+        await testDb();
+        if (state.dbTested && !state.pendingAction) {
+          state.step = 3;
+          render();
+        }
+      } catch (err) {
+        showPanel(el('dbResult'), 'error', escapeHtml(String(err && err.message || err)));
+        unbusy(btn);
+        render();
+      }
+    }
+
+    async function finishSetup() {
+      var btn = el('btnNext');
+      var cfg = currentConfig();
+      if (state.mode === 'local') {
+        var sp = cfg.seedPassword;
+        if (sp && (sp.length < 8 || /^\d+$/.test(sp))) {
+          showPanel(el('localResult'), 'error',
+            'İlk kullanıcı parolası en az 8 karakter olmalı ve yalnız rakamlardan oluşamaz.');
+          return;
+        }
+      }
+      busy(btn, 'Kaydediliyor...');
+      try {
+        var res = await setup.finish(cfg);
+        if (!res.ok) {
+          showPanel(state.mode === 'local' ? el('localResult') : el('remoteResult'), 'error', escapeHtml(res.error || 'Kaydedilemedi.'));
+          unbusy(btn);
+        }
+        // Başarılıysa ana süreç sihirbazı kapatıp uygulamayı başlatır.
+      } catch (err) {
+        showPanel(state.mode === 'local' ? el('localResult') : el('remoteResult'), 'error', escapeHtml(String(err && err.message || err)));
+        unbusy(btn);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    /* ---------------- Başlangıç ---------------- */
+
+    function resetLocalTest() {
+      state.dbTested = false;
+      state.pendingAction = null;
+      el('adminBox').style.display = 'none';
+      hidePanel(el('dbResult'));
+      render();
+    }
+    ['dbHost', 'dbPort', 'dbName', 'dbUser', 'dbPass'].forEach(function (id) {
+      el(id).addEventListener('input', resetLocalTest);
+    });
+    el('remoteUrl').addEventListener('input', function () {
+      state.remoteTested = false;
+      hidePanel(el('remoteResult'));
+      render();
+    });
+
+    (async function init() {
+      if (!setup) {
+        document.body.innerHTML = '<div style="padding:40px;font-size:14px;">Kurulum arayüzü yüklenemedi.</div>';
+        return;
+      }
+      try {
+        var st = await setup.getState();
+        state.configured = Boolean(st && st.configured);
+        el('version').textContent = 'v' + ((st && st.version) || '');
+        if (state.configured && st.config) {
+          var c = st.config;
+          if (c.mode === 'remote') {
+            el('remoteUrl').value = c.remoteUrl || '';
+          } else if (c.db) {
+            el('dbHost').value = c.db.host || 'localhost';
+            el('dbPort').value = c.db.port || 3306;
+            el('dbName').value = c.db.name || 'proerp';
+            el('dbUser').value = c.db.user || 'proerp';
+            el('appPort').value = c.port || 3000;
+          }
+        }
+      } catch (err) { /* durum okunamadı: boş form */ }
+      render();
+    })();
+  </script>
+</body>
+</html>

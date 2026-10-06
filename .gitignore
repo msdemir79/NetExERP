@@ -7,6 +7,10 @@ coverage/
 .env*
 !.env.example
 
+# Masaüstü paketi (Electron) — sahnelenen backend ve kurulum çıktıları
+/electron-build/
+/release/
+
 # Yüklenen görseller (#51) — diske yazılır, deploy'da kalıcı olmalı ve
 # yedeklemeye dahil edilmelidir; sürüm kontrolüne girmez.
 /data/uploads/
