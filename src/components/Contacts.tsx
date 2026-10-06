@@ -1,10 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { useApiQuery } from '../hooks/useApiQuery';
+import { useApiQuery, useApiQueryFull } from '../hooks/useApiQuery';
 import type { Contact, EntityType } from '../types';
 import PageHeader from './PageHeader';
 import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
+import Button, { buttonClass } from './Common/Button';
+import ActionMenu from './Common/ActionMenu';
+import SegmentedFilter, { SegmentOption } from './Common/SegmentedFilter';
+import EmptyState from './Common/EmptyState';
+import DeleteConfirmModal from './Common/DeleteConfirmModal';
+import { controlClass, Input, Select } from './Common/Field';
 import {
   Users,
   UserPlus,
@@ -34,11 +40,11 @@ import {
   CheckCircle2,
   ChevronRight,
   Receipt,
-  DollarSign
+  DollarSign,
+  MoreHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import Modal from './Modal';
 import { contactService } from '../services/contactService';
 import ContactStatementModal from './Contacts/ContactStatementModal';
 import ContactFormModal from './Contacts/ContactFormModal';
@@ -51,7 +57,8 @@ type SortOption = 'code_asc' | 'code_desc' | 'name_asc' | 'name_desc' | 'type_as
 
 export default function Contacts() {
   const navigate = useNavigate();
-  const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
+  const contactsQuery = useApiQueryFull(() => api.contacts.list(), [], ['contacts']);
+  const contacts = contactsQuery.data;
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,7 +81,6 @@ export default function Contacts() {
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   // Financial Metrics Calculation
   const metrics = useMemo(() => {
@@ -231,17 +237,6 @@ export default function Contacts() {
     setIsPaymentModalOpen(true);
   };
 
-  const handleDeleteContact = async () => {
-    if (!deleteConfirmContact?.id) return;
-    setActionError(null);
-    try {
-      await contactService.deleteContact(deleteConfirmContact.id);
-      setDeleteConfirmContact(null);
-    } catch (err: any) {
-      setActionError(err.message || 'Cari silinirken bir hata meydana geldi.');
-    }
-  };
-
   const handleExportCSV = () => {
     const headers = ['Cari Kodu', 'Firma Ünvanı', 'Cari Türü', 'Yetkili', 'Telefon', 'Şehir', 'Vergi No', 'Vade', 'Risk Limiti', 'Bakiye'];
     const rows = filteredContacts.map(c => [
@@ -267,7 +262,7 @@ export default function Contacts() {
 
   const contactColumns = useMemo<GridColumn<Contact>[]>(() => [
     {
-      key: 'code', title: 'Kod', width: 'w-28',
+      key: 'code', title: 'Kod', width: '6.5rem',
       render: (c) => (
         <span className="font-mono font-bold text-indigo-600 whitespace-nowrap">
           {c.code || `CAR-${c.id?.toString().padStart(4, '0')}`}
@@ -285,7 +280,7 @@ export default function Contacts() {
           >
             {c.name}
           </div>
-          {c.discountRate && c.discountRate > 0 && (
+          {(c.discountRate || 0) > 0 && (
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
               <span className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.2 rounded font-bold">
                 %{c.discountRate} İskonto
@@ -297,7 +292,7 @@ export default function Contacts() {
       filterValue: (c) => `${c.name} ${c.accountCode || ''} ${c.category || ''}`,
     },
     {
-      key: 'type', title: 'Tür', width: 'w-36',
+      key: 'type', title: 'Tür', width: '7rem',
       render: (c) => {
         if (c.type === 'customer') return <StatusPill tone="blue">Müşteri</StatusPill>;
         if (c.type === 'supplier') return <StatusPill tone="amber">Tedarikçi</StatusPill>;
@@ -306,7 +301,7 @@ export default function Contacts() {
       filterValue: (c) => c.type === 'customer' ? 'Müşteri' : c.type === 'supplier' ? 'Tedarikçi' : 'Müşteri Tedarikçi',
     },
     {
-      key: 'contactPerson', title: 'Yetkili & İletişim',
+      key: 'contactPerson', title: 'Yetkili & İletişim', width: '12rem',
       render: (c) => (
         <div>
           {c.contactPerson ? (
@@ -314,7 +309,7 @@ export default function Contacts() {
           ) : (
             <div className="text-slate-400 font-medium">-</div>
           )}
-          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+          <div className="flex items-center gap-2 text-label font-mono text-slate-500 dark:text-slate-400">
             {c.phone || c.mobile || c.email || '-'}
           </div>
         </div>
@@ -322,14 +317,14 @@ export default function Contacts() {
       filterValue: (c) => `${c.contactPerson || ''} ${c.phone || ''} ${c.mobile || ''} ${c.email || ''}`,
     },
     {
-      key: 'city', title: 'Şehir / VKN',
+      key: 'city', title: 'Şehir / VKN', width: '10rem',
       render: (c) => (
         <div>
           <div className="font-semibold text-slate-800 dark:text-slate-200">
             {c.city ? `${c.city}${c.district ? ` / ${c.district}` : ''}` : '-'}
           </div>
           {c.taxNumber && (
-            <div className="text-[10px] font-mono text-slate-400">
+            <div className="text-label font-mono text-slate-400">
               VKN: {c.taxNumber}
             </div>
           )}
@@ -338,7 +333,7 @@ export default function Contacts() {
       filterValue: (c) => `${c.city || ''} ${c.taxNumber || ''}`,
     },
     {
-      key: 'paymentTermDays', title: 'Vade', align: 'right', width: 'w-24',
+      key: 'paymentTermDays', title: 'Vade', align: 'right', width: '5.5rem',
       render: (c) => (
         <span className="font-mono font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
           {c.paymentTermDays ? `${c.paymentTermDays} Gün` : 'Peşin'}
@@ -346,19 +341,19 @@ export default function Contacts() {
       ),
     },
     {
-      key: 'balance', title: 'Cari Bakiye (₺)', align: 'right',
+      key: 'balance', title: 'Cari Bakiye (₺)', align: 'right', width: '8.5rem',
       render: (c) => {
-        const isRiskExceeded = c.creditLimit && c.balance > c.creditLimit;
+        const isRiskExceeded = !!c.creditLimit && c.balance > c.creditLimit;
         return (
           <div className="text-right whitespace-nowrap">
-            <div className={`font-mono font-black text-sm ${c.balance > 0 ? 'text-emerald-700' : c.balance < 0 ? 'text-rose-700' : 'text-slate-500 dark:text-slate-400'}`}>
+            <div className={`font-mono font-black text-xs ${c.balance > 0 ? 'text-emerald-700' : c.balance < 0 ? 'text-rose-700' : 'text-slate-500 dark:text-slate-400'}`}>
               ₺{Math.abs(c.balance).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              <span className="text-[10px] ml-1 opacity-75">
+              <span className="text-label ml-1 opacity-75">
                 {c.balance > 0 ? '(A)' : c.balance < 0 ? '(B)' : ''}
               </span>
             </div>
             {isRiskExceeded && (
-              <div className="text-[9px] font-bold text-rose-600 flex items-center justify-end gap-1 mt-0.5">
+              <div className="text-label font-bold text-rose-600 flex items-center justify-end gap-1">
                 <AlertTriangle className="w-2.5 h-2.5" /> Risk Aşıldı
               </div>
             )}
@@ -368,6 +363,16 @@ export default function Contacts() {
       filterValue: (c) => `${c.balance || 0}`,
     },
   ], []);
+
+  const filterOptions: SegmentOption[] = useMemo(() => [
+    { key: 'all', label: 'Tüm Cariler', count: contacts?.length ?? 0 },
+    { key: 'customer', label: 'Müşteriler', count: metrics.customers },
+    { key: 'supplier', label: 'Tedarikçiler', count: metrics.suppliers },
+    { key: 'receivables', label: 'Alacağımız Olanlar', count: contacts?.filter(c => c.balance > 0).length ?? 0 },
+    { key: 'payables', label: 'Borcumuz Olanlar', count: contacts?.filter(c => c.balance < 0).length ?? 0 },
+    { key: 'zero', label: 'Sıfır Bakiye', count: contacts?.filter(c => c.balance === 0).length ?? 0 },
+    { key: 'risk_exceeded', label: 'Risk Aşanlar', count: metrics.riskExceededCount },
+  ], [contacts, metrics]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -380,121 +385,91 @@ export default function Contacts() {
         iconColor="indigo"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setIsReportModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Bakiye Raporu</span>
-            </button>
+            <Button variant="secondary" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => setIsReportModalOpen(true)}>
+              Bakiye Raporu
+            </Button>
 
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Excel / CSV</span>
-            </button>
+            <Button variant="secondary" icon={<Download className="h-3.5 w-3.5" />} onClick={handleExportCSV}>
+              Excel / CSV
+            </Button>
 
-            <button
-              onClick={handleOpenAddModal}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Yeni Cari Kaydı</span>
-            </button>
+            <Button variant="primary" icon={<UserPlus className="h-3.5 w-3.5" />} onClick={handleOpenAddModal}>
+              Yeni Cari Kaydı
+            </Button>
           </div>
         }
       />
 
-      {/* Financial KPI Summary Ribbon */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Total Contacts */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">
-            <span>Toplam Cari Kartı</span>
-            <Users className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="text-3xl font-black font-mono text-slate-900 dark:text-slate-100">
-            {metrics.total}
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            <span className="text-indigo-600 font-bold">{metrics.customers} Müşteri</span>
-            <span>•</span>
-            <span className="text-amber-600 font-bold">{metrics.suppliers} Tedarikçi</span>
-          </div>
+      {/* Finansal özet şeridi: 4 büyük KPI kartı yerine tek satır — aynı bilgi,
+          çok daha az dikey alan. Bilgi silinmez, yalnızca yoğunluk azalır. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-card border border-line bg-surface px-4 py-2.5 shadow-card">
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-brand" />
+          <span className="text-label font-bold uppercase tracking-wider text-fg-muted">Toplam Cari</span>
+          <span className="font-mono text-sm font-black text-fg-strong">{metrics.total}</span>
+          <span className="text-2xs font-semibold text-fg-muted">
+            <span className="font-bold text-brand">{metrics.customers} Müşteri</span>
+            {' · '}
+            <span className="font-bold text-warning">{metrics.suppliers} Tedarikçi</span>
+          </span>
         </div>
 
-        {/* Metric 2: Total Receivables (Piyasadan Alacak) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">
-            <span>Piyasadan Alacaklarımız</span>
-            <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-3xl font-black font-mono text-emerald-600">
+        <div className="hidden h-5 w-px bg-line sm:block" />
+
+        <div className="flex items-center gap-2">
+          <ArrowDownLeft className="h-4 w-4 text-success" />
+          <span className="text-label font-bold uppercase tracking-wider text-fg-muted">Alacak</span>
+          <span className="font-mono text-sm font-black text-success">
             ₺{metrics.receivables.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-            Müşteri borç bakiyeleri toplamı
-          </div>
+          </span>
         </div>
 
-        {/* Metric 3: Total Payables (Piyasaya Borç) */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">
-            <span>Piyasaya Borçlarımız</span>
-            <ArrowUpRight className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="text-3xl font-black font-mono text-rose-600">
+        <div className="hidden h-5 w-px bg-line sm:block" />
+
+        <div className="flex items-center gap-2">
+          <ArrowUpRight className="h-4 w-4 text-danger" />
+          <span className="text-label font-bold uppercase tracking-wider text-fg-muted">Borç</span>
+          <span className="font-mono text-sm font-black text-danger">
             ₺{metrics.payables.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-            Tedarikçi alacak bakiyeleri toplamı
-          </div>
+          </span>
         </div>
 
-        {/* Metric 4: Net Financial Position & Risk */}
-        <div className={cn(
-          "p-5 rounded-2xl border shadow-sm relative overflow-hidden",
-          metrics.net >= 0 ? "bg-indigo-900 text-white border-indigo-950" : "bg-slate-900 text-white border-slate-950"
-        )}>
-          <div className="flex items-center justify-between text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1">
-            <span>Net Cari Pozisyonu</span>
-            {metrics.net >= 0 ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />}
-          </div>
-          <div className="text-3xl font-black font-mono text-white">
+        <div className="hidden h-5 w-px bg-line sm:block" />
+
+        <div className="flex items-center gap-2">
+          {metrics.net >= 0 ? <TrendingUp className="h-4 w-4 text-success" /> : <TrendingDown className="h-4 w-4 text-danger" />}
+          <span className="text-label font-bold uppercase tracking-wider text-fg-muted">Net</span>
+          <span className={`font-mono text-sm font-black ${metrics.net >= 0 ? 'text-success' : 'text-danger'}`}>
             ₺{Math.abs(metrics.net).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="flex items-center justify-between mt-2 text-xs font-semibold text-indigo-200">
-            <span>{metrics.net >= 0 ? 'Net Alacaklı Durumda' : 'Net Borçlu Durumda'}</span>
-            {metrics.riskExceededCount > 0 && (
-              <span className="bg-rose-500/30 text-rose-300 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                {metrics.riskExceededCount} Risk Aşımı
-              </span>
-            )}
-          </div>
+          </span>
+          <span className="text-2xs font-semibold text-fg-muted">{metrics.net >= 0 ? 'Alacaklı' : 'Borçlu'}</span>
+          {metrics.riskExceededCount > 0 && (
+            <span className="flex items-center gap-1 rounded-pill bg-danger-soft px-2 py-0.5 text-[10px] font-bold text-danger">
+              <AlertTriangle className="h-3 w-3" />
+              {metrics.riskExceededCount} Risk Aşımı
+            </span>
+          )}
         </div>
       </div>
 
       {/* Main Control Panel & Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+      <div className="space-y-3 rounded-card border border-line bg-surface p-3 shadow-card">
         {/* Search & Quick Controls */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           {/* Search Box */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-            <input
+            <Search className="w-4 h-4 text-fg-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Cari Ünvanı, Kod, Yetkili, Telefon, Vergi No veya Şehir ile arayın..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold focus:bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400"
+              className="pl-9 pr-16"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-2xs text-fg-muted hover:text-fg-strong font-bold"
               >
                 Temizle
               </button>
@@ -503,34 +478,35 @@ export default function Contacts() {
 
           {/* City, Category & Sort Dropdowns */}
           <div className="flex flex-wrap items-center gap-2">
-            <select
+            <Select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
-              className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
+              wrapperClassName="w-auto"
             >
               <option value="all">Tüm Şehirler</option>
               {availableCities.map(city => (
                 <option key={city} value={city}>{city}</option>
               ))}
-            </select>
+            </Select>
 
             {availableCategories.length > 0 && (
-              <select
+              <Select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
+                wrapperClassName="w-auto"
               >
                 <option value="all">Tüm Gruplar</option>
                 {availableCategories.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
-              </select>
+              </Select>
             )}
 
-            <select
+            <Select
               value={sortOption}
               onChange={(e) => setSortOption(e.target.value as SortOption)}
-              className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm cursor-pointer"
+              wrapperClassName="w-auto"
+              className="cursor-pointer"
             >
               <option value="code_asc">Cari Kodu (A - Z / Artan) [Varsayılan]</option>
               <option value="code_desc">Cari Kodu (Z - A / Azalan)</option>
@@ -541,16 +517,17 @@ export default function Contacts() {
               <option value="balance_desc">Bakiye (En Yüksek Alacak)</option>
               <option value="balance_asc">Bakiye (En Yüksek Borç)</option>
               <option value="recent">En Son Eklenenler</option>
-            </select>
+            </Select>
 
             {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-1 rounded-control border border-line bg-surface-raised p-1">
               <button
                 onClick={() => setViewMode('table')}
                 title="Tablo Görünümü"
+                aria-pressed={viewMode === 'table'}
                 className={cn(
-                  "p-1.5 rounded-lg text-xs font-bold transition-all",
-                  viewMode === 'table' ? "bg-white dark:bg-slate-900 text-indigo-600 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
+                  "rounded-[10px] p-1.5 transition-colors",
+                  viewMode === 'table' ? "bg-surface-active text-fg-inverted shadow-card" : "text-fg-muted hover:bg-surface-hover hover:text-fg-strong"
                 )}
               >
                 <TableIcon className="w-4 h-4" />
@@ -558,9 +535,10 @@ export default function Contacts() {
               <button
                 onClick={() => setViewMode('grid')}
                 title="Kart Görünümü"
+                aria-pressed={viewMode === 'grid'}
                 className={cn(
-                  "p-1.5 rounded-lg text-xs font-bold transition-all",
-                  viewMode === 'grid' ? "bg-white dark:bg-slate-900 text-indigo-600 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
+                  "rounded-[10px] p-1.5 transition-colors",
+                  viewMode === 'grid' ? "bg-surface-active text-fg-inverted shadow-card" : "text-fg-muted hover:bg-surface-hover hover:text-fg-strong"
                 )}
               >
                 <LayoutGrid className="w-4 h-4" />
@@ -570,99 +548,62 @@ export default function Contacts() {
         </div>
 
         {/* Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-          {[
-            { id: 'all', label: 'Tüm Cariler', count: contacts?.length },
-            { id: 'customer', label: 'Müşteriler (Alıcılar)', count: metrics.customers },
-            { id: 'supplier', label: 'Tedarikçiler (Satıcılar)', count: metrics.suppliers },
-            { id: 'receivables', label: 'Alacağımız Olanlar', count: contacts?.filter(c => c.balance > 0).length, color: 'text-emerald-700' },
-            { id: 'payables', label: 'Borcumuz Olanlar', count: contacts?.filter(c => c.balance < 0).length, color: 'text-rose-700' },
-            { id: 'zero', label: 'Sıfır Bakiye', count: contacts?.filter(c => c.balance === 0).length },
-            { id: 'risk_exceeded', label: 'Risk Limiti Aşanlar', count: metrics.riskExceededCount, highlight: true }
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setFilterType(item.id as FilterType)}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5",
-                filterType === item.id
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200"
-              )}
-            >
-              <span>{item.label}</span>
-              <span className={cn(
-                "px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold",
-                filterType === item.id ? "bg-white dark:bg-slate-900/20 text-white" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 shadow-2xs"
-              )}>
-                {item.count || 0}
-              </span>
-            </button>
-          ))}
-        </div>
+        <SegmentedFilter
+          ariaLabel="Cari filtre türü"
+          options={filterOptions}
+          value={filterType}
+          onChange={(key) => setFilterType(key as FilterType)}
+        />
       </div>
 
       {/* Content Area: Table View or Grid View */}
       {filteredContacts.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
-          <Users className="w-12 h-12 text-slate-300 mx-auto" />
-          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">Filtreleme kriterlerine uygun cari hesap bulunamadı</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            Arama terimini değiştirebilir, filtreleri sıfırlayabilir veya sağ üstteki butonla yeni bir cari hesap kartı ekleyebilirsiniz.
-          </p>
-          <button
-            onClick={() => { setSearchTerm(''); setFilterType('all'); setSelectedCity('all'); setSelectedCategory('all'); }}
-            className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors"
-          >
-            Filtreleri Temizle
-          </button>
+        <div className="rounded-card border border-line bg-surface shadow-card">
+          <EmptyState
+            icon={<Users />}
+            title="Filtreleme kriterlerine uygun cari hesap bulunamadı"
+            description="Arama terimini değiştirebilir, filtreleri sıfırlayabilir veya sağ üstteki butonla yeni bir cari hesap kartı ekleyebilirsiniz."
+            action={
+              <Button
+                variant="secondary"
+                onClick={() => { setSearchTerm(''); setFilterType('all'); setSelectedCity('all'); setSelectedCategory('all'); }}
+              >
+                Filtreleri Temizle
+              </Button>
+            }
+          />
         </div>
       ) : viewMode === 'table' ? (
         <DataGrid<Contact>
           columns={contactColumns}
           data={filteredContacts}
           rowKey="id"
+          density="compact"
+          loading={contactsQuery.loading}
+          emptyMessage="Arama kriterlerinize uygun cari hesap bulunamadı."
           rowActions={(c) => (
-            <>
-              <button
-                onClick={() => handleOpenStatement(c)}
-                title="Cari Hesap Ekstresi"
-                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-              >
-                <FileText className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => handleOpenPayment(c, c.type === 'supplier' ? 'expense' : 'income')}
-                title={c.type === 'supplier' ? 'Ödeme Yap' : 'Tahsilat Al'}
-                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-              >
-                <DollarSign className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => handleOpenEditModal(c)}
-                title="Cari Kartını Düzenle"
-                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg transition-colors"
-              >
-                <Edit className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => setDeleteConfirmContact(c)}
-                title="Cari Kartını Sil"
-                className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition-colors rounded-lg"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </>
+            <ActionMenu
+              label={`${c.name} işlemleri`}
+              icon={<MoreHorizontal className="h-4 w-4" />}
+              items={[
+                { key: 'statement', label: 'Cari Hesap Ekstresi', icon: <FileText className="h-4 w-4" />, onSelect: () => handleOpenStatement(c) },
+                {
+                  key: 'payment',
+                  label: c.type === 'supplier' ? 'Ödeme Yap' : 'Tahsilat Al',
+                  icon: <DollarSign className="h-4 w-4" />,
+                  onSelect: () => handleOpenPayment(c, c.type === 'supplier' ? 'expense' : 'income'),
+                },
+                { key: 'edit', label: 'Cari Kartını Düzenle', icon: <Edit className="h-4 w-4" />, onSelect: () => handleOpenEditModal(c) },
+                { key: 'delete', label: 'Cari Kartını Sil', icon: <Trash2 className="h-4 w-4" />, tone: 'danger', onSelect: () => setDeleteConfirmContact(c) },
+              ]}
+            />
           )}
         />
       ) : (
         /* GRID VIEW (KART GÖRÜNÜMÜ) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredContacts.map((c) => {
-            const isRiskExceeded = c.creditLimit && c.balance > c.creditLimit;
+            const isRiskExceeded = !!c.creditLimit && c.balance > c.creditLimit;
             return (
               <motion.div
                 key={c.id}
@@ -814,40 +755,16 @@ export default function Contacts() {
       />
 
       {/* MODAL 5: Delete Confirmation */}
-      <Modal
-        isOpen={!!deleteConfirmContact}
-        onClose={() => setDeleteConfirmContact(null)}
+      <DeleteConfirmModal
+        resource="contacts"
+        id={deleteConfirmContact?.id ?? null}
         title="Cari Kartını Sil"
-        size="sm"
-      >
-        <div className="space-y-4">
-          {actionError && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-lg text-xs font-semibold">
-              {actionError}
-            </div>
-          )}
-          <p className="text-sm text-slate-700 dark:text-slate-200">
-            <strong className="text-slate-900 dark:text-slate-100 uppercase font-black">{deleteConfirmContact?.name}</strong> isimli cari kartını silmek istediğinizden emin misiniz?
-          </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Bu işlem cariye ait tüm muhasebe ve hesap hareketlerini silecektir. Bağlı siparişler varsa silme işlemi engellenecektir.
-          </p>
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-            <button
-              onClick={() => setDeleteConfirmContact(null)}
-              className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-200 uppercase tracking-wider"
-            >
-              Vazgeç
-            </button>
-            <button
-              onClick={handleDeleteContact}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
-            >
-              Evet, Sil
-            </button>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => setDeleteConfirmContact(null)}
+        onDeleted={() => {
+          setDeleteConfirmContact(null);
+          contactsQuery.refetch();
+        }}
+      />
     </div>
   );
 }

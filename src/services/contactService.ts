@@ -1,7 +1,6 @@
 import {
   api,
   callOp,
-  commit,
   recalculateContactBalance,
 } from '../api/client';
 import { accountingService } from './accountingService';
@@ -65,31 +64,36 @@ export const contactService = {
     }
 
     const initialBalance = Number(contact.balance) || 0;
-    // not: kimlik zinciri nedeniyle iki adımlı yazma
+    // Cari bakiyesi türetilmiş bir alandır: kart her zaman 0 bakiyeyle açılır.
+    // Açılış/devir bakiyesi "Açılış Bakiyesi" kategorili bir cari hareket olarak
+    // yazılır; generic `transactions` yazımı controlledWrites ile kapalı olduğundan
+    // tek yol contact-transaction op'udur (cari satırı kilitlenip tek transaction'da).
     const contactId = await api.contacts.create({
       ...contact,
       code,
-      balance: initialBalance,
+      balance: 0,
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     if (initialBalance !== 0) {
-      await commit([
-        {
-          op: 'insert',
-          resource: 'transactions',
-          data: {
-            contactId,
-            type: initialBalance > 0 ? 'income' : 'expense',
-            amount: Math.abs(initialBalance),
-            description: 'Açılış / Devir Bakiyesi',
-            category: 'Açılış Bakiyesi',
-            date: new Date(),
-            documentNo: 'DVR-' + contactId
-          }
-        }
-      ]);
+      // Pozitif bakiye = müşteriden alacağımız (income/debit), negatif = borcumuz (expense).
+      await callOp('contact-transaction', {
+        mode: 'create',
+        contactId,
+        type: initialBalance > 0 ? 'income' : 'expense',
+        amount: Math.abs(initialBalance),
+        description: 'Açılış / Devir Bakiyesi',
+        category: 'Açılış Bakiyesi',
+        paymentMethod: 'other',
+        documentNo: 'DVR-' + contactId,
+        date: new Date(),
+      });
+      // contact-transaction op'u bakiyeyi artımlı günceller (income → -amount), oysa
+      // açılış hareketinin işareti recalculateContactBalance formülünde farklıdır
+      // (Açılış + income → debit). Bakiye, ekstre ile tutarlı kalması için canonical
+      // formülle yeniden hesaplanır.
+      await recalculateContactBalance(contactId);
     }
 
     // Otomatik TDHP Muhasebe Hesabı Açılışı:

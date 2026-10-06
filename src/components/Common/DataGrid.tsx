@@ -69,6 +69,8 @@ export interface DataGridProps<T> {
   footer?: React.ReactNode;
   /** Açılışta uygulanan sıralama. Başlığa üçüncü tıklama (sıralamayı bırak) bu sıraya döner. */
   defaultSort?: { key: string; dir: 'asc' | 'desc' };
+  /** Satır yoğunluğu: compact = daha dar satırlar ve küçük punto (liste ekranları). */
+  density?: 'comfortable' | 'compact';
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,11 +113,16 @@ export default function DataGrid<T>({
   className,
   footer,
   defaultSort,
+  density = 'comfortable',
 }: DataGridProps<T>) {
   const baseSort = defaultSort ?? { key: '', dir: 'asc' as const };
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>(baseSort);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const isMobile = useIsMobile();
+
+  const compact = density === 'compact';
+  const headPad = compact ? 'px-3 py-1.5' : 'px-3 py-2.5';
+  const cellPad = compact ? 'px-3 py-1' : 'px-3 py-2';
 
   const getKey = (row: T): string | number =>
     typeof rowKey === 'function' ? rowKey(row) : (row[rowKey] as string | number);
@@ -180,7 +187,7 @@ export default function DataGrid<T>({
   const colCount = columns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0);
 
   return (
-    <div className={cn('bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-sm shadow-sm', className)}>
+    <div className={cn('bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm', compact ? 'text-xs' : 'text-sm', className)}>
       {toolbar && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
           {toolbar}
@@ -261,7 +268,7 @@ export default function DataGrid<T>({
           <thead className="bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10">
             <tr className="border-b border-slate-200 dark:border-slate-700">
               {selectable && (
-                <th className="w-10 px-3 py-2.5">
+                <th className={cn('w-10', headPad)}>
                   <input
                     type="checkbox"
                     checked={filtered.length > 0 && filtered.every((r) => selectedSet.has(getKey(r)))}
@@ -276,7 +283,8 @@ export default function DataGrid<T>({
                   style={col.width ? { width: col.width } : undefined}
                   onClick={() => toggleSort(col)}
                   className={cn(
-                    'px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap',
+                    headPad,
+                    'text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap',
                     col.align ? ALIGN[col.align] : 'text-left',
                     col.sortable !== false && 'cursor-pointer select-none hover:text-slate-900 dark:hover:text-slate-100'
                   )}
@@ -293,7 +301,7 @@ export default function DataGrid<T>({
                   </span>
                 </th>
               ))}
-              {rowActions && <th className="w-10 px-3 py-2.5" />}
+              {rowActions && <th className={cn('w-10', headPad)} />}
             </tr>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
               {selectable && <th className="w-10" />}
@@ -322,16 +330,16 @@ export default function DataGrid<T>({
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={`skel-${i}`} className="border-b border-slate-100 dark:border-slate-800/70">
                   {selectable && (
-                    <td className="px-3 py-2.5">
+                    <td className={cellPad}>
                       <div className="w-3.5 h-3.5 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
                     </td>
                   )}
                   {columns.map((col) => (
-                    <td key={col.key} className="px-3 py-2.5">
+                    <td key={col.key} className={cellPad}>
                       <div className="h-3.5 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" style={{ width: `${55 + ((i * 17 + col.key.length * 13) % 40)}%` }} />
                     </td>
                   ))}
-                  {rowActions && <td className="px-3 py-2.5" />}
+                  {rowActions && <td className={cellPad} />}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
@@ -354,7 +362,7 @@ export default function DataGrid<T>({
                     )}
                   >
                     {selectable && (
-                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td className={cellPad} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedSet.has(id)}
@@ -366,13 +374,13 @@ export default function DataGrid<T>({
                     {columns.map((col) => (
                       <td
                         key={col.key}
-                        className={cn('px-3 py-2 text-slate-700 dark:text-slate-300', col.align ? ALIGN[col.align] : 'text-left')}
+                        className={cn(cellPad, 'text-slate-700 dark:text-slate-300', col.align ? ALIGN[col.align] : 'text-left')}
                       >
                         {col.render ? col.render(row, i) : String((row as Record<string, unknown>)[col.key] ?? '')}
                       </td>
                     ))}
                     {rowActions && (
-                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td className={cellPad} onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">{rowActions(row)}</div>
                       </td>
                     )}

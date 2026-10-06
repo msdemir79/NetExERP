@@ -155,28 +155,98 @@ async function main(): Promise<void> {
     expect(row.reversalOfId).toBeNullish();
   });
 
-  await test('INSERT: invoices.paidAmount/paymentStatus zorla yazılamaz', async () => {
-    const res = await api(srv, 'POST', '/invoices', {
+  await test('invoices/invoiceItems generic yazıma kapalı → 403 CONTROLLED_RESOURCE', async () => {
+    // Fatura ve satırları yalnızca create/issue/cancel-invoice op'larında (cari +
+    // stok + muhasebe ile, satır kilidi altında) yazılır. Generic INSERT/UPDATE ve
+    // /ops/commit bu yan etkileri üretmediği için kapalıdır; korumalı alanlar
+    // (paidAmount/paymentStatus) bu kapıyla zaten hiç yazılamaz.
+    const ins = await api(srv, 'POST', '/invoices', {
       contactId: stripContactId,
       invoiceNumber: `TEST-FAZ3-INV-${RUN}`,
       type: 'sales',
       date: new Date().toISOString(),
       status: 'draft',
       grandTotal: 500,
-      paidAmount: 500, // zorlanan türetilmiş alan
-      paymentStatus: 'paid', // zorlanan türetilmiş alan
+      paidAmount: 500,
+      paymentStatus: 'paid',
     });
-    // Fatura oluşturulduysa korumalı alanlar varsayılanda kalmalıdır.
-    if (res.status === 201) {
-      const id = Number((res.data as any)?.data ?? res.data);
-      const row = await getRow('invoices', id);
-      expect(Number(row.paidAmount) || 0).toBe(0);
-      expect(row.paymentStatus).toBeIn(['unpaid', null, undefined]);
-    } else {
-      // Zorunlu alan eksikliği vb. iş kuralı reddi de kabul edilebilir (4xx).
-      expect(res.status >= 400 && res.status < 500).toBeTruthy();
-    }
+    expect(ins.status).toBe(403);
+    expect((ins.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    const patch = await api(srv, 'PATCH', '/invoices/1', { grandTotal: 1 });
+    expect(patch.status).toBe(403);
+    expect((patch.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    const insItem = await api(srv, 'POST', '/invoiceItems', {
+      invoiceId: 1,
+      productCode: `TEST-FAZ3-${RUN}`,
+      quantity: 1,
+      unitPrice: 10,
+    });
+    expect(insItem.status).toBe(403);
+    expect((insItem.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    const commit = await api(srv, 'POST', '/ops/commit', {
+      mutations: [
+        {
+          op: 'insert',
+          resource: 'invoices',
+          data: { contactId: stripContactId, type: 'sales', invoiceNumber: `TEST-FAZ3-C-${RUN}`, grandTotal: 1 },
+        },
+      ],
+    });
+    expect(commit.status).toBe(403);
+    expect((commit.data as any)?.code).toBe('CONTROLLED_RESOURCE');
   });
+
+  await test('checks/collectionReceipts generic yazıma kapalı → 403 CONTROLLED_RESOURCE', async () => {
+    // Çek ve tahsilat makbuzu yalnızca /ops/receipt ile /ops/check-status uçlarında
+    // (kasa/banka/cari + muhasebe ile) yazılır; generic yazım bakiyeyi güncellemez.
+    const chk = await api(srv, 'POST', '/checks', {
+      portfolioNumber: `TEST-FAZ3-CHK-${RUN}`,
+      amount: 250,
+      status: 'portfolio',
+    });
+    expect(chk.status).toBe(403);
+    expect((chk.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+
+    const rec = await api(srv, 'POST', '/collectionReceipts', {
+      receiptNumber: `TEST-FAZ3-RCPT-${RUN}`,
+      type: 'collection',
+      date: new Date().toISOString(),
+      contactId: stripContactId,
+      amount: 250,
+    });
+    expect(rec.status).toBe(403);
+    expect((rec.data as any)?.code).toBe('CONTROLLED_RESOURCE');
+  });
+
+  await test('Yedek geri yükleme (Süper Admin, FK kapalı) controlledWrites kapısından muaftır', async () => {
+    // Anlık görüntü geri yükleme tabloyu boşaltıp yeniden doldurur; bu yüzden
+    // disableFkChecks (yalnızca Süper Admin) controlledWrites kapısını bypass eder
+    // — tıpkı salt-okunur bağ tablolarında olduğu gibi. TEST- işaretli satır
+    // koşu sonunda purgeTestResidue ile temizlenir.
+    const res = await api(srv, 'POST', '/ops/commit', {
+      disableFkChecks: true,
+      mutations: [
+        {
+          op: 'insertMany',
+          resource: 'collectionReceipts',
+          rows: [
+            {
+              receiptNumber: `TEST-FAZ3-RESTORE-${RUN}`,
+              type: 'collection',
+              date: new Date().toISOString(),
+              amount: 10,
+              description: 'TEST-FAZ3 restore bypass',
+            },
+          ],
+        },
+      ],
+    });
+    if (res.status !== 200) throw new Error(`Geri yükleme bypass başarısız (${res.status}): ${res.text.slice(0, 200)}`);
+  });
+
 
   // ---------------------------------------------------------------
   console.log('\n📌 B. SUNUCU TARAFI FİŞ NO + DENGE (item 8)');
@@ -281,9 +351,11 @@ async function main(): Promise<void> {
   console.log('\n📌 E. HATA TEMİZLİĞİ (item 7) — 5xx SQL/stack sızdırmaz');
   // ---------------------------------------------------------------
   await test('FK ihlali (var olmayan contactId) → 500 genel mesaj, sızıntı yok', async () => {
-    const res = await api(srv, 'POST', '/invoices', {
-      contactId: 999999, // var olmayan cari → fk_invoices_contact ihlali
-      invoiceNumber: `TEST-FAZ3-FK-${RUN}`,
+    // invoices artık controlledWrites olduğu için generic yazımda 403 döner; FK
+    // ihlali senaryosu generic yazıma açık bir kaynakla (orders) doğrulanır.
+    const res = await api(srv, 'POST', '/orders', {
+      contactId: 999999, // var olmayan cari → fk_orders_contact ihlali
+      orderNumber: `TEST-FAZ3-FK-${RUN}`,
       type: 'sales',
       date: new Date().toISOString(),
       status: 'draft',

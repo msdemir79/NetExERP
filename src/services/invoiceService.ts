@@ -133,12 +133,7 @@ export const invoiceService = {
       // Taslak → düzenlendi: cari + stok + muhasebe sunucuda tek transaction'da
       // işlenir (idempotent — fatura zaten düzenlenmişse no-op).
       await callOp('issue-invoice', { invoiceId: id });
-      return;
     }
-
-    const invoice = await api.invoices.get(id);
-    if (!invoice || invoice.status === status) return;
-    await commit([{ op: 'update', resource: 'invoices', id, data: { status, updatedAt: new Date() } }]);
   },
 
   async resetInvoicesAndStockMovements(options?: {

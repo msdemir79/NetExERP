@@ -967,7 +967,10 @@ export function createApiRouter(): Router {
         }
         // Kontrollü yazımlı kaynaklarda ham satır yazımı toplu işlemde de kapalıdır.
         // delete/deleteWhere serbest: ikisi de silme politikası motorundan geçer.
-        if (meta.controlledWrites && m.op !== 'clear' && m.op !== 'delete' && m.op !== 'deleteWhere') {
+        // Yedek geri yükleme (yalnızca Süper Admin, FK denetimi kapalı) tüm tabloyu
+        // boşaltıp anlık görüntüden yeniden doldurduğu için bu kapıdan muaftır —
+        // tıpkı salt-okunur bağ tablolarında olduğu gibi (bkz. yukarıdaki readOnly).
+        if (meta.controlledWrites && m.op !== 'clear' && m.op !== 'delete' && m.op !== 'deleteWhere' && !disableFkChecks) {
           throw new HttpError(
             403,
             `"${m.resource}" kayıtları yalnızca kendi iş ucuyla yazılır; toplu işlemde ekleme/düzenleme kapalıdır.`,

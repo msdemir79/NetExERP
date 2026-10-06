@@ -152,14 +152,24 @@ export const META: Record<string, ResourceMeta> = {
     ],
   },
   orderItems: { module: 'orders', searchable: [], defaultOrder: 'id ASC' },
+  /**
+   * Fatura: tutar, ödeme durumu ve cari/stok/muhasebe etkileri yalnızca
+   * create/issue/cancel/delete-invoice op'larında (satır kilidi altında, tek
+   * transaction) belirlenir. Generic INSERT/UPDATE cari bakiyesini, stoğu ve
+   * muhasebe fişini güncellemediği için kapalıdır (CONTROLLED_RESOURCE); silme
+   * yolları silme politikası motorundan geçer. Yedek geri yükleme (Süper Admin,
+   * FK denetimi kapalı) toplu `insertMany` ile bu kapıdan muaftır.
+   */
   invoices: {
     module: 'invoices',
     searchable: ['invoiceNumber', 'orderNumber', 'waybillNumber', 'ettn', 'notes'],
     defaultOrder: 'id DESC',
     /** Ödeme durumu ve ödenen tutar yalnızca tahsilat/tediye op'unda (satır kilidi + muhasebe) belirlenir; istemci generic INSERT/UPDATE'te yazamaz. */
     protectedColumns: ['paidAmount', 'paymentStatus'],
+    controlledWrites: true,
   },
-  invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
+  /** Fatura satırları faturanın bir parçasıdır; yalnızca create-invoice op'unda yazılır, tek başına generic yazıma kapalıdır. */
+  invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC', controlledWrites: true },
   waybills: {
     module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
@@ -176,14 +186,24 @@ export const META: Record<string, ResourceMeta> = {
   },
   cashBoxes: { module: 'finance', searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC', derivedColumns: ['balance'] },
   bankAccounts: { module: 'finance', searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC', derivedColumns: ['balance'] },
+  /**
+   * Çek: kayıt ve durum geçişleri (ciro, tahsil, karşılıksız vb.) yalnızca
+   * /ops/receipt ve /ops/check-status uçlarında — kasa/banka/cari + muhasebe ile
+   * birlikte, satır kilidi altında — yazılır. Generic INSERT/UPDATE bu yan
+   * etkileri üretmediği için kapalıdır (CONTROLLED_RESOURCE); silme yolları
+   * silme politikası motorundan geçer. Yedek geri yükleme (Süper Admin, FK
+   * denetimi kapalı) toplu `insertMany` ile bu kapıdan muaftır.
+   */
   checks: {
     module: 'finance',
     searchable: ['portfolioNumber', 'serialNumber', 'bankName', 'drawer', 'contactName'],
     defaultOrder: 'dueDate ASC',
     /** Çek durumu ve ciro bilgileri yalnızca /ops/check-status ucunda (kasa/banka/cari + muhasebe ile) belirlenir; istemci generic yazımda yazamaz. */
     protectedColumns: ['status', 'statusChangeDate', 'endorsedToContactId', 'endorsedToContactName', 'journalEntryId'],
+    controlledWrites: true,
   },
-  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', protectedColumns: ['isAccounted', 'journalEntryId'] },
+  /** Tahsilat makbuzu yalnızca /ops/receipt ucunda (cari + kasa/banka + muhasebe ile) yazılır; generic yazım bakiyeyi güncellemediği için kapalıdır. Yedek geri yükleme muaftır. */
+  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', protectedColumns: ['isAccounted', 'journalEntryId'], controlledWrites: true },
   employees: {
     module: 'hr',
     searchable: ['employeeCode', 'name', 'tcNo', 'department', 'position', 'phone'],
