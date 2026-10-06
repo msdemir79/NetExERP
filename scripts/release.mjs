@@ -34,7 +34,10 @@ const BUMP_TYPES = { patch: true, minor: true, major: true };
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    // Varsayılan shell yalnız npm içindir (Windows'ta npm.cmd'dir); git.exe
+    // shell gerektirmez ve shell'i açmak -m mesajı gibi boşluklu argümanları
+    // cmd.exe tırnaklamasına ezdirir.
+    shell: cmd === 'npm' && process.platform === 'win32',
     ...opts,
   });
   return { status: res.status, stdout: (res.stdout || '').trim() };
