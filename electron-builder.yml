@@ -52,7 +52,11 @@ win:
 
 nsis:
   oneClick: false
-  perMachine: true
+  # perMachine: false ZORUNLU — otomatik güncelleme kurulumu /S ile sessiz
+  # çalıştırır; per-machine kurulum yönetici izni (UAC) ister ve standart
+  # kullanıcıda güncelleme kurulamaz. Per-user (%LOCALAPPDATA%\Programs)
+  # modda kurulum ve güncelleme tamamen sessizdir.
+  perMachine: false
   allowElevation: true
   allowToChangeInstallationDirectory: true
   installerLanguages:
