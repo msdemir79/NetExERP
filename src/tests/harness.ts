@@ -7,13 +7,18 @@
  * doğrudan geçerli bir oturum mint eder; böylece gerçek HTTP + gerçek DB +
  * gerçek RBAC/op yolu üzerinden test koşabilir (parola gerekmez).
  *
- * Testler canlı veritabanına karşı koşar ve 'TEST-FAZ3'/'TEST-FAZ4' işaretli
- * veri bırakabilir; proje tamamlandığında DB sıfırlanacaktır.
+ * Testler canlı veritabanına karşı koşar. Her suite sonunda `purgeTestResidue`
+ * çağrılır: `TEST-` işaretli satırlar (bu koşunun ve önceki koşuların kalıntısı)
+ * server/testDataPurge.ts üzerinden tek transaction'da kaldırılır ve türetilmiş
+ * alanlar geri hesaplanır. Uygulama içi silme kuralları testlerde AYNEN denenir;
+ * bu temizlik yalnızca koşu bittikten sonra, doğrudan veritabanı üzerinden yapılır.
  */
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { AddressInfo } from 'node:net';
 import { createApiRouter } from '../../server/api.js';
 import { createSession } from '../../server/auth.js';
+import { withTransaction } from '../../server/db.js';
+import { purgeTestData } from '../../server/testDataPurge.js';
 
 export interface TestServer {
   baseUrl: string;
@@ -43,6 +48,28 @@ export async function startTestServer(userId = 1): Promise<TestServer> {
     token: session.token,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
+}
+
+/**
+ * Suite sonunda işaretli test verisini kaldırır (kendi verini temizle kuralı).
+ * Silme, uygulamadaki silme politikası motorunu BYPASS etmez: testler motoru
+ * HTTP üzerinden zaten doğrular; bu adım yalnızca koşudan geriye kalan
+ * `TEST-` işaretli satırları doğrudan veritabanından söker.
+ *
+ * Başarısızlık testi kırmaz (temizlik bir doğrulama değildir) ama sessiz de
+ * geçmez: kalıntı `npm run db:purge-test` ile elle temizlenebilir.
+ */
+export async function purgeTestResidue(suite: string): Promise<void> {
+  try {
+    const report = await withTransaction((conn) =>
+      purgeTestData(conn, { apply: true, reason: `${suite} — koşu sonu kendi test verisini temizledi` }),
+    );
+    console.log(`\n  🧹 ${suite} temizliği: ${report.total} satır silindi.`);
+    for (const w of report.warnings) console.log(`     ⚠ ${w}`);
+  } catch (err: any) {
+    console.error(`\n  ⚠ ${suite} temizliği başarısız: ${err?.message || err}`);
+    console.error('    Kalıntıyı elle temizlemek için: npm run db:purge-test -- --apply');
+  }
 }
 
 export interface ApiResponse<T = any> {

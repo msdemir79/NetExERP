@@ -30,14 +30,13 @@ export interface ResourceMeta {
    */
   movementTable?: boolean;
   /**
-   * Transactional kayıtlar (fatura, cari hareket, yevmiye fişi, tahsilat/tediye
-   * makbuzu): generic hard-delete (DELETE, bulk-delete, delete-where, commit
-   * delete/deleteWhere) HERKESE kapalıdır. Silme/iptal yalnızca kontrollü op'lar
-   * (cancel-invoice, reverse-journal, contact-transaction delete vb.) üzerinden,
-   * ilgili bakiye/muhasebe geri alımı ve audit ile yapılır. `clear` (Süper Admin,
-   * fabrika sıfırlama/yedek geri yükleme) bu kısıttan muaftır.
+   * Kontrollü yazımlı kaynaklar: satır ekleme/düzenleme generic CRUD ve
+   * `/ops/commit` yollarına KAPALIDIR; kayıt yalnızca kendi iş ucundan yazılır
+   * (ör. cari hareket → `POST /ops/contact-transaction`), çünkü türetilmiş
+   * alanlar (cari bakiyesi) sadece orada satır kilidi altında güncellenir.
+   * Silme yolları açıktır: hepsi silme politikası motorundan geçer.
    */
-  noHardDelete?: boolean;
+  controlledWrites?: boolean;
   /** Kayıtlar istemciye gönderilmeden önce çıkarılan kolonlar. */
   hidden?: string[];
 }
@@ -59,6 +58,8 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'invoices', column: 'contactId', message: 'Bu cariye bağlı faturalar var. Önce faturaları silin.' },
       { table: 'waybills', column: 'contactId', message: 'Bu cariye bağlı irsaliyeler var. Önce irsaliyeleri silin.' },
       { table: 'transactions', column: 'contactId', message: 'Bu cariye bağlı kasa/banka hareketleri var.' },
+      { table: 'collectionReceipts', column: 'contactId', message: 'Bu cariye bağlı tahsilat/tediye makbuzları var.' },
+      { table: 'checks', column: 'contactId', message: 'Bu cariye bağlı çek/senet kayıtları var.' },
     ],
   },
   assortmentTemplates: { module: 'inventory', searchable: ['name'], defaultOrder: 'name ASC' },
@@ -66,15 +67,15 @@ export const META: Record<string, ResourceMeta> = {
   /**
    * Merkezi renk kartları (color master). Stok, üretim, sipariş, irsaliye ve
    * fatura ekranlarının ortak referans verisidir; okuma için oturum yeterlidir.
-   * Fiziksel silme YOKTUR: kullanılan/kullanılmayan her renk pasifleştirilir.
-   * rgbCode yalnızca hexCode'tan türetilir, istemci yazamaz.
+   * Hiçbir yerde referans verilmeyen renk silinebilir; kullanılan renk silme
+   * motoru tarafından bloklanır (bkz. deletePolicy.ts → COLOR_IN_USE), o durumda
+   * pasifleştirme kullanılır. rgbCode yalnızca hexCode'tan türetilir.
    */
   colors: {
     module: 'colors',
     readAuthOnly: true,
     searchable: ['code', 'name', 'groupName', 'pantoneCode', 'manufacturerCode'],
     defaultOrder: 'name ASC',
-    noHardDelete: true,
     protectedColumns: ['rgbCode'],
   },
   /** Ürün ↔ renk bağı; yalnızca ürün kartı yazımında (productColors senkronu) güncellenir. */
@@ -99,6 +100,8 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'waybillItems', column: 'productId', message: 'Bu ürüne bağlı irsaliye kalemleri var.' },
       { table: 'invoiceItems', column: 'productId', message: 'Bu ürüne bağlı fatura kalemleri var.' },
       { table: 'workOrders', column: 'productId', message: 'Bu ürüne bağlı iş emirleri var.' },
+      { table: 'inventoryLogs', column: 'productId', message: 'Bu ürünün stok hareketleri var; hareket defteri ile ürün kartı birlikte silinemez.' },
+      { table: 'recipes', column: 'productId', message: 'Bu ürüne ait reçete var. Önce reçeteyi silin.' },
     ],
   },
   recipes: {
@@ -113,7 +116,22 @@ export const META: Record<string, ResourceMeta> = {
     defaultOrder: 'id DESC',
   },
   inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC', movementTable: true },
-  transactions: { module: 'finance', searchable: ['description', 'category', 'documentNo'], defaultOrder: 'date DESC', noHardDelete: true, protectedColumns: ['status', 'cancelledAt', 'reversalOfId'] },
+  /**
+   * Cari hareketler: bakiyeyi değiştiren bir kayıttır, bu yüzden yalnızca
+   * kontrollü uçtan (`POST /ops/contact-transaction`) yazılır; generic
+   * INSERT/PATCH bakiyeyi güncellemediği için kapalıdır (CONTROLLED_RESOURCE).
+   * Silme deletePolicy üzerinden fizikseldir ve cari bakiyesi aynı transaction
+   * içinde geri hesaplanır (ters kayıt üretilmez).
+   * `status`/`cancelledAt`/`reversalOfId` eski soft-cancel modelinden kalan
+   * kolonlardır; istemci yazamasın diye korunur, migration ile kaldırılacak.
+   */
+  transactions: {
+    module: 'finance',
+    searchable: ['description', 'category', 'documentNo'],
+    defaultOrder: 'date DESC',
+    protectedColumns: ['status', 'cancelledAt', 'reversalOfId'],
+    controlledWrites: true,
+  },
   /** Firma künyesi/logo gibi kabuk ayarları arayüzün her yerinde okunur. */
   settings: { module: 'settings', searchable: [], defaultOrder: 'id ASC', readAuthOnly: true },
   /**
@@ -127,29 +145,37 @@ export const META: Record<string, ResourceMeta> = {
     module: 'orders',
     searchable: ['orderNumber', 'notes'],
     defaultOrder: 'id DESC',
+    /** Sipariş kalemleri silme motoru tarafından cascade ile kaldırılır; guard yalnızca gerçek bağımlılıklar için. */
     guards: [
-      { table: 'orderItems', column: 'orderId', message: 'Sipariş kalemleri silinmeden sipariş silinemez.' },
       { table: 'waybills', column: 'orderId', message: 'Bu siparişe bağlı irsaliyeler var.' },
+      { table: 'invoices', column: 'orderId', message: 'Bu siparişe bağlı faturalar var.' },
     ],
   },
   orderItems: { module: 'orders', searchable: [], defaultOrder: 'id ASC' },
+  /**
+   * Fatura: tutar, ödeme durumu ve cari/stok/muhasebe etkileri yalnızca
+   * create/issue/cancel/delete-invoice op'larında (satır kilidi altında, tek
+   * transaction) belirlenir. Generic INSERT/UPDATE cari bakiyesini, stoğu ve
+   * muhasebe fişini güncellemediği için kapalıdır (CONTROLLED_RESOURCE); silme
+   * yolları silme politikası motorundan geçer. Yedek geri yükleme (Süper Admin,
+   * FK denetimi kapalı) toplu `insertMany` ile bu kapıdan muaftır.
+   */
   invoices: {
     module: 'invoices',
     searchable: ['invoiceNumber', 'orderNumber', 'waybillNumber', 'ettn', 'notes'],
     defaultOrder: 'id DESC',
     /** Ödeme durumu ve ödenen tutar yalnızca tahsilat/tediye op'unda (satır kilidi + muhasebe) belirlenir; istemci generic INSERT/UPDATE'te yazamaz. */
     protectedColumns: ['paidAmount', 'paymentStatus'],
-    noHardDelete: true,
-    guards: [{ table: 'invoiceItems', column: 'invoiceId', message: 'Fatura kalemleri silinmeden fatura silinemez.' }],
+    controlledWrites: true,
   },
-  invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
+  /** Fatura satırları faturanın bir parçasıdır; yalnızca create-invoice op'unda yazılır, tek başına generic yazıma kapalıdır. */
+  invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC', controlledWrites: true },
   waybills: {
     module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
     defaultOrder: 'id DESC',
     /** Fatura bağı yalnızca create/issue/cancel/delete-invoice op'larında (satır kilidi altında) belirlenir; istemci generic yazımda yazamaz. */
     protectedColumns: ['invoicedStatus', 'invoiceId', 'invoiceNumber'],
-    guards: [{ table: 'waybillItems', column: 'waybillId', message: 'İrsaliye kalemleri silinmeden irsaliye silinemez.' }],
   },
   waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
   accounts: { module: 'accounting', searchable: ['code', 'name', 'description'], defaultOrder: 'code ASC' },
@@ -157,19 +183,27 @@ export const META: Record<string, ResourceMeta> = {
     module: 'accounting',
     searchable: ['entryNumber', 'description', 'documentNumber', 'documentType'],
     defaultOrder: 'id DESC',
-    /** Yevmiye defteri immutable: onaylı fiş generic silinemez, reverse-journal ile ters kayıt üretilir. */
-    noHardDelete: true,
   },
   cashBoxes: { module: 'finance', searchable: ['code', 'name', 'responsiblePerson'], defaultOrder: 'code ASC', derivedColumns: ['balance'] },
   bankAccounts: { module: 'finance', searchable: ['bankName', 'iban', 'accountNumber'], defaultOrder: 'id ASC', derivedColumns: ['balance'] },
+  /**
+   * Çek: kayıt ve durum geçişleri (ciro, tahsil, karşılıksız vb.) yalnızca
+   * /ops/receipt ve /ops/check-status uçlarında — kasa/banka/cari + muhasebe ile
+   * birlikte, satır kilidi altında — yazılır. Generic INSERT/UPDATE bu yan
+   * etkileri üretmediği için kapalıdır (CONTROLLED_RESOURCE); silme yolları
+   * silme politikası motorundan geçer. Yedek geri yükleme (Süper Admin, FK
+   * denetimi kapalı) toplu `insertMany` ile bu kapıdan muaftır.
+   */
   checks: {
     module: 'finance',
     searchable: ['portfolioNumber', 'serialNumber', 'bankName', 'drawer', 'contactName'],
     defaultOrder: 'dueDate ASC',
     /** Çek durumu ve ciro bilgileri yalnızca /ops/check-status ucunda (kasa/banka/cari + muhasebe ile) belirlenir; istemci generic yazımda yazamaz. */
     protectedColumns: ['status', 'statusChangeDate', 'endorsedToContactId', 'endorsedToContactName', 'journalEntryId'],
+    controlledWrites: true,
   },
-  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', protectedColumns: ['isAccounted', 'journalEntryId'], noHardDelete: true },
+  /** Tahsilat makbuzu yalnızca /ops/receipt ucunda (cari + kasa/banka + muhasebe ile) yazılır; generic yazım bakiyeyi güncellemediği için kapalıdır. Yedek geri yükleme muaftır. */
+  collectionReceipts: { module: 'finance', searchable: ['receiptNumber', 'contactName', 'description'], defaultOrder: 'id DESC', protectedColumns: ['isAccounted', 'journalEntryId'], controlledWrites: true },
   employees: {
     module: 'hr',
     searchable: ['employeeCode', 'name', 'tcNo', 'department', 'position', 'phone'],

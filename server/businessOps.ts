@@ -15,6 +15,7 @@ import { broadcast } from './sse.js';
 import { writeAuditInTx } from './audit.js';
 import { allocateDocumentNumber, journalPrefixFor, allocateBarcodeSequences, formatBarcodeValue } from './numbering.js';
 import { HttpError as OpError } from './errors.js';
+import type { DeleteEffects } from './deletePolicy.js';
 import { resolveColorIdByName } from './colorService.js';
 import { calculateWeightedAverageCost, ingredientPerUnit, requiredIngredientQuantity, roundUpQuantity } from '../src/lib/inventoryCalculator.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
@@ -566,8 +567,26 @@ async function reverseJournalEntryInTx(conn: PoolConnection, entryId: number): P
   });
 }
 
-export function createBusinessOpsRouter(): Router {
+export function createBusinessOpsRouter(): { router: Router; deleteEffects: DeleteEffects } {
   const router = express.Router();
+
+  /**
+   * Silme motorunun (deletePolicy.ts) ihtiyaç duyduğu finansal yan etkiler.
+   * Bu yardımcılar aşağıda closure olarak tanımlı; stok/bakiye matematiğinin
+   * ikinci bir kopyası olmasın diye enjeksiyonla dışarı açılır.
+   */
+  const deleteEffects: DeleteEffects = {
+    adjustBalance,
+    lockContact,
+    lockCashBox,
+    lockBankAccount,
+    applyInvoiceBalance,
+    applyInvoiceOrderLink,
+    resetWaybillsForInvoice,
+    revertWaybillOrderShipments,
+    applyWaybillStockReverse,
+    applyInvoiceStock,
+  };
 
   /* ---------------------------------------------------------------- */
   /* Atomik stok hareketi                                             */
@@ -2178,7 +2197,7 @@ export function createBusinessOpsRouter(): Router {
     try {
       const body = req.body || {};
       const mode = String(body.mode || 'create');
-      if (!['create', 'update', 'delete'].includes(mode)) throw new OpError(400, 'Geçersiz işlem modu.');
+      if (!['create', 'update'].includes(mode)) throw new OpError(400, 'Geçersiz işlem modu.');
       assertAnyPermission(
         req.auth,
         [['contacts', 'edit'], ['finance', 'edit']],
@@ -2219,48 +2238,13 @@ export function createBusinessOpsRouter(): Router {
         const id = Number(body.id);
         if (!Number.isFinite(id)) throw new OpError(400, 'Geçerli bir hareket seçilmelidir.');
         const txRows = await conn.query<any[]>(
-          'SELECT `id`, `contactId`, `type`, `amount`, `status`, `category`, `paymentMethod`, `documentNo`, `description` FROM `transactions` WHERE `id` = ? FOR UPDATE',
+          'SELECT `id`, `contactId`, `type`, `amount`, `category`, `paymentMethod`, `documentNo`, `description` FROM `transactions` WHERE `id` = ? FOR UPDATE',
           [id],
         );
         const oldTx = (txRows[0] as any[])[0];
         if (!oldTx) throw new OpError(404, 'Finansal hareket bulunamadı.', 'TX_NOT_FOUND');
 
-        // İptal (void): fiziksel DELETE YOK. Orijinal hareket 'cancelled' olarak
-        // korunur ve etkisini sıfırlayan bir TERS KAYIT (reversal) eklenir; böylece
-        // cari ekstre/muhasebe geçmişi immutable kalır (bakiye net etkisi sıfır).
-        if (mode === 'delete') {
-          if (oldTx.status === 'cancelled') {
-            throw new OpError(409, 'Bu cari hareket zaten iptal edilmiş.', 'TX_ALREADY_CANCELLED');
-          }
-          const amount = Number(oldTx.amount) || 0;
-          const reversalType = oldTx.type === 'income' ? 'expense' : 'income';
-          const origDesc = oldTx.description ? String(oldTx.description) : '';
-          const reversalDesc = `[İPTAL] ${origDesc}`.trim();
-
-          let reversalId: number | null = null;
-          if (oldTx.contactId) {
-            await lockContact(conn, oldTx.contactId);
-            const [revIns] = await conn.query(
-              `INSERT INTO \`transactions\` (\`contactId\`, \`type\`, \`amount\`, \`description\`, \`category\`, \`paymentMethod\`, \`documentNo\`, \`date\`, \`status\`, \`reversalOfId\`) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'posted', ?)`,
-              [oldTx.contactId, reversalType, amount, reversalDesc, oldTx.category ?? 'İptal', oldTx.paymentMethod ?? null, oldTx.documentNo ?? null, id],
-            );
-            reversalId = Number((revIns as any)?.insertId || 0);
-            // Ters kaydın cari bakiye etkisi = -orijinal etki (bakiye eski haline döner).
-            await adjustBalance(conn, 'contacts', oldTx.contactId, impact(reversalType, amount), withVersion);
-          }
-
-          await conn.query(
-            "UPDATE `transactions` SET `status` = 'cancelled', `cancelledAt` = NOW(), `version` = `version` + 1 WHERE `id` = ?",
-            [id],
-          );
-          await writeAuditInTx(conn, { action: 'update', module: 'finance', description: `Cari hareket iptal edildi (ters kayıt, id: ${id})`, entityId: id }, { auth: req.auth, ip: clientIp(req) });
-          return { id, deleted: false, cancelled: true, reversalId, contactId: oldTx.contactId };
-        }
-
         // update: eski etkiyi geri al, yeni etkiyi uygula
-        if (oldTx.status === 'cancelled') {
-          throw new OpError(409, 'İptal edilmiş cari hareket değiştirilemez.', 'TX_CANCELLED_NO_UPDATE');
-        }
         const nextContactId = body.contactId !== undefined ? Number(body.contactId) : oldTx.contactId;
         const nextType = body.type !== undefined ? String(body.type) : oldTx.type;
         const nextAmount = body.amount !== undefined ? Number(body.amount) || 0 : Number(oldTx.amount) || 0;
@@ -2517,6 +2501,11 @@ export function createBusinessOpsRouter(): Router {
     return touched;
   }
 
+  /**
+   * Fatura stok etkisini uygular veya geri alır. writeLog=false olduğunda
+   * yalnızca ürün stoğu düzeltilir; belge hareket kayıtları ayrıca purge
+   * edilir (silme akışı), böylece hareket defteri şişmez.
+   */
   async function applyInvoiceStock(
     conn: PoolConnection,
     items: any[],
@@ -2525,6 +2514,7 @@ export function createBusinessOpsRouter(): Router {
     documentDate: Date | null,
     reverse: boolean,
     withVersion: boolean,
+    writeLog: boolean,
   ): Promise<number[]> {
     const touched: number[] = [];
     const baseSign = isSales ? -1 : 1;
@@ -2542,7 +2532,7 @@ export function createBusinessOpsRouter(): Router {
         type: moveType,
         description: desc,
         date: documentDate,
-        writeLog: true,
+        writeLog,
         withVersion,
       });
       touched.push(pid);
@@ -2690,7 +2680,7 @@ export function createBusinessOpsRouter(): Router {
           }
           await applyInvoiceBalance(conn, { type, contactId, grandTotal }, 'apply', withVersionContact);
           if (isStockDeducted) {
-            touched = await applyInvoiceStock(conn, items, type === 'sales', invoiceNumber, date, false, withVersionProduct);
+            touched = await applyInvoiceStock(conn, items, type === 'sales', invoiceNumber, date, false, withVersionProduct, true);
           }
           await postInvoiceJournalInTx(conn, {
             id: invoiceId, type, invoiceNumber, contactId, date, subtotal, discountTotal, taxTotal, grandTotal,
@@ -2757,7 +2747,7 @@ export function createBusinessOpsRouter(): Router {
 
         let touched: number[] = [];
         if (invoice.isStockDeducted) {
-          touched = await applyInvoiceStock(conn, items, invoice.type === 'sales', invoice.invoiceNumber, invoice.date ? new Date(invoice.date) : null, false, withVersionProduct);
+          touched = await applyInvoiceStock(conn, items, invoice.type === 'sales', invoice.invoiceNumber, invoice.date ? new Date(invoice.date) : null, false, withVersionProduct, true);
         }
 
         await postInvoiceJournalInTx(conn, {
@@ -2879,7 +2869,7 @@ export function createBusinessOpsRouter(): Router {
           await resetWaybillsForInvoice(conn, invoiceId, invoice.waybillId ? Number(invoice.waybillId) : null);
           await applyInvoiceBalance(conn, { type: invoice.type, contactId: invoice.contactId, grandTotal }, 'reverse', withVersionContact);
           if (invoice.isStockDeducted) {
-            touched = await applyInvoiceStock(conn, items, invoice.type === 'sales', invoice.invoiceNumber, invoice.date ? new Date(invoice.date) : null, true, withVersionProduct);
+            touched = await applyInvoiceStock(conn, items, invoice.type === 'sales', invoice.invoiceNumber, invoice.date ? new Date(invoice.date) : null, true, withVersionProduct, true);
           }
           await reverseInvoiceJournalInTx(conn, invoiceId, invoice.invoiceNumber);
         }
@@ -2905,51 +2895,6 @@ export function createBusinessOpsRouter(): Router {
       if (result.products.length) { broadcast('products', 'update', result.products.map(String)); broadcast('inventoryLogs', 'update', []); }
       broadcast('invoices', 'update', [String(invoiceId)]);
       broadcast('journalEntries', 'create', []);
-      res.json({ data: result });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.post('/delete-invoice', async (req, res, next) => {
-    try {
-      const body = req.body || {};
-      const invoiceId = Number(body.invoiceId);
-      if (!Number.isFinite(invoiceId) || invoiceId <= 0) throw new OpError(400, 'Geçerli bir fatura seçilmelidir.');
-      assertAnyPermission(req.auth, [['invoices', 'delete']], 'Fatura silmek için "Fatura" modülünde silme yetkisi gerekir.');
-
-      const result = await withTransaction(async (conn) => {
-        const invRows = await conn.query<any[]>(
-          'SELECT `id`, `invoiceNumber`, `status` FROM `invoices` WHERE `id` = ? FOR UPDATE',
-          [invoiceId],
-        );
-        const invoice = (invRows[0] as any[])[0];
-        if (!invoice) throw new OpError(404, 'Fatura bulunamadı.', 'INVOICE_NOT_FOUND');
-        // Yalnızca hiç işlenmemiş TASLAK fatura fiziksel silinebilir (cari/stok/muhasebe
-        // yan etkisi yoktur, yevmiye kaydı üretilmemiştir). Kesilmiş fatura önce iptal
-        // edilmelidir. İPTAL EDİLMİŞ fatura ise muhasebe geçmişi (orijinal + ters yevmiye)
-        // korunması gerektiğinden kalıcı olarak silinemez (void/immutable model).
-        if (invoice.status === 'issued') {
-          throw new OpError(409, 'Kesilmiş fatura doğrudan silinemez. Önce "İptal Et" ile iptal edin.', 'INVOICE_ISSUED_NO_DELETE');
-        }
-        if (invoice.status === 'cancelled') {
-          throw new OpError(409, 'İptal edilmiş fatura kalıcı olarak silinemez; muhasebe geçmişi (yevmiye kayıtları) korunur.', 'INVOICE_CANCELLED_NO_DELETE');
-        }
-
-        // Taslak fatura: kalemler FK ON DELETE CASCADE ile silinir. Yevmiye kaydına DOKUNULMAZ.
-        await conn.query('DELETE FROM `invoices` WHERE `id` = ?', [invoiceId]);
-
-        await writeAuditInTx(conn, {
-          action: 'delete',
-          module: 'invoices',
-          description: `Taslak fatura silindi: ${invoice.invoiceNumber}`,
-          entityId: invoiceId,
-        }, { auth: req.auth, ip: clientIp(req) });
-
-        return { invoiceId, invoiceNumber: invoice.invoiceNumber, status: invoice.status };
-      });
-
-      broadcast('invoices', 'delete', [String(invoiceId)]);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -3025,59 +2970,6 @@ export function createBusinessOpsRouter(): Router {
     }
   });
 
-  router.post('/delete-waybill', async (req, res, next) => {
-    try {
-      const body = req.body || {};
-      const waybillId = Number(body.waybillId);
-      if (!Number.isFinite(waybillId) || waybillId <= 0) throw new OpError(400, 'Geçerli bir irsaliye seçilmelidir.');
-      assertAnyPermission(req.auth, [['waybills', 'delete']], 'İrsaliye silmek için "İrsaliye" modülünde silme yetkisi gerekir.');
-
-      const result = await withTransaction(async (conn) => {
-        const wbRows = await conn.query<any[]>(
-          'SELECT `id`, `waybillNumber`, `type`, `status`, `orderId`, `invoicedStatus`, `invoiceId`, `invoiceNumber` FROM `waybills` WHERE `id` = ? FOR UPDATE',
-          [waybillId],
-        );
-        const waybill = (wbRows[0] as any[])[0];
-        if (!waybill) throw new OpError(404, 'İrsaliye bulunamadı.', 'WAYBILL_NOT_FOUND');
-        if (waybill.invoicedStatus === 'invoiced' || waybill.invoiceId != null) {
-          throw new OpError(409, `Bu irsaliye faturalandırılmıştır (${waybill.invoiceNumber || 'bağlı fatura'}). İrsaliyeyi silmek için önce bağlı faturayı iptal ediniz.`, 'WAYBILL_INVOICED');
-        }
-        // Kesilmiş irsaliye kalıcı olarak silinemez; stok ve sipariş geçmişi korunur.
-        // İptal için "cancel-waybill" kullanılır (ters stok hareketi + sevk geri alımı).
-        if (waybill.status === 'issued') {
-          throw new OpError(409, 'Kesilmiş irsaliye doğrudan silinemez. Stok ve sipariş geçmişini korumak için önce "İptal Et" ile iptal ediniz.', 'WAYBILL_ISSUED_NO_DELETE');
-        }
-        // İptal edilmiş irsaliye değiştirilemez kayıt; stok hareketi geçmişi korunur.
-        if (waybill.status === 'cancelled') {
-          throw new OpError(409, 'İptal edilmiş irsaliye kalıcı olarak silinemez; stok hareketi geçmişi korunur.', 'WAYBILL_CANCELLED_NO_DELETE');
-        }
-        // Yalnızca hiç işlenmemiş taslaklar fiziksel olarak silinebilir.
-        if (waybill.status !== 'draft') {
-          throw new OpError(409, `Bu irsaliye (${waybill.status}) silinemez.`, 'WAYBILL_NOT_DELETABLE');
-        }
-
-        await conn.query('DELETE FROM `waybillItems` WHERE `waybillId` = ?', [waybillId]);
-        await conn.query('DELETE FROM `waybills` WHERE `id` = ?', [waybillId]);
-
-        await writeAuditInTx(conn, {
-          action: 'delete',
-          module: 'waybills',
-          description: `Taslak irsaliye silindi: ${waybill.waybillNumber}`,
-          details: 'Hiç işlenmemiş taslak irsaliye kalıcı olarak silindi (stok/sipariş yan etkisi yok).',
-          entityId: waybillId,
-        }, { auth: req.auth, ip: clientIp(req) });
-
-        return { waybillId, waybillNumber: waybill.waybillNumber, status: waybill.status };
-      });
-
-      broadcast('waybills', 'delete', [String(waybillId)]);
-      broadcast('waybillItems', 'delete', []);
-      res.json({ data: result });
-    } catch (err) {
-      next(err);
-    }
-  });
-
   /* ---------------------------------------------------------------- */
   /* Yönetici panosu özeti (salt okunur agregasyon)                    */
   /*                                                                  */
@@ -3100,12 +2992,12 @@ export function createBusinessOpsRouter(): Router {
         const empty = { income: 0, expense: 0, cashBalance: 0, bankBalance: 0, customerChecksCount: 0, customerChecksTotal: 0, issuedChecksTotal: 0, recentTransactions: [] as any[], cashFlowByDay: [] as any[] };
         if (!canView('finance')) return empty;
         const [tx, cash, bank, chk, recent, byDay] = await Promise.all([
-          queryOne<any>("SELECT COALESCE(SUM(CASE WHEN `type`='income' THEN `amount` END),0) AS income, COALESCE(SUM(CASE WHEN `type`='expense' THEN `amount` END),0) AS expense FROM `transactions` WHERE `status`='posted' AND `reversalOfId` IS NULL"),
+          queryOne<any>("SELECT COALESCE(SUM(CASE WHEN `type`='income' THEN `amount` END),0) AS income, COALESCE(SUM(CASE WHEN `type`='expense' THEN `amount` END),0) AS expense FROM `transactions`"),
           queryOne<any>("SELECT COALESCE(SUM(`balance`),0) AS bal FROM `cashBoxes`"),
           queryOne<any>("SELECT COALESCE(SUM(`balance`),0) AS bal FROM `bankAccounts`"),
           queryOne<any>("SELECT COALESCE(SUM(CASE WHEN `type` IN ('received_check','received_note') AND `status` IN ('portfolio','bank_collection') THEN `amount` END),0) AS custTotal, COALESCE(SUM(CASE WHEN `type` IN ('received_check','received_note') AND `status` IN ('portfolio','bank_collection') THEN 1 END),0) AS custCount, COALESCE(SUM(CASE WHEN `type` IN ('given_check','given_note') AND `status`='portfolio' THEN `amount` END),0) AS issuedTotal FROM `checks`"),
-          query<any>("SELECT `id`, `type`, `amount`, `date`, `description` FROM `transactions` WHERE `status`='posted' AND `reversalOfId` IS NULL ORDER BY `date` DESC, `id` DESC LIMIT 5"),
-          query<any>("SELECT DAYOFWEEK(`date`) AS dw, `type`, COALESCE(SUM(`amount`),0) AS total FROM `transactions` WHERE `status`='posted' AND `reversalOfId` IS NULL GROUP BY DAYOFWEEK(`date`), `type`"),
+          query<any>("SELECT `id`, `type`, `amount`, `date`, `description` FROM `transactions` ORDER BY `date` DESC, `id` DESC LIMIT 5"),
+          query<any>("SELECT DAYOFWEEK(`date`) AS dw, `type`, COALESCE(SUM(`amount`),0) AS total FROM `transactions` GROUP BY DAYOFWEEK(`date`), `type`"),
         ]);
         const incomeByDw: Record<number, number> = {};
         const expenseByDw: Record<number, number> = {};
@@ -3535,5 +3427,5 @@ export function createBusinessOpsRouter(): Router {
     }
   });
 
-  return router;
+  return { router, deleteEffects };
 }

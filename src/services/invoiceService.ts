@@ -115,12 +115,6 @@ export const invoiceService = {
     await callOp('cancel-invoice', { invoiceId: id, reason });
   },
 
-  async deleteInvoice(id: number): Promise<void> {
-    // Yalnızca taslak veya iptal edilmiş faturalar kalıcı silinebilir. Kesilmiş
-    // fatura sunucuda 409 ile reddedilir; önce cancel-invoice ile iptal edilmelidir.
-    await callOp('delete-invoice', { invoiceId: id });
-  },
-
   async getInvoice(id: number) {
     const invoice = await api.invoices.get(id);
     if (!invoice) return null;
@@ -139,12 +133,7 @@ export const invoiceService = {
       // Taslak → düzenlendi: cari + stok + muhasebe sunucuda tek transaction'da
       // işlenir (idempotent — fatura zaten düzenlenmişse no-op).
       await callOp('issue-invoice', { invoiceId: id });
-      return;
     }
-
-    const invoice = await api.invoices.get(id);
-    if (!invoice || invoice.status === status) return;
-    await commit([{ op: 'update', resource: 'invoices', id, data: { status, updatedAt: new Date() } }]);
   },
 
   async resetInvoicesAndStockMovements(options?: {
@@ -257,6 +246,23 @@ export const invoiceService = {
       console.warn('Ayar güncelleme uyarısı:', e);
     }
 
+    // 1b. Belge/hareket defterleri önce temizlenir: sipariş silme, bağlı fatura/irsaliye
+    //      varken politika motoru tarafından 409 ile reddedilir.
+    try { await api.inventoryLogs.clear(); } catch (e) { console.warn(e); }
+    try { await api.transactions.clear(); } catch (e) { console.warn(e); }
+    try { await api.journalEntries.clear(); } catch (e) { console.warn(e); }
+    try { await api.collectionReceipts.clear(); } catch (e) { console.warn(e); }
+    try { await api.checks.clear(); } catch (e) { console.warn(e); }
+    try { await api.invoices.clear(); } catch (e) { console.warn(e); }
+    try { await api.invoiceItems.clear(); } catch (e) { console.warn(e); }
+    try { await api.waybills.clear(); } catch (e) { console.warn(e); }
+    try { await api.waybillItems.clear(); } catch (e) { console.warn(e); }
+    try { await api.attendanceRecords.clear(); } catch (e) { console.warn(e); }
+    try { await api.leaveRequests.clear(); } catch (e) { console.warn(e); }
+    try { await api.payrollRecords.clear(); } catch (e) { console.warn(e); }
+    try { await api.advanceRequests.clear(); } catch (e) { console.warn(e); }
+    // Denetim izi değiştirilemez/silinemez; reset sırasında da korunur.
+
     // 2. Identify orders created today vs older
     const allOrders = await api.orders.list();
     const keptOrders = allOrders.filter(o => isTodayDate(o.date) || isTodayDate(o.createdAt));
@@ -265,18 +271,11 @@ export const invoiceService = {
 
     const deletedOrderIds = deletedOrders.map(o => o.id).filter(Boolean) as number[];
     if (deletedOrderIds.length > 0) {
+      // Sipariş kalemleri silme motoru tarafından siparişle birlikte cascade edilir.
       await api.orders.removeMany(deletedOrderIds);
     }
 
-    // 3. Delete order items for deleted orders
-    const allOrderItems = await api.orderItems.list();
-    const orderItemsToDelete = allOrderItems.filter(oi => !keptOrderIds.has(oi.orderId));
-    if (orderItemsToDelete.length > 0) {
-      const itemIdsToDelete = orderItemsToDelete.map(oi => oi.id).filter(Boolean) as number[];
-      await api.orderItems.removeMany(itemIdsToDelete);
-    }
-
-    // 4. Handle work orders
+    // 3. Handle work orders
     const allWorkOrders = await api.workOrders.list();
     let keptWorkOrdersCount = 0;
     let deletedWorkOrdersCount = 0;
@@ -300,23 +299,7 @@ export const invoiceService = {
       deletedWorkOrdersCount = workOrdersToDelete.length;
     }
 
-    // 5. Clear all movement / transaction logs safely
-    try { await api.inventoryLogs.clear(); } catch (e) { console.warn(e); }
-    try { await api.transactions.clear(); } catch (e) { console.warn(e); }
-    try { await api.journalEntries.clear(); } catch (e) { console.warn(e); }
-    try { await api.collectionReceipts.clear(); } catch (e) { console.warn(e); }
-    try { await api.checks.clear(); } catch (e) { console.warn(e); }
-    try { await api.invoices.clear(); } catch (e) { console.warn(e); }
-    try { await api.invoiceItems.clear(); } catch (e) { console.warn(e); }
-    try { await api.waybills.clear(); } catch (e) { console.warn(e); }
-    try { await api.waybillItems.clear(); } catch (e) { console.warn(e); }
-    try { await api.attendanceRecords.clear(); } catch (e) { console.warn(e); }
-    try { await api.leaveRequests.clear(); } catch (e) { console.warn(e); }
-    try { await api.payrollRecords.clear(); } catch (e) { console.warn(e); }
-    try { await api.advanceRequests.clear(); } catch (e) { console.warn(e); }
-    // Denetim izi değiştirilemez/silinemez; reset sırasında da korunur.
-
-    // 6-8. Ürün stokları + cari/kasa/banka bakiyeleri sıfırlanır (master kartlar korunur).
+    // 4. Ürün stokları + cari/kasa/banka bakiyeleri sıfırlanır (master kartlar korunur).
     //      Türetilmiş alanlar generic CRUD'a kapalı olduğundan Süper Admin kontrollü uç kullanılır.
     try {
       await callOp('reset-balances', { products: true, contacts: true, cashBoxes: true, bankAccounts: true });

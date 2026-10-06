@@ -1,7 +1,6 @@
 import {
   api,
   callOp,
-  commit,
   recalculateContactBalance,
 } from '../api/client';
 import { accountingService } from './accountingService';
@@ -65,31 +64,36 @@ export const contactService = {
     }
 
     const initialBalance = Number(contact.balance) || 0;
-    // not: kimlik zinciri nedeniyle iki adımlı yazma
+    // Cari bakiyesi türetilmiş bir alandır: kart her zaman 0 bakiyeyle açılır.
+    // Açılış/devir bakiyesi "Açılış Bakiyesi" kategorili bir cari hareket olarak
+    // yazılır; generic `transactions` yazımı controlledWrites ile kapalı olduğundan
+    // tek yol contact-transaction op'udur (cari satırı kilitlenip tek transaction'da).
     const contactId = await api.contacts.create({
       ...contact,
       code,
-      balance: initialBalance,
+      balance: 0,
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     if (initialBalance !== 0) {
-      await commit([
-        {
-          op: 'insert',
-          resource: 'transactions',
-          data: {
-            contactId,
-            type: initialBalance > 0 ? 'income' : 'expense',
-            amount: Math.abs(initialBalance),
-            description: 'Açılış / Devir Bakiyesi',
-            category: 'Açılış Bakiyesi',
-            date: new Date(),
-            documentNo: 'DVR-' + contactId
-          }
-        }
-      ]);
+      // Pozitif bakiye = müşteriden alacağımız (income/debit), negatif = borcumuz (expense).
+      await callOp('contact-transaction', {
+        mode: 'create',
+        contactId,
+        type: initialBalance > 0 ? 'income' : 'expense',
+        amount: Math.abs(initialBalance),
+        description: 'Açılış / Devir Bakiyesi',
+        category: 'Açılış Bakiyesi',
+        paymentMethod: 'other',
+        documentNo: 'DVR-' + contactId,
+        date: new Date(),
+      });
+      // contact-transaction op'u bakiyeyi artımlı günceller (income → -amount), oysa
+      // açılış hareketinin işareti recalculateContactBalance formülünde farklıdır
+      // (Açılış + income → debit). Bakiye, ekstre ile tutarlı kalması için canonical
+      // formülle yeniden hesaplanır.
+      await recalculateContactBalance(contactId);
     }
 
     // Otomatik TDHP Muhasebe Hesabı Açılışı:
@@ -138,14 +142,9 @@ export const contactService = {
   },
 
   async deleteContact(id: number) {
-    const orderCount = await api.orders.count({ contactId: id });
-    if (orderCount > 0) {
-      throw new Error(`Bu cariye ait ${orderCount} adet sipariş/fatura kaydı bulunmaktadır. Önce siparişleri silmeli veya arşivlemelisiniz.`);
-    }
-    await commit([
-      { op: 'deleteWhere', resource: 'transactions', where: { contactId: id } },
-      { op: 'delete', resource: 'contacts', id }
-    ]);
+    // Silme kararı sunucudaki politika motoruna aittir: bağlı sipariş/fatura/
+    // irsaliye/hareket/makbuz/çek varsa 409 döner, yoksa kart fiziksel silinir.
+    await api.contacts.remove(id);
   },
 
   async recordContactTransaction(data: {
@@ -203,18 +202,6 @@ export const contactService = {
       ...(data.date !== undefined ? { date: new Date(data.date) } : {}),
     });
     return id;
-  },
-
-  /**
-   * Cari hareketi kalıcı olarak SİLMEZ; iptal eder. Sunucu, orijinal
-   * hareketi 'cancelled' olarak işaretler ve bakiyeyi geri alan bir ters
-   * kayıt (reversal) oluşturur. Böylece finansal geçmiş korunur.
-   */
-  async cancelTransaction(id: number) {
-    return callOp<{ id: number; deleted: boolean; cancelled: boolean; reversalId: number | null }>(
-      'contact-transaction',
-      { mode: 'delete', id },
-    );
   },
 
   /**

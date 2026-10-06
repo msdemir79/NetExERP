@@ -143,12 +143,6 @@ export const waybillService = {
     await callOp('cancel-waybill', { waybillId: id, reason });
   },
 
-  async deleteWaybill(id: number) {
-    // Silme; sipariş bağı geri alımı + stok düzeltmesi + hareket kaydı temizliği
-    // sunucuda tek transaction içinde uygulanır. Faturalandırılmış irsaliye 409.
-    await callOp('delete-waybill', { waybillId: id });
-  },
-
   async getWaybill(id: number) {
     const waybill = await api.waybills.get(id);
     if (!waybill) return null;

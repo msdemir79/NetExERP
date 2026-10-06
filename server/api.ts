@@ -31,6 +31,7 @@ import { writeAudit, writeAuditInTx, resourceAuditEntry, auditTracksChanges, AUD
 import type { PoolConnection } from 'mysql2/promise';
 import { broadcast, sseHandler } from './sse.js';
 import { createBusinessOpsRouter } from './businessOps.js';
+import { executeDelete, planDelete, type DeleteContext } from './deletePolicy.js';
 import { versionSupported } from './schema.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
 import { allocateDocumentNumber, journalPrefixFor } from './numbering.js';
@@ -257,22 +258,21 @@ function stripHiddenRows(resource: string, rows: any[]): any[] {
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/* Referans kontrolü (silme güvenliği)                                 */
+/* Silme bağlamı                                                       */
 /* ------------------------------------------------------------------ */
 
-async function assertNoDependents(resource: string, id: number | string, conn?: { query: (sql: string, params?: any[]) => Promise<any> }) {
-  const meta = getMeta(resource);
-  for (const guard of meta.guards || []) {
-    const sql = `SELECT COUNT(*) AS n FROM \`${guard.table}\` WHERE \`${guard.column}\` = ? LIMIT 1`;
-    // Transaction içinde çağrılıyorsa aynı bağlantıyı kullan: silinmiş çocuk kayıtlar
-    // pool bağlantısından hâlâ görünüp yanlış 409 üretmesin.
-    const row = conn
-      ? ((await conn.query(sql, [id])) as any[])?.[0]?.[0] ?? null
-      : await queryOne<{ n: number }>(sql, [id]);
-    if (row && Number((row as any).n) > 0) {
-      throw new HttpError(409, guard.message);
-    }
-  }
+/**
+ * Kademe 2 silmelerde gerekçe ve oturum sahibinin parolası istemciden gelir.
+ * Parola yalnızca doğrulama için kullanılır; ne denetim izine ne de loga yazılır.
+ */
+function deleteContext(req: Request, source?: Record<string, any>): DeleteContext {
+  const body = source ?? (req.body || {});
+  return {
+    auth: req.auth,
+    ip: clientIp(req),
+    reason: body.reason == null ? null : String(body.reason),
+    password: body.password == null ? null : String(body.password),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -886,7 +886,8 @@ export function createApiRouter(): Router {
   /* İşlem uçları: stok hareketi, reçete sarfiyatı, cari bakiye        */
   /* (tek transaction + satır kilidi)                                 */
   /* ---------------------------------------------------------------- */
-  router.use('/ops', createBusinessOpsRouter());
+  const { router: opsRouter, deleteEffects } = createBusinessOpsRouter();
+  router.use('/ops', opsRouter);
 
   /* ---------------------------------------------------------------- */
   /* Demo verilerine sıfırlama: yalnızca Süper Admin ve üretim dışında */
@@ -919,6 +920,10 @@ export function createApiRouter(): Router {
     where?: Record<string, any>;
     data?: Record<string, any>;
     rows?: Record<string, any>[];
+    /** Kademe 2 silmelerde zorunlu: silme gerekçesi. */
+    reason?: string;
+    /** Kademe 2 silmelerde zorunlu: oturum sahibinin parolası (saklanmaz). */
+    password?: string;
   }
 
   const MUTATION_ACTIONS: Record<Mutation['op'], PermissionAction> = {
@@ -960,12 +965,16 @@ export function createApiRouter(): Router {
             'MOVEMENT_TABLE',
           );
         }
-        // Transactional kayıtlar toplu işlemde hard-delete edilemez (clear hariç).
-        if (meta.noHardDelete && (m.op === 'delete' || m.op === 'deleteWhere') ) {
+        // Kontrollü yazımlı kaynaklarda ham satır yazımı toplu işlemde de kapalıdır.
+        // delete/deleteWhere serbest: ikisi de silme politikası motorundan geçer.
+        // Yedek geri yükleme (yalnızca Süper Admin, FK denetimi kapalı) tüm tabloyu
+        // boşaltıp anlık görüntüden yeniden doldurduğu için bu kapıdan muaftır —
+        // tıpkı salt-okunur bağ tablolarında olduğu gibi (bkz. yukarıdaki readOnly).
+        if (meta.controlledWrites && m.op !== 'clear' && m.op !== 'delete' && m.op !== 'deleteWhere' && !disableFkChecks) {
           throw new HttpError(
             403,
-            `"${m.resource}" transactional bir kayıttır; doğrudan silme kapalıdır. Kontrollü işlemleri (ops) kullanın.`,
-            'TRANSACTIONAL_NO_DELETE',
+            `"${m.resource}" kayıtları yalnızca kendi iş ucuyla yazılır; toplu işlemde ekleme/düzenleme kapalıdır.`,
+            'CONTROLLED_RESOURCE',
           );
         }
         const action = MUTATION_ACTIONS[m.op];
@@ -1056,18 +1065,38 @@ export function createApiRouter(): Router {
               }
               case 'delete': {
                 if (m.id === undefined || m.id === null) throw new HttpError(400, 'delete için id gerekli.');
-                await assertNoDependents(m.resource, m.id, conn);
-                const [r] = await conn.query(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [
-                  coerce(def, def.primaryKey, m.id),
-                ]);
-                results.push({ op: m.op, resource: m.resource, deleted: (r as any)?.affectedRows ?? 0 });
+                const id = coerce(def, def.primaryKey, m.id);
+                if (disableFkChecks) {
+                  // Yedek geri yükleme: politika motoru devre dışı, ham DELETE.
+                  const [r] = await conn.query(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [id]);
+                  results.push({ op: m.op, resource: m.resource, deleted: (r as any)?.affectedRows ?? 0 });
+                } else {
+                  const r = await executeDelete(conn, deleteEffects, m.resource, def.table, def.primaryKey, id, deleteContext(req, m));
+                  results.push({ op: m.op, resource: m.resource, deleted: r.deleted });
+                }
                 break;
               }
               case 'deleteWhere': {
                 const where = buildWhere(def, m.resource, m.where || {});
                 if (!where.sql) throw new HttpError(400, 'deleteWhere için filtre gerekli.');
-                const [r] = await conn.query(`DELETE FROM \`${def.table}\` ${where.sql}`, where.params);
-                results.push({ op: m.op, resource: m.resource, deleted: (r as any)?.affectedRows ?? 0 });
+                if (disableFkChecks) {
+                  const [r] = await conn.query(`DELETE FROM \`${def.table}\` ${where.sql}`, where.params);
+                  results.push({ op: m.op, resource: m.resource, deleted: (r as any)?.affectedRows ?? 0 });
+                  break;
+                }
+                // Toplu silme de kayıt başına politikadan geçer: kademe, cascade,
+                // bakiye geri yazımı ve denetim kaydı atlanamaz.
+                const ctx = deleteContext(req, m);
+                const idRows = await conn.query<any[]>(
+                  `SELECT \`${def.primaryKey}\` AS \`__id\` FROM \`${def.table}\` ${where.sql}`,
+                  where.params,
+                );
+                const ids = ((idRows[0] as any[]) || []).map((r) => r.__id);
+                let deleted = 0;
+                for (const id of ids) {
+                  deleted += (await executeDelete(conn, deleteEffects, m.resource, def.table, def.primaryKey, id, ctx)).deleted;
+                }
+                results.push({ op: m.op, resource: m.resource, deleted });
                 break;
               }
               case 'clear': {
@@ -1136,16 +1165,17 @@ export function createApiRouter(): Router {
           'MOVEMENT_TABLE',
         );
       }
-      // Transactional kayıtlarda (fatura, cari hareket, yevmiye fişi, tahsilat/tediye
-      // makbuzu) generic hard-delete kapalıdır; iptal/ters kayıt kontrollü op'larla
-      // yapılır. `clear` (Süper Admin, fabrika sıfırlama/yedek geri yükleme) muaftır.
-      const isBulkDelete = req.path.endsWith('/bulk-delete') || req.path.endsWith('/delete-where');
-      const isDelete = req.method.toUpperCase() === 'DELETE' || isBulkDelete;
-      if (meta.noHardDelete && isDelete && !isClear) {
+      // Kontrollü yazımlı kaynaklarda (ör. cari hareketler) satır ekleme/düzenleme
+      // kapalıdır: türetilmiş alanlar (cari bakiyesi) yalnızca kendi iş ucunda,
+      // satır kilidi altında güncellenir. Silme yolları açık kalır çünkü hepsi
+      // silme politikası motorundan (kademe + gerekçe + parola + cascade) geçer.
+      const isDeleteFlow =
+        req.method.toUpperCase() === 'DELETE' || req.path.endsWith('/bulk-delete') || req.path.endsWith('/delete-where');
+      if (meta.controlledWrites && isWrite && !isClear && !isDeleteFlow) {
         throw new HttpError(
           403,
-          `"${resource}" kayıtları kalıcı olarak silinemez. Transactional kayıtlarda iptal/ters kayıt için kontrollü işlemleri (ops), ana veri kartlarında ise pasifleştirmeyi kullanın.`,
-          'TRANSACTIONAL_NO_DELETE',
+          `"${resource}" kayıtları yalnızca kendi ekranından oluşturulur/düzenlenir; doğrudan satır yazımı kapalıdır. Silme, silme politikası üzerinden yapılabilir.`,
+          'CONTROLLED_RESOURCE',
         );
       }
       next();
@@ -1488,24 +1518,31 @@ export function createApiRouter(): Router {
     }
   });
 
+  // ---- Silme önizlemesi: kademe, birlikte silinecekler, uyarılar, blokaj ----
+  router.get('/:resource/delete-plan/:id', resourceAccess, async (req, res, next) => {
+    try {
+      const resource = req.params.resource;
+      const def = getDef(resource)!;
+      const id = coerce(def, def.primaryKey, req.params.id);
+      const { plan } = await withTransaction(async (conn) =>
+        planDelete(conn, deleteEffects, resource, def.table, def.primaryKey, id),
+      );
+      res.json({ data: plan });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ---- Sil ----
   router.delete('/:resource/:id', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
       const def = getDef(resource)!;
-
       const id = coerce(def, def.primaryKey, req.params.id);
-      const hasGuards = Boolean((getMeta(resource).guards || []).length);
-      if (hasGuards) await assertNoDependents(resource, id);
 
-      const deleted = await withTransaction(async (conn) => {
-        const [r] = await conn.query(`DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` = ?`, [id]);
-        const changes = (r as any)?.affectedRows ?? 0;
-        if (!changes) return 0;
-        await auditResourceInTx(conn, resource, 'delete', req.params.id, req);
-        return changes;
-      });
-      if (!deleted) throw new HttpError(404, 'Kayıt bulunamadı.');
+      const result = await withTransaction(async (conn) =>
+        executeDelete(conn, deleteEffects, resource, def.table, def.primaryKey, id, deleteContext(req)),
+      );
 
       if (resource === 'roles') invalidateUserCache();
       if (resource === 'users') {
@@ -1514,7 +1551,16 @@ export function createApiRouter(): Router {
       }
 
       broadcast(resource, 'delete', [req.params.id]);
-      res.json({ data: { id: req.params.id, deleted } });
+      if (result.touchedProducts.length) {
+        broadcast('products', 'update', result.touchedProducts.map(String));
+        broadcast('inventoryLogs', 'update', []);
+      }
+      // Silme cari/kasa/banka bakiyesini ve muhasebeyi de etkiler.
+      for (const related of ['contacts', 'cashBoxes', 'bankAccounts', 'transactions', 'journalEntries', 'orders', 'waybills']) {
+        if (related !== resource) broadcast(related, 'update', []);
+      }
+
+      res.json({ data: { id: req.params.id, deleted: result.deleted, plan: result.plan } });
     } catch (err) {
       next(err);
     }
@@ -1528,30 +1574,18 @@ export function createApiRouter(): Router {
 
       const ids: any[] = req.body?.ids || [];
       if (!ids.length) throw new HttpError(400, 'Silinecek kayıt yok.');
+      const ctx = deleteContext(req);
 
-      const hasGuards = Boolean((getMeta(resource).guards || []).length);
-      if (hasGuards) {
-        for (const id of ids) await assertNoDependents(resource, coerce(def, def.primaryKey, id));
-      }
-
-      const marks = ids.map(() => '?').join(', ');
+      const deletedIds: string[] = [];
+      const touchedProducts = new Set<number>();
       const deletedCount = await withTransaction(async (conn) => {
-        const [r] = await conn.query(
-          `DELETE FROM \`${def.table}\` WHERE \`${def.primaryKey}\` IN (${marks})`,
-          ids.map((id) => coerce(def, def.primaryKey, id))
-        );
-        const changes = (r as any)?.affectedRows ?? 0;
-        if (changes && AUDITED_RESOURCES[resource]) {
-          await writeAuditInTx(
-            conn,
-            {
-              action: 'delete',
-              module: AUDITED_RESOURCES[resource].module,
-              description: `${AUDITED_RESOURCES[resource].label} toplu silme: ${changes} kayıt`,
-              details: `ID'ler: ${ids.slice(0, 50).join(', ')}`.slice(0, 1000),
-            },
-            { auth: req.auth, ip: clientIp(req) },
-          );
+        let changes = 0;
+        for (const rawId of ids) {
+          const id = coerce(def, def.primaryKey, rawId);
+          const r = await executeDelete(conn, deleteEffects, resource, def.table, def.primaryKey, id, ctx);
+          changes += r.deleted;
+          deletedIds.push(String(id));
+          for (const pid of r.touchedProducts) touchedProducts.add(pid);
         }
         return changes;
       });
@@ -1559,14 +1593,18 @@ export function createApiRouter(): Router {
       if (resource === 'users' || resource === 'roles') invalidateUserCache();
       if (resource === 'users') for (const id of ids) destroyUserSessions(Number(id));
 
-      broadcast(resource, 'delete', ids);
+      broadcast(resource, 'delete', deletedIds);
+      if (touchedProducts.size) {
+        broadcast('products', 'update', [...touchedProducts].map(String));
+        broadcast('inventoryLogs', 'update', []);
+      }
       res.json({ data: { deleted: deletedCount } });
     } catch (err) {
       next(err);
     }
   });
 
-  // ---- Koşullu toplu silme (Dexie where().delete() karşılığı) ----
+  // ---- Koşullu toplu silme ----
   router.post('/:resource/delete-where', resourceAccess, async (req, res, next) => {
     try {
       const resource = req.params.resource;
@@ -1574,19 +1612,31 @@ export function createApiRouter(): Router {
 
       const where = buildWhere(def, resource, req.body?.where || {});
       if (!where.sql) throw new HttpError(400, 'Koşulsuz silme engellendi. Filtre gerekli.');
+      const ctx = deleteContext(req);
 
-      const result = await execute(`DELETE FROM \`${def.table}\` ${where.sql}`, where.params);
-      await writeAudit(
-        {
-          action: 'delete',
-          module: 'system',
-          description: `Koşullu toplu silme: ${resource}`,
-          details: `Silinen kayıt: ${result.affectedRows ?? 0}. Filtre: ${JSON.stringify(req.body?.where || {}).slice(0, 500)}`,
-        },
-        { auth: req.auth, ip: clientIp(req) },
-      );
-      broadcast(resource, 'delete', []);
-      res.json({ data: { deleted: result.affectedRows } });
+      const deletedIds: string[] = [];
+      const touchedProducts = new Set<number>();
+      const deleted = await withTransaction(async (conn) => {
+        const idRows = await conn.query<any[]>(
+          `SELECT \`${def.primaryKey}\` AS \`__id\` FROM \`${def.table}\` ${where.sql}`,
+          where.params,
+        );
+        let changes = 0;
+        for (const row of (idRows[0] as any[]) || []) {
+          const r = await executeDelete(conn, deleteEffects, resource, def.table, def.primaryKey, row.__id, ctx);
+          changes += r.deleted;
+          deletedIds.push(String(row.__id));
+          for (const pid of r.touchedProducts) touchedProducts.add(pid);
+        }
+        return changes;
+      });
+
+      broadcast(resource, 'delete', deletedIds);
+      if (touchedProducts.size) {
+        broadcast('products', 'update', [...touchedProducts].map(String));
+        broadcast('inventoryLogs', 'update', []);
+      }
+      res.json({ data: { deleted } });
     } catch (err) {
       next(err);
     }

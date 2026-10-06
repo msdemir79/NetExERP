@@ -80,7 +80,6 @@ export default function Dashboard() {
 
     const totals = new Map<string, { gelir: number; gider: number }>();
     (transactions || []).forEach((trx) => {
-      if (trx.status === 'cancelled' || trx.reversalOfId) return;
       const date = new Date(trx.date);
       const t = date.getTime();
       if (t < from || t > to) return;

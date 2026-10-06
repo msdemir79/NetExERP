@@ -99,48 +99,6 @@ export const orderService = {
     }
   },
 
-  async deleteOrder(id: number | string) {
-    const numId = Number(id);
-    const check = await this.canModifyOrDeleteOrder(id);
-    if (!check.canModify) {
-      throw new Error(check.reason);
-    }
-
-    // Çocuk kayıtlar önce ayrı commit'te silinir: sipariş silme sırasındaki bağımlılık
-    // kontrolü (assertNoDependents) transaction dışında kalan bağlantıdan çalıştığı için
-    // tek commit'te orderItems hâlâ görünüp 409 üretebiliyordu.
-    const childMutations: Mutation[] = [];
-    // 1. Delete associated work orders
-    const allWOs = await api.workOrders.list();
-    const targetWOs = allWOs.filter(wo => wo.orderId === id || (wo.orderId !== undefined && !isNaN(numId) && Number(wo.orderId) === numId));
-    for (const wo of targetWOs) {
-      if (wo.id) childMutations.push({ op: 'delete', resource: 'workOrders', id: wo.id });
-    }
-
-    // 2. Delete associated order items
-    const allItems = await api.orderItems.list();
-    const targetItems = allItems.filter(it => it.orderId === id || (it.orderId !== undefined && !isNaN(numId) && Number(it.orderId) === numId));
-    for (const it of targetItems) {
-      if (it.id) childMutations.push({ op: 'delete', resource: 'orderItems', id: it.id });
-    }
-
-    if (childMutations.length > 0) {
-      await commit(childMutations);
-    }
-
-    // 3. Delete order itself
-    const orderMutations: Mutation[] = [];
-    if (!isNaN(numId)) {
-      orderMutations.push({ op: 'delete', resource: 'orders', id: numId });
-    }
-    if (typeof id === 'string' && id !== String(numId)) {
-      orderMutations.push({ op: 'delete', resource: 'orders', id: id as any });
-    }
-    if (orderMutations.length > 0) {
-      await commit(orderMutations);
-    }
-  },
-
   async getOrder(id: number) {
     const order = await api.orders.get(id);
     if (!order) return null;

@@ -1,4 +1,4 @@
-import { api, authApi, type SessionPayload } from '../api/client';
+import { api, authApi, startsWith, type FilterValue, type SessionPayload } from '../api/client';
 import type {
   AppUser,
   Role,
@@ -123,20 +123,11 @@ class UserService {
     await authApi.changePassword({ currentPassword, newPassword });
   }
 
-  async deleteUser(id: number): Promise<void> {
-    const user = await api.users.get(id);
-    if (!user) return;
-
-    // Prevent deleting the main super admin
-    if (user.username === 'mdemir' || user.roleCode === 'super_admin') {
-      const adminCount = await api.users.count({ roleCode: 'super_admin' });
-      if (adminCount <= 1) {
-        throw new Error('Sistemdeki son Süper Admin hesabı silinemez.');
-      }
-    }
-
-    await api.users.remove(id);
-
+  /**
+   * Kullanıcı silme sunucudaki politika motoru üzerinden yapılır (Kademe 2:
+   * gerekçe + parola). Burada yalnızca silinen hesap aktif oturumsa çıkış yapılır.
+   */
+  async afterUserDeleted(id: number): Promise<void> {
     if (this.getCachedUserId() === id) {
       await this.logout();
     }
@@ -204,23 +195,6 @@ class UserService {
     }
 
     await this.refreshSession();
-  }
-
-  async deleteRole(id: number): Promise<void> {
-    const role = await api.roles.get(id);
-    if (!role) return;
-
-    if (role.isSystem || role.code === 'super_admin') {
-      throw new Error('Sistem rollerinin (ön tanımlı roller) silinmesine izin verilmez.');
-    }
-
-    // Check if any users are assigned to this role
-    const assignedUsersCount = await api.users.count({ roleCode: role.code });
-    if (assignedUsersCount > 0) {
-      throw new Error(`Bu role atanmış ${assignedUsersCount} kullanıcı bulunmaktadır. Önce kullanıcıların rolünü değiştiriniz.`);
-    }
-
-    await api.roles.remove(id);
   }
 
   async resetRolesToDefaults(): Promise<void> {
@@ -402,6 +376,22 @@ class UserService {
     }
 
     return logs;
+  }
+
+  /**
+   * "Silinen Kayıtlar" ekranının veri kaynağı: yalnızca silme hareketleri
+   * (`delete` + başarısız parola denemesi `delete_denied`) sunucuda süzülerek
+   * çekilir. Denetim kayıtları salt okunur; geri yükleme buradan yapılamaz.
+   */
+  async getDeletedRecords(options?: { module?: string }): Promise<AuditLog[]> {
+    const where: Record<string, FilterValue> = { action: startsWith('delete') };
+    if (options?.module && options.module !== 'all') where.module = options.module;
+
+    return api.auditLogs.list({ where, orderBy: 'id', orderDir: 'desc' });
+  }
+
+  countDeletedRecords(): Promise<number> {
+    return api.auditLogs.count({ action: startsWith('delete') });
   }
 }
 

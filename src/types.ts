@@ -466,11 +466,6 @@ export interface Transaction {
   paymentMethod?: 'cash' | 'bank_transfer' | 'credit_card' | 'check' | 'other';
   documentNo?: string;
   orderId?: number;
-  /** 'posted' = geçerli, 'cancelled' = iptal edilmiş (ters kaydı vardır). Sunucu belirler. */
-  status?: 'posted' | 'cancelled';
-  cancelledAt?: Date | null;
-  /** Bu hareket bir iptal ters kaydıysa, iptal ettiği orijinal hareketin id'si. */
-  reversalOfId?: number | null;
 }
 
 export type OrderType = 'purchase' | 'sales';
@@ -1047,6 +1042,7 @@ export type AuditActionType =
   | 'create' 
   | 'update' 
   | 'delete' 
+  | 'delete_denied'
   | 'login' 
   | 'logout'
   | 'export' 
@@ -1065,6 +1061,10 @@ export interface AuditLog {
   entityId?: string | number;
   description: string;
   details?: string;
+  /** Kademe 2 silmelerde kullanıcının girdiği zorunlu gerekçe. */
+  reason?: string | null;
+  /** Silinen kaydın tek satırlık tanıtıcısı (kod — ad / fiş no vb.). */
+  recordSummary?: string | null;
   ipAddress?: string;
   timestamp: Date;
 }

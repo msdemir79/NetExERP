@@ -778,6 +778,7 @@ export const RESOURCES: Record<string, ResourceDef> = {
     primaryKey: "id",
     columns: [
       { name: "id", type: "bigint" },
+      { name: "scope", type: "enum" },
       { name: "month", type: "int" },
       { name: "year", type: "int" },
       { name: "isLocked", type: "tinyint" },
@@ -848,6 +849,8 @@ export const RESOURCES: Record<string, ResourceDef> = {
       { name: "entityId", type: "varchar" },
       { name: "description", type: "text" },
       { name: "details", type: "text" },
+      { name: "reason", type: "text" },
+      { name: "recordSummary", type: "varchar" },
       { name: "ipAddress", type: "varchar" },
       { name: "timestamp", type: "datetime" },
       { name: "version", type: "int" },

@@ -2,28 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import type { Contact, EntityType } from '../../types';
-import { 
-  Building2, 
-  User, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  CreditCard, 
-  Percent, 
-  Calendar, 
-  FileText, 
-  Tag, 
-  DollarSign,
-  ShieldCheck,
-  Globe,
-  BookOpen,
-  Sparkles,
-  AlertCircle
-} from 'lucide-react';
+import { CreditCard, BookOpen, Sparkles, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { compareAccountCodes } from '../../services/accountingService';
 import { getNextContactCode } from '../../services/contactService';
 import Modal from '../Modal';
+import Tabs from '../Common/Tabs';
+import Button from '../Common/Button';
+import { Field, Input, Select, Textarea } from '../Common/Field';
 
 interface ContactFormModalProps {
   isOpen: boolean;
@@ -192,6 +178,16 @@ export default function ContactFormModal({
     if (!accountCode.trim() || !tdhpAccounts) return null;
     return tdhpAccounts.find(a => a.code.toLowerCase() === accountCode.trim().toLowerCase());
   }, [accountCode, tdhpAccounts]);
+
+  // Stepper-sekmeli hibrit: her bölümün "dolu" durumu numaralı başlıkta onay
+  // işaretiyle gösterilir. Zorunlu olan yalnızca ünvan (general) — diğerleri
+  // opsiyonel, herhangi bir alan dolduysa tamamlanmış sayılır.
+  const sectionCompleted = useMemo(() => ({
+    general: !!name.trim(),
+    contact: !!(phone.trim() || mobile.trim() || email.trim() || city || address.trim()),
+    financial: !!(taxNumber.trim() || taxOffice.trim() || iban.trim() || paymentTermDays !== '' || creditLimit !== ''),
+    notes: !!notes.trim(),
+  }), [name, phone, mobile, email, city, address, taxNumber, taxOffice, iban, paymentTermDays, creditLimit, notes]);
 
   useEffect(() => {
     if (initialData) {
@@ -362,141 +358,99 @@ export default function ContactFormModal({
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-lg text-xs font-semibold">
+          <div className="rounded-card border border-danger/30 bg-danger-soft p-3 text-2xs font-bold text-danger">
             {error}
           </div>
         )}
 
-        {/* Tab Headers */}
-        <div className="flex border-b border-slate-200 dark:border-slate-700 gap-2 pb-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('general')}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeTab === 'general'
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200"
-            )}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            1. Genel & Ticari
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('contact')}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeTab === 'contact'
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200"
-            )}
-          >
-            <Phone className="w-3.5 h-3.5" />
-            2. İletişim & Adres
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('financial')}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeTab === 'financial'
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200"
-            )}
-          >
-            <CreditCard className="w-3.5 h-3.5" />
-            3. Mali & Banka
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('notes')}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeTab === 'notes'
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200"
-            )}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            4. Notlar
-          </button>
-        </div>
+        {/* Stepper-sekmeli hibrit: bölümler doğrudan tıklanabilir, Kaydet her
+            adımda erişilebilir; numaralar tamamlanan bölümde onaya döner. */}
+        <Tabs
+          ariaLabel="Cari kartı bölümleri"
+          numbered
+          size="sm"
+          value={activeTab}
+          onChange={(key) => setActiveTab(key as typeof activeTab)}
+          items={[
+            { key: 'general', label: 'Genel & Ticari', completed: sectionCompleted.general },
+            { key: 'contact', label: 'İletişim & Adres', completed: sectionCompleted.contact },
+            { key: 'financial', label: 'Mali & Banka', completed: sectionCompleted.financial },
+            { key: 'notes', label: 'Notlar', completed: sectionCompleted.notes },
+          ]}
+        />
 
         {/* TAB 1: GENEL & TICARI */}
         {activeTab === 'general' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                    <span>Cari Kodu (ERP)</span>
-                  </label>
-                  <button
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-label font-black uppercase tracking-widest text-fg-muted">Cari Kodu (ERP)</span>
+                  <Button
                     type="button"
+                    size="sm"
+                    variant="subtle"
+                    icon={<Sparkles className="h-3 w-3" />}
                     onClick={() => handleAutoSuggestContactCode(type)}
-                    className="text-[9px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60 px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 cursor-pointer"
                     title={`Sıradaki ${type === 'supplier' ? 'tedarikçi' : 'müşteri'} kodunu öner`}
+                    className="h-6 px-1.5 text-2xs"
                   >
-                    <Sparkles className="w-2.5 h-2.5" />
-                    <span>Öner ({type === 'supplier' ? 'TED-...' : 'CAR-...'})</span>
-                  </button>
+                    Öner ({type === 'supplier' ? 'TED-...' : 'CAR-...'})
+                  </Button>
                 </div>
-                <input
+                <Input
                   type="text"
                   value={code}
+                  invalid={isDuplicateCode}
                   onChange={(e) => {
                     setCode(e.target.value);
                     setIsManualCode(true);
                   }}
                   placeholder={type === 'supplier' ? 'Örn: TED-001' : 'Örn: CAR-001'}
-                  className={cn(
-                    "w-full border rounded-lg p-2.5 text-xs font-mono font-bold outline-none uppercase transition-colors",
-                    isDuplicateCode
-                      ? "border-rose-400 bg-rose-50 text-rose-900 focus:ring-1 focus:ring-rose-500"
-                      : "border-slate-200 dark:border-slate-700 focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-slate-100"
-                  )}
+                  className="font-mono uppercase"
                 />
-                
+
                 {/* Visual feedback for the suggested/entered code */}
                 {isDuplicateCode ? (
-                  <div className="flex items-center gap-1 text-[10px] text-rose-600 font-semibold mt-0.5">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
+                  <p className="flex items-center gap-1 text-2xs font-bold text-danger">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
                     <span>Bu kod sistemde zaten başka bir caride kayıtlı!</span>
-                  </div>
+                  </p>
                 ) : currentCodeMeta.lastCode ? (
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between">
-                    <span>Son kayıt: <strong className="font-mono text-slate-700 dark:text-slate-200">{currentCodeMeta.lastCode}</strong></span>
-                    <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium">Sıradaki: +1</span>
+                  <div className="flex items-center justify-between text-2xs font-semibold text-fg-muted">
+                    <span>Son kayıt: <strong className="font-mono text-fg-strong">{currentCodeMeta.lastCode}</strong></span>
+                    <span className="text-brand-fg">Sıradaki: +1</span>
                   </div>
                 ) : (
-                  <div className="text-[10px] text-slate-400 mt-0.5">
+                  <div className="text-2xs font-semibold text-fg-muted">
                     <span>İlk {type === 'supplier' ? 'tedarikçi' : 'müşteri'} için önerildi</span>
                   </div>
                 )}
               </div>
 
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" /> TDHP Muhasebe
-                  </label>
-                  <button
+                <div className="flex items-center justify-between gap-1">
+                  <span className="flex items-center gap-1 text-label font-black uppercase tracking-widest text-brand-fg">
+                    <BookOpen className="h-3 w-3" /> TDHP Muhasebe
+                  </span>
+                  <Button
                     type="button"
+                    size="sm"
+                    variant="subtle"
                     onClick={() => handleAutoSuggestAccountCode()}
-                    className="text-[9px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded transition-colors"
                     title="Sonraki boş hesap kodunu öner"
+                    className="h-6 px-1.5 text-2xs"
                   >
                     Öner
-                  </button>
+                  </Button>
                 </div>
-                <input
+                <Input
                   type="text"
                   value={accountCode}
                   onChange={(e) => { setAccountCode(e.target.value); setIsManualAccountCode(true); }}
                   placeholder={type === 'supplier' ? 'Örn: 320.01.001' : 'Örn: 120.01.001'}
                   list="tdhp-contact-accounts-quick"
-                  className="w-full border border-indigo-200 bg-indigo-50/40 rounded-lg p-2.5 text-xs font-mono font-bold text-indigo-950 focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
+                  className="font-mono uppercase"
                 />
                 <datalist id="tdhp-contact-accounts-quick">
                   {suggestedAccounts.map((acc) => (
@@ -506,79 +460,67 @@ export default function ContactFormModal({
                   ))}
                 </datalist>
                 {accountCode.trim() && (
-                  <div className="mt-1">
-                    {existingAccountMatch ? (
-                      <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                        <span className="truncate"><strong>Mevcut TDHP Hesabı:</strong> {existingAccountMatch.name}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-[10px] text-indigo-700 bg-indigo-50/80 px-2 py-1 rounded border border-indigo-200 font-medium">
-                        <Sparkles className="w-3 h-3 text-indigo-600 shrink-0 animate-pulse" />
-                        <span><strong>Otomatik Açılacak:</strong> Kaydedildiğinde bu hesap TDHP planına anında eklenecektir.</span>
-                      </div>
-                    )}
-                  </div>
+                  existingAccountMatch ? (
+                    <div className="flex items-center gap-1.5 rounded-control border border-success/30 bg-success-soft px-2 py-1 text-2xs font-semibold text-success">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-pill bg-success" />
+                      <span className="truncate"><strong>Mevcut TDHP Hesabı:</strong> {existingAccountMatch.name}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 rounded-control border border-brand/30 bg-brand-soft px-2 py-1 text-2xs font-semibold text-brand-fg">
+                      <Sparkles className="h-3 w-3 shrink-0 animate-pulse text-brand" />
+                      <span><strong>Otomatik Açılacak:</strong> Kaydedildiğinde bu hesap TDHP planına anında eklenecektir.</span>
+                    </div>
+                  )
                 )}
               </div>
 
-              <div className="sm:col-span-2 space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Firma / Cari Ünvanı *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Örn: Eren Kundura Toptan San. Tic. Ltd. Şti."
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-bold focus:ring-1 focus:ring-indigo-500 outline-none uppercase text-slate-900 dark:text-slate-100"
-                />
+              <div className="sm:col-span-2">
+                <Field label="Firma / Cari Ünvanı" required>
+                  <Input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Örn: Eren Kundura Toptan San. Tic. Ltd. Şti."
+                    className="uppercase"
+                  />
+                </Field>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Resmi Ticari Ünvan (Varsa)
-                </label>
-                <input
+              <Field label="Resmi Ticari Ünvan (Varsa)">
+                <Input
                   type="text"
                   value={companyTitle}
                   onChange={(e) => setCompanyTitle(e.target.value)}
                   placeholder="Fatura başlığı ile aynı değilse giriniz"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Yetkili Kişi (Ad Soyad)
-                </label>
-                <input
+              <Field label="Yetkili Kişi (Ad Soyad)">
+                <Input
                   type="text"
                   value={contactPerson}
                   onChange={(e) => setContactPerson(e.target.value)}
                   placeholder="Örn: Ahmet Yılmaz (Satın Alma Müdürü)"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-semibold"
                 />
-              </div>
+              </Field>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Cari Türü *
-                </label>
+                <span className="text-label font-black uppercase tracking-widest text-fg-muted">Cari Türü *</span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => handleTypeChange('customer')}
                     className={cn(
-                      "py-2.5 px-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all text-center cursor-pointer",
+                      "cursor-pointer rounded-control border py-2.5 px-2 text-center text-xs font-bold uppercase tracking-wider transition-all",
                       type === 'customer'
-                        ? "bg-indigo-50 border-indigo-600 text-indigo-700 shadow-sm"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-50 dark:bg-slate-800/50"
+                        ? "border-brand bg-brand-soft text-brand-fg shadow-card"
+                        : "border-line bg-surface text-fg-muted hover:bg-surface-hover"
                     )}
                   >
                     Müşteri (Alıcı)
@@ -587,10 +529,10 @@ export default function ContactFormModal({
                     type="button"
                     onClick={() => handleTypeChange('supplier')}
                     className={cn(
-                      "py-2.5 px-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all text-center cursor-pointer",
+                      "cursor-pointer rounded-control border py-2.5 px-2 text-center text-xs font-bold uppercase tracking-wider transition-all",
                       type === 'supplier'
-                        ? "bg-amber-50 border-amber-600 text-amber-800 shadow-sm"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-50 dark:bg-slate-800/50"
+                        ? "border-brand bg-brand-soft text-brand-fg shadow-card"
+                        : "border-line bg-surface text-fg-muted hover:bg-surface-hover"
                     )}
                   >
                     Tedarikçi (Satıcı)
@@ -599,10 +541,10 @@ export default function ContactFormModal({
                     type="button"
                     onClick={() => handleTypeChange('both')}
                     className={cn(
-                      "py-2.5 px-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all text-center cursor-pointer",
+                      "cursor-pointer rounded-control border py-2.5 px-2 text-center text-xs font-bold uppercase tracking-wider transition-all",
                       type === 'both'
-                        ? "bg-emerald-50 border-emerald-600 text-emerald-800 shadow-sm"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-50 dark:bg-slate-800/50"
+                        ? "border-brand bg-brand-soft text-brand-fg shadow-card"
+                        : "border-line bg-surface text-fg-muted hover:bg-surface-hover"
                     )}
                   >
                     Her İkisi
@@ -610,47 +552,40 @@ export default function ContactFormModal({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Sektör / Cari Grubu
-                </label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-bold focus:ring-1 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-900"
-                >
+              <Field label="Sektör / Cari Grubu">
+                <Select value={category} onChange={(e) => setCategory(e.target.value)}>
                   <option value="">Kategori Seçiniz</option>
                   {CATEGORY_OPTIONS.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
                   ))}
-                </select>
-              </div>
+                </Select>
+              </Field>
             </div>
 
             {!initialData && (
-              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+              <div className="space-y-2 rounded-card border border-line bg-surface-raised p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-label font-black uppercase tracking-widest text-fg-muted">
                     Açılış / Devir Bakiyesi (₺)
-                  </label>
-                  <span className="text-[10px] text-slate-400">
+                  </span>
+                  <span className="text-2xs font-semibold text-fg-muted">
                     Pozitif: Alacaklıyız (Müşteri Borcu), Negatif: Borçluyuz (Tedarikçi Alacağı)
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input
+                  <Input
                     type="number"
                     step="0.01"
                     value={balance}
                     onChange={(e) => setBalance(parseFloat(e.target.value) || 0)}
                     placeholder="0.00"
-                    className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-sm font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                    className="font-mono text-sm"
                   />
                   <div className={cn(
-                    "px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap",
-                    balance > 0 ? "bg-emerald-100 text-emerald-800" : balance < 0 ? "bg-rose-100 text-rose-800" : "bg-slate-200 text-slate-700 dark:text-slate-200"
+                    "whitespace-nowrap rounded-control px-3 py-2 text-xs font-bold",
+                    balance > 0 ? "bg-success-soft text-success" : balance < 0 ? "bg-danger-soft text-danger" : "bg-surface-raised text-fg-muted"
                   )}>
                     {balance > 0 ? 'Alacağımız Var' : balance < 0 ? 'Borcumuz Var' : 'Sıfır Bakiye'}
                   </div>
@@ -660,207 +595,161 @@ export default function ContactFormModal({
           </div>
         )}
 
+
         {/* TAB 2: ILETISIM & ADRES */}
         {activeTab === 'contact' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Sabit Telefon
-                </label>
-                <input
+              <Field label="Sabit Telefon">
+                <Input
                   type="text"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="0212 XXX XX XX"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  GSM / Cep Telefonu
-                </label>
-                <input
+              <Field label="GSM / Cep Telefonu">
+                <Input
                   type="text"
                   value={mobile}
                   onChange={(e) => setMobile(e.target.value)}
                   placeholder="05XX XXX XX XX"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  E-Posta Adresi
-                </label>
-                <input
+              <Field label="E-Posta Adresi">
+                <Input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="muhasebe@firma.com"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
+                  className="font-medium"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Web Sitesi
-                </label>
-                <input
+              <Field label="Web Sitesi">
+                <Input
                   type="text"
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
                   placeholder="www.firma.com.tr"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none font-medium"
+                  className="font-medium"
                 />
-              </div>
+              </Field>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  İl / Şehir
-                </label>
-                <select
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-bold focus:ring-1 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-900"
-                >
+              <Field label="İl / Şehir">
+                <Select value={city} onChange={(e) => setCity(e.target.value)}>
                   <option value="">Şehir Seçiniz</option>
                   {TURKISH_CITIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
                   ))}
-                </select>
-              </div>
+                </Select>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  İlçe / Semt
-                </label>
-                <input
+              <Field label="İlçe / Semt">
+                <Input
                   type="text"
                   value={district}
                   onChange={(e) => setDistrict(e.target.value)}
                   placeholder="Örn: Güngören / İkitelli"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-semibold"
                 />
-              </div>
+              </Field>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Fatura / Merkez Adresi
-              </label>
-              <textarea
+            <Field label="Fatura / Merkez Adresi">
+              <Textarea
                 rows={2}
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="Fatura ve tebligat adresi"
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
               />
-            </div>
+            </Field>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Sevkiyat / Depo Teslim Adresi (Farklıysa)
-              </label>
-              <textarea
+            <Field label="Sevkiyat / Depo Teslim Adresi (Farklıysa)">
+              <Textarea
                 rows={2}
                 value={shippingAddress}
                 onChange={(e) => setShippingAddress(e.target.value)}
                 placeholder="Ürünlerin teslim edileceği depo / ambar lokasyonu"
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
               />
-            </div>
+            </Field>
           </div>
         )}
+
 
         {/* TAB 3: MALI & BANKA */}
         {activeTab === 'financial' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Vergi Dairesi
-                </label>
-                <input
+              <Field label="Vergi Dairesi">
+                <Input
                   type="text"
                   value={taxOffice}
                   onChange={(e) => setTaxOffice(e.target.value)}
                   placeholder="Örn: Merter V.D."
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-semibold"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Vergi Numarası (VKN)
-                </label>
-                <input
+              <Field label="Vergi Numarası (VKN)">
+                <Input
                   type="text"
                   maxLength={10}
                   value={taxNumber}
                   onChange={(e) => setTaxNumber(e.target.value)}
                   placeholder="10 Haneli VKN"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  TC Kimlik No (Şahıs)
-                </label>
-                <input
+              <Field label="TC Kimlik No (Şahıs)">
+                <Input
                   type="text"
                   maxLength={11}
                   value={tcKimlik}
                   onChange={(e) => setTcKimlik(e.target.value)}
                   placeholder="11 Haneli TCKN"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                  Ödeme Vadesi (Gün)
-                </label>
-                <input
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-card border border-line bg-surface-raised p-4">
+              <Field label="Ödeme Vadesi (Gün)">
+                <Input
                   type="number"
                   min="0"
                   value={paymentTermDays}
                   onChange={(e) => setPaymentTermDays(e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="Örn: 30 / 60 gün"
-                  className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                  Kredi / Risk Limiti (₺)
-                </label>
-                <input
+              <Field label="Kredi / Risk Limiti (₺)">
+                <Input
                   type="number"
                   min="0"
                   step="1000"
                   value={creditLimit}
                   onChange={(e) => setCreditLimit(e.target.value === '' ? '' : parseFloat(e.target.value))}
                   placeholder="Örn: 250000"
-                  className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                  Özel İskonto Oranı (%)
-                </label>
-                <input
+              <Field label="Özel İskonto Oranı (%)">
+                <Input
                   type="number"
                   min="0"
                   max="100"
@@ -868,90 +757,82 @@ export default function ContactFormModal({
                   value={discountRate}
                   onChange={(e) => setDiscountRate(e.target.value === '' ? '' : parseFloat(e.target.value))}
                   placeholder="Örn: 5 (%5 indirim)"
-                  className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none"
+                  className="font-mono"
                 />
-              </div>
+              </Field>
             </div>
 
-            <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-4">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+            <div className="space-y-4 border-t border-line pt-4">
+              <h4 className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-fg-strong">
+                <CreditCard className="h-3.5 w-3.5 text-brand" />
                 Banka Hesap & IBAN Bilgileri
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Banka Adı & Şube
-                  </label>
-                  <input
+                <Field label="Banka Adı & Şube">
+                  <Input
                     type="text"
                     value={bankName}
                     onChange={(e) => setBankName(e.target.value)}
                     placeholder="Örn: Garanti BBVA - Merter Şb."
-                    className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none"
+                    className="font-semibold"
                   />
-                </div>
+                </Field>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Hesap Sahibi (Alıcı Adı)
-                  </label>
-                  <input
+                <Field label="Hesap Sahibi (Alıcı Adı)">
+                  <Input
                     type="text"
                     value={bankAccountName}
                     onChange={(e) => setBankAccountName(e.target.value)}
                     placeholder="Banka hesabındaki resmi ad"
-                    className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none"
+                    className="font-semibold"
                   />
-                </div>
+                </Field>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  IBAN Numarası
-                </label>
-                <input
+              <Field label="IBAN Numarası">
+                <Input
                   type="text"
                   maxLength={32}
                   value={iban}
                   onChange={(e) => setIban(e.target.value)}
                   placeholder="TRXX XXXX XXXX XXXX XXXX XXXX XX"
-                  className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-xs font-mono font-bold focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
+                  className="font-mono uppercase"
                 />
-              </div>
+              </Field>
             </div>
 
             {/* TEK DÜZEN HESAP PLANI (TDHP) MUHASEBE BAĞLANTISI */}
-            <div className="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+            <div className="space-y-3 border-t border-line pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-fg-strong">
+                  <BookOpen className="h-3.5 w-3.5 text-brand" />
                   Tek Düzen Muhasebe Hesap Planı (TDHP) Entegrasyonu
                 </h4>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="subtle"
+                  icon={<Sparkles className="h-3 w-3" />}
                   onClick={() => handleAutoSuggestAccountCode()}
-                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md transition-colors"
                 >
-                  <Sparkles className="w-3 h-3" />
                   Sıradaki Kodu Öner
-                </button>
+                </Button>
               </div>
 
-              <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-3">
+              <div className="space-y-3 rounded-card border border-brand/30 bg-brand-soft p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-2 space-y-1">
-                    <label className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                    <span className="text-label font-black uppercase tracking-widest text-fg-muted">
                       Tanımlı Muhasebe Muavin Hesap Kodu
-                    </label>
-                    <input
+                    </span>
+                    <Input
                       type="text"
                       value={accountCode}
                       onChange={(e) => { setAccountCode(e.target.value); setIsManualAccountCode(true); }}
                       placeholder={type === 'supplier' ? 'Örn: 320.01.001' : 'Örn: 120.01.001'}
                       list="tdhp-contact-accounts-tab3"
-                      className="w-full border border-indigo-200 bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs font-mono font-bold text-indigo-950 focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
+                      className="font-mono uppercase"
                     />
                     <datalist id="tdhp-contact-accounts-tab3">
                       {suggestedAccounts.map((acc) => (
@@ -961,26 +842,24 @@ export default function ContactFormModal({
                       ))}
                     </datalist>
                     {accountCode.trim() && (
-                      <div className="mt-1.5">
-                        {existingAccountMatch ? (
-                          <div className="flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                            <span><strong>Mevcut TDHP Hesabı:</strong> {existingAccountMatch.code} - {existingAccountMatch.name}</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-xs text-indigo-900 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-200 font-medium">
-                            <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0 animate-pulse" />
-                            <span><strong>Otomatik Açılacak Alt Hesap:</strong> {accountCode.trim()} - Bu cari kartı kaydedildiğinde Tek Düzen Hesap Planında otomatik olarak açılacaktır.</span>
-                          </div>
-                        )}
-                      </div>
+                      existingAccountMatch ? (
+                        <div className="flex items-center gap-1.5 rounded-control border border-success/30 bg-success-soft px-2.5 py-1.5 text-2xs font-semibold text-success">
+                          <span className="h-2 w-2 shrink-0 rounded-pill bg-success" />
+                          <span><strong>Mevcut TDHP Hesabı:</strong> {existingAccountMatch.code} - {existingAccountMatch.name}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 rounded-control border border-brand/30 bg-surface px-2.5 py-1.5 text-2xs font-semibold text-brand-fg">
+                          <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse text-brand" />
+                          <span><strong>Otomatik Açılacak Alt Hesap:</strong> {accountCode.trim()} - Bu cari kartı kaydedildiğinde Tek Düzen Hesap Planında otomatik olarak açılacaktır.</span>
+                        </div>
+                      )
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                    <span className="text-label font-black uppercase tracking-widest text-fg-muted">
                       Hızlı Hesap Grubu
-                    </label>
+                    </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -997,8 +876,8 @@ export default function ContactFormModal({
                           setIsManualAccountCode(true);
                         }}
                         className={cn(
-                          "flex-1 py-2 rounded-lg text-[10px] font-bold border text-center transition-all",
-                          accountCode.startsWith('120') ? "bg-indigo-600 text-white border-indigo-600" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-800/50"
+                          "flex-1 cursor-pointer rounded-control border py-2 text-center text-2xs font-bold transition-all",
+                          accountCode.startsWith('120') ? "border-brand bg-brand text-on-brand" : "border-line bg-surface text-fg-muted hover:bg-surface-hover"
                         )}
                       >
                         120 Alıcılar
@@ -1018,8 +897,8 @@ export default function ContactFormModal({
                           setIsManualAccountCode(true);
                         }}
                         className={cn(
-                          "flex-1 py-2 rounded-lg text-[10px] font-bold border text-center transition-all",
-                          accountCode.startsWith('320') ? "bg-indigo-600 text-white border-indigo-600" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:bg-slate-800/50"
+                          "flex-1 cursor-pointer rounded-control border py-2 text-center text-2xs font-bold transition-all",
+                          accountCode.startsWith('320') ? "border-brand bg-brand text-on-brand" : "border-line bg-surface text-fg-muted hover:bg-surface-hover"
                         )}
                       >
                         320 Satıcılar
@@ -1028,8 +907,8 @@ export default function ContactFormModal({
                   </div>
                 </div>
 
-                <div className="text-[11px] text-slate-600 bg-white dark:bg-slate-900/70 p-3 rounded-lg border border-indigo-100 flex items-start gap-2">
-                  <span className="text-indigo-600 font-bold">ℹ️</span>
+                <div className="flex items-start gap-2 rounded-card border border-line bg-surface p-3 text-2xs text-fg">
+                  <span className="font-bold text-brand">ℹ️</span>
                   <span>
                     <strong>Otomatik Yevmiye & Defter-i Kebir Entegrasyonu:</strong> Bu cariye kesilen satış veya alış faturaları ile kasa/banka/çek tahsilat-tediyeleri onaylandığında, genel hesap yerine doğrudan burada tanımlanan muavin koduna kaydedilir. Böylece Mizan ve Muavin Defterinde bu carinin net borç/alacak durumu kuruşu kuruşuna listelenir.
                   </span>
@@ -1039,41 +918,30 @@ export default function ContactFormModal({
           </div>
         )}
 
+
         {/* TAB 4: NOTLAR */}
         {activeTab === 'notes' && (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Özel Ticari Notlar, Anlaşmalar ve Açıklamalar
-              </label>
-              <textarea
-                rows={6}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Cari ile ilgili özel anlaşmalar, teslimat şartları, iskonto kuralları veya dahili uyarılar..."
-                className="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs focus:ring-1 focus:ring-indigo-500 outline-none leading-relaxed"
-              />
-            </div>
-          </div>
+          <Field label="Özel Ticari Notlar, Anlaşmalar ve Açıklamalar">
+            <Textarea
+              rows={6}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Cari ile ilgili özel anlaşmalar, teslimat şartları, iskonto kuralları veya dahili uyarılar..."
+              className="leading-relaxed"
+            />
+          </Field>
         )}
 
         {/* Bottom Actions */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 dark:text-slate-100 uppercase tracking-wider"
-          >
+        <div className="flex items-center justify-between border-t border-line pt-4">
+          <Button type="button" variant="ghost" onClick={onClose}>
             İptal
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors shadow-sm"
-          >
-            {loading ? 'Kaydediliyor...' : initialData ? 'Cari Bilgilerini Güncelle' : 'Yeni Cari Kartını Kaydet'}
-          </button>
+          </Button>
+          <Button type="submit" variant="primary" loading={loading}>
+            {initialData ? 'Cari Bilgilerini Güncelle' : 'Yeni Cari Kartını Kaydet'}
+          </Button>
         </div>
+
       </form>
     </Modal>
   );

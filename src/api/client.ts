@@ -187,6 +187,31 @@ function buildQuery(opts: ListOptions = {}): string {
 /* Kaynak istemcisi                                                    */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Silme politikası                                                    */
+/* ------------------------------------------------------------------ */
+
+/** 0 = serbest, 1 = uyarılı, 2 = parola + gerekçe, 3 = silinemez. */
+export type DeleteTier = 0 | 1 | 2 | 3;
+
+export interface DeletePlan {
+  resource: string;
+  id: Id;
+  label: string;
+  tier: DeleteTier;
+  summary: string;
+  passwordRequired: boolean;
+  reasonRequired: boolean;
+  cascade: { label: string; count: number }[];
+  warnings: string[];
+  blocked: { code: string; message: string } | null;
+}
+
+export interface DeleteConfirm {
+  reason?: string;
+  password?: string;
+}
+
 export interface ResourceClient<T> {
   readonly name: string;
   list(opts?: ListOptions): Promise<T[]>;
@@ -209,9 +234,12 @@ export interface ResourceClient<T> {
    * kayıt bu sürümden sonra değişmişse istek 409 (VERSION_CONFLICT) ile reddedilir.
    */
   update(id: Id, changes: Partial<T>, options?: { expectedVersion?: number }): Promise<number>;
-  remove(id: Id): Promise<void>;
-  removeMany(ids: Id[]): Promise<number>;
-  removeWhere(where: ListOptions['where']): Promise<number>;
+  /** Silme önizlemesi: kademe, birlikte silinecekler, uyarılar ve varsa blokaj. */
+  deletePlan(id: Id): Promise<DeletePlan>;
+  /** Kademe 2 kayıtlarda `reason` ve `password` zorunludur. */
+  remove(id: Id, confirm?: DeleteConfirm): Promise<void>;
+  removeMany(ids: Id[], confirm?: DeleteConfirm): Promise<number>;
+  removeWhere(where: ListOptions['where'], confirm?: DeleteConfirm): Promise<number>;
   /** Tabloyu tamamen boşaltır (fabrika sıfırlama). */
   clear(): Promise<number>;
 }
@@ -296,23 +324,33 @@ function resource<T>(name: string): ResourceClient<T> {
       return res.data?.changes ?? 0;
     },
 
-    async remove(id) {
-      await http(`/${name}/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+    async deletePlan(id) {
+      const res = await http<{ data: DeletePlan }>(
+        `/${name}/delete-plan/${encodeURIComponent(String(id))}`,
+      );
+      return res.data;
     },
 
-    async removeMany(ids) {
+    async remove(id, confirm) {
+      await http(`/${name}/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+        ...(confirm ? { body: JSON.stringify(confirm) } : {}),
+      });
+    },
+
+    async removeMany(ids, confirm) {
       if (!ids.length) return 0;
       const res = await http<{ data: { deleted: number } }>(`/${name}/bulk-delete`, {
         method: 'POST',
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ ids, ...(confirm || {}) }),
       });
       return res.data?.deleted ?? 0;
     },
 
-    async removeWhere(where) {
+    async removeWhere(where, confirm) {
       const res = await http<{ data: { deleted: number } }>(`/${name}/delete-where`, {
         method: 'POST',
-        body: JSON.stringify({ where }),
+        body: JSON.stringify({ where, ...(confirm || {}) }),
       });
       return res.data?.deleted ?? 0;
     },
@@ -373,6 +411,31 @@ export async function callOp<T = any>(op: string, payload: any = {}): Promise<T>
   const res = await http<{ data: T }>(`/ops/${op}`, { method: 'POST', body: JSON.stringify(payload) });
   return res.data;
 }
+
+/**
+ * Silme motorunun generic ucu. Kaynak adı runtime'da gelen ekranlar
+ * (onay modalı, silinen kayıtlar ekranı) tip haritasına bağlı kalmadan kullanır.
+ */
+export const deleteApi = {
+  async plan(resource: string, id: Id): Promise<DeletePlan> {
+    const res = await http<{ data: DeletePlan }>(`/${resource}/delete-plan/${encodeURIComponent(String(id))}`);
+    return res.data;
+  },
+  async remove(resource: string, id: Id, confirm?: DeleteConfirm): Promise<void> {
+    await http(`/${resource}/${encodeURIComponent(String(id))}`, {
+      method: 'DELETE',
+      ...(confirm ? { body: JSON.stringify(confirm) } : {}),
+    });
+  },
+  async removeMany(resource: string, ids: Id[], confirm?: DeleteConfirm): Promise<number> {
+    if (!ids.length) return 0;
+    const res = await http<{ data: { deleted: number } }>(`/${resource}/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ ids, ...(confirm || {}) }),
+    });
+    return res.data?.deleted ?? 0;
+  },
+};
 
 export interface GenerateBarcodesResult {
   /** Barkod üretilen ürün id'leri. */

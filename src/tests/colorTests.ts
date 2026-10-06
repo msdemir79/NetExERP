@@ -14,13 +14,16 @@
  * RBAC senaryosu (Test 10) sales_manager rolüyle koşar (userId 2): colors
  * modülünde view=true, create/edit/delete=false.
  *
- * Testler canlı DB'ye karşı koşar. Oluşturulan renk kartları fiziksel olarak
- * silinemez (şartname kuralı); bu yüzden sonunda PASİFE çekilir ve 'TEST-RENK'
- * önekiyle işaretlenir. Test ürünleri silinir (productColors CASCADE ile gider).
+ * Testler canlı DB'ye karşı koşar. Renk bir ana karttır: hiçbir yerde
+ * referanslı değilse silme politikası motoru kademe 0 ile parolasız siler;
+ * referanslıysa guard 409 COLOR_IN_USE döner ve kart PASİFE çekilir
+ * ('TEST-RENK' önekiyle işaretli kalır). Test ürünleri silinmeye çalışılır;
+ * stok hareketi olanlar guard ile korunur. Koşu sonunda `purgeTestResidue`
+ * işaretli test verisini (ürün, renk, hareket) veritabanından kaldırır.
  *
  * Çalıştırma: npm run test:colors
  */
-import { startTestServer, api, type TestServer } from './harness.js';
+import { startTestServer, api, purgeTestResidue, type TestServer } from './harness.js';
 import { canonicalColorName, foldTurkishName, hexToRgb, normalizeColorPayload } from '../../server/colorService.js';
 import { HttpError } from '../../server/errors.js';
 import { hexFromColorRefs } from '../lib/colorSwatches.js';
@@ -303,23 +306,35 @@ async function main(): Promise<void> {
     hakiName = canonicalColorName(newName);
   });
 
-  await test('Test 5 — Renk fiziksel olarak silinemiyor (kullanılan da kullanılmayan da)', async () => {
+  await test('Test 5 — Kullanılan renk silinemiyor, kullanılmayan renk parolasız siliniyor', async () => {
+    // Silme politikası motoru: renk bir ana karttır. Referanslıysa guard (409),
+    // referanssızsa kademe 0 — parola/gerekçe istenmez.
     const used = await api(srv, 'DELETE', `/colors/${hakiId}`);
-    expect(used.status).toBe(403);
-    expect((used.data as any)?.code).toBe('TRANSACTIONAL_NO_DELETE');
+    expect(used.status).toBe(409);
+    expect((used.data as any)?.code).toBe('COLOR_IN_USE');
 
     unusedId = await createColor({ name: `${P} KULLANILMAYAN ${RUN}` });
+
+    const plan = await api(srv, 'GET', `/colors/delete-plan/${unusedId}`);
+    expect((plan.data as any)?.data?.tier).toBe(0);
+    expect((plan.data as any)?.data?.passwordRequired).toBe(false);
+
     const free = await api(srv, 'DELETE', `/colors/${unusedId}`);
-    expect(free.status).toBe(403);
-    expect((free.data as any)?.code).toBe('TRANSACTIONAL_NO_DELETE');
+    expect(free.status).toBe(200);
+    expect((free.data as any)?.data?.deleted).toBe(1);
+    const gone = await api(srv, 'GET', `/colors/${unusedId}`);
+    expect(gone.status).toBe(404);
+    createdColorIds.splice(createdColorIds.indexOf(unusedId), 1);
 
-    const bulk = await api(srv, 'POST', '/colors/bulk-delete', { ids: [hakiId, unusedId] });
-    expect(bulk.status).toBe(403);
-    expect((bulk.data as any)?.code).toBe('TRANSACTIONAL_NO_DELETE');
+    // Toplu silme: listede referanslı tek bir renk varsa bütün işlem geri alınır.
+    const spare = await createColor({ name: `${P} TOPLU DENEME ${RUN}` });
+    const bulk = await api(srv, 'POST', '/colors/bulk-delete', { ids: [spare, hakiId] });
+    expect(bulk.status).toBe(409);
+    expect((bulk.data as any)?.code).toBe('COLOR_IN_USE');
 
-    // Kayıtlar yerinde duruyor.
+    // Kullanılan renk ve toplu listedeki yedeği yerinde duruyor.
     expect((await getColor(hakiId)).id !== undefined).toBe(true);
-    expect((await getColor(unusedId)).id !== undefined).toBe(true);
+    expect((await getColor(spare)).id !== undefined).toBe(true);
   });
 
   await test('Test 6 — Kullanılan renk pasifleştirilebiliyor, ürün bağı korunuyor', async () => {
@@ -554,13 +569,17 @@ async function main(): Promise<void> {
   await test('Test ürünleri silindi, test renkleri pasife çekildi', async () => {
     for (const id of createdProductIds) {
       const res = await api(srv, 'DELETE', `/products/${id}`);
-      expect(res.status).toBe(200);
+      // Stok hareketi olan test ürünü guard ile korunur (409); kalan satırları
+      // koşu sonundaki purgeTestResidue kaldırır.
+      if (res.status !== 200 && res.status !== 409) {
+        throw new Error(`products/${id} temizlenemedi (${res.status}): ${res.text.slice(0, 160)}`);
+      }
     }
     for (const id of createdColorIds) {
       const res = await api(srv, 'PATCH', `/colors/${id}`, { isActive: false });
       expect(res.status).toBe(200);
     }
-    // Ürün silindi ama renk kartı duruyor (fiziksel silme yok, tarihçe korunur).
+    // Ürün silinse de kullanılan renk kartı duruyor (guard + pasifleştirme).
     expect((await getColor(hakiId)).name).toBe(hakiName);
   });
 
@@ -570,6 +589,7 @@ async function main(): Promise<void> {
 
   await srv.close();
   await limited.close();
+  await purgeTestResidue('Renk modülü');
   process.exit(failed > 0 ? 1 : 0);
 }
 
@@ -577,5 +597,6 @@ main().catch(async (err) => {
   console.error('RENK MODÜLÜ TEST HARİCİ HATA:', err);
   try { await srv?.close(); } catch { /* yoksay */ }
   try { await limited?.close(); } catch { /* yoksay */ }
+  await purgeTestResidue('Renk modülü');
   process.exit(1);
 });

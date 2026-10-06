@@ -22,7 +22,9 @@ import UserModal from './UserModal';
 import RoleModal from './RoleModal';
 import RolePermissionsMatrix from './RolePermissionsMatrix';
 import AuditLogTab from './AuditLogTab';
+import DeletedRecordsTab from './DeletedRecordsTab';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
+import DeleteConfirmModal from '../Common/DeleteConfirmModal';
 import type { AppUser, Role, UserStatus } from '../../types';
 
 export default function UsersManagement() {
@@ -35,6 +37,7 @@ export default function UsersManagement() {
   const users = useApiQuery(() => api.users.list(), [], ['users']) || [];
   const roles = useApiQuery(() => api.roles.list(), [], ['roles']) || [];
   const auditLogsCount = useApiQuery(() => api.auditLogs.count(), [], ['auditLogs']) || 0;
+  const deletedRecordsCount = useApiQuery(() => userService.countDeletedRecords(), [], ['auditLogs']) || 0;
 
   // Filters & State for Users Tab
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -48,6 +51,9 @@ export default function UsersManagement() {
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<number | undefined>(undefined);
+
+  // Silme onayı ortak modal üzerinden yürür (kademe 2: gerekçe + parola).
+  const [deleteTarget, setDeleteTarget] = useState<{ resource: 'users' | 'roles'; id: number } | null>(null);
 
   const handleTabChange = (tab: string) => {
     setSearchParams({ tab });
@@ -80,15 +86,9 @@ export default function UsersManagement() {
     }
   };
 
-  const handleDeleteUser = async (user: AppUser) => {
+  const handleDeleteUser = (user: AppUser) => {
     if (!user.id) return;
-    if (await confirmDialog(`"${user.fullName}" kullanıcısını silmek istediğinize emin misiniz?`, { tone: 'danger', confirmText: 'Sil' })) {
-      try {
-        await userService.deleteUser(user.id);
-      } catch (err: any) {
-        showToast(err.message || 'Kullanıcı silinemedi.', 'error');
-      }
-    }
+    setDeleteTarget({ resource: 'users', id: user.id });
   };
 
   const handleToggleUserStatus = async (user: AppUser) => {
@@ -113,18 +113,9 @@ export default function UsersManagement() {
     }
   };
 
-  const handleDeleteRole = async (role: Role) => {
+  const handleDeleteRole = (role: Role) => {
     if (!role.id) return;
-    if (await confirmDialog(`"${role.name}" rolünü silmek istediğinize emin misiniz?`, { tone: 'danger', confirmText: 'Sil' })) {
-      try {
-        await userService.deleteRole(role.id);
-        if (selectedRoleId === role.id && roles[0]?.id) {
-          setSelectedRoleId(roles[0].id);
-        }
-      } catch (err: any) {
-        showToast(err.message || 'Rol silinemedi.', 'error');
-      }
-    }
+    setDeleteTarget({ resource: 'roles', id: role.id });
   };
 
   const handleResetRolesToDefault = async () => {
@@ -342,6 +333,18 @@ export default function UsersManagement() {
           <FileText className="w-4 h-4" />
           <span>İşlem Denetim İzi (Audit Log)</span>
         </button>
+
+        <button
+          onClick={() => handleTabChange('deleted')}
+          className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            activeTab === 'deleted'
+              ? 'border-rose-600 text-rose-600'
+              : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200'
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Silinen Kayıtlar ({deletedRecordsCount})</span>
+        </button>
       </div>
 
       {/* TAB 1: USERS LIST */}
@@ -485,6 +488,11 @@ export default function UsersManagement() {
         <AuditLogTab />
       )}
 
+      {/* TAB 4: SİLİNEN KAYITLAR */}
+      {activeTab === 'deleted' && (
+        <DeletedRecordsTab />
+      )}
+
       {/* User Modal */}
       <UserModal
         isOpen={isUserModalOpen}
@@ -502,6 +510,24 @@ export default function UsersManagement() {
         role={editingRole}
         existingRoles={roles}
       />
+
+      {/* Kullanıcı / Rol Silme (ortak silme motoru — Kademe 2) */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          resource={deleteTarget.resource}
+          id={deleteTarget.id}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async () => {
+            const target = deleteTarget;
+            setDeleteTarget(null);
+            if (target.resource === 'users') {
+              await userService.afterUserDeleted(target.id);
+            } else if (selectedRoleId === target.id && roles[0]?.id) {
+              setSelectedRoleId(roles[0].id);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

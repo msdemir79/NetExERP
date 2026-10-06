@@ -32,8 +32,7 @@ import ProductSelectorModal from './Orders/ProductSelectorModal';
 import ColorSizePickerModal from './Orders/ColorSizePickerModal';
 import { PurchaseOrderPrintModal } from './Orders/PurchaseOrderPrintModal';
 import OrderDetailModal from './Orders/OrderDetailModal';
-import DeleteOrderConfirmModal from './Orders/DeleteOrderConfirmModal';
-import BlockedOrderModal from './Orders/BlockedOrderModal';
+import DeleteConfirmModal from './Common/DeleteConfirmModal';
 import { ContactSelect } from './Contacts/ContactSelect';
 import { orderService } from '../services/orderService';
 import { productionService } from '../services/productionService';
@@ -63,12 +62,8 @@ export default function Orders() {
   const [isTransferringToProduction, setIsTransferringToProduction] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   
-  // Custom in-app delete confirmation & warning modals
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = React.useState(false);
-  const [deleteTarget, setDeleteTarget] = React.useState<{ id: number; orderNumber: string; grandTotal?: number; contactName?: string } | null>(null);
-  const [deleteError, setDeleteError] = React.useState<string | null>(null);
-  const [isBlockedModalOpen, setIsBlockedModalOpen] = React.useState(false);
-  const [blockedReason, setBlockedReason] = React.useState<string | null>(null);
+  // Silme onayı ortak modal üzerinden yürür (plan + cascade sunucudan gelir).
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: number; orderNumber: string } | null>(null);
   const [feedbackAlert, setFeedbackAlert] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
   // Product Selector Modal State
@@ -258,8 +253,11 @@ export default function Orders() {
     try {
       const check = await orderService.canModifyOrDeleteOrder(orderId);
       if (!check.canModify) {
-        setBlockedReason(check.reason || 'Bu sipariş faturası veya irsaliyesi kesildiği için değiştirilemez.');
-        setIsBlockedModalOpen(true);
+        setFeedbackAlert({
+          type: 'error',
+          message: check.reason || 'Bu sipariş faturası veya irsaliyesi kesildiği için değiştirilemez.'
+        });
+        setTimeout(() => setFeedbackAlert(null), 5000);
         return;
       }
 
@@ -312,51 +310,8 @@ export default function Orders() {
     }
   };
 
-  const handleRequestDelete = async (orderId: number, ordNumber: string, grandTotal?: number, contactName?: string) => {
-    try {
-      const check = await orderService.canModifyOrDeleteOrder(orderId);
-      if (!check.canModify) {
-        setBlockedReason(check.reason || 'Bu sipariş faturası veya irsaliyesi kesildiği için silinemez.');
-        setIsBlockedModalOpen(true);
-        return;
-      }
-
-      setDeleteTarget({
-        id: orderId,
-        orderNumber: ordNumber,
-        grandTotal,
-        contactName
-      });
-      setDeleteError(null);
-      setIsDeleteModalOpen(true);
-    } catch (error: any) {
-      setBlockedReason('Kontrol sırasında hata oluştu: ' + (error?.message || error));
-      setIsBlockedModalOpen(true);
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      setIsProcessing(true);
-      await orderService.deleteOrder(deleteTarget.id);
-      if (selectedOrder?.id === deleteTarget.id) {
-        setIsDetailModalOpen(false);
-        setSelectedOrder(null);
-      }
-      setIsDeleteModalOpen(false);
-      const deletedNum = deleteTarget.orderNumber;
-      setDeleteTarget(null);
-      setFeedbackAlert({
-        type: 'success',
-        message: `"${deletedNum}" numaralı sipariş ve bağlı iş emirleri başarıyla silindi.`
-      });
-      setTimeout(() => setFeedbackAlert(null), 4000);
-    } catch (error: any) {
-      setDeleteError('Sipariş silinirken hata: ' + (error?.message || error));
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleRequestDelete = (orderId: number, ordNumber: string) => {
+    setDeleteTarget({ id: orderId, orderNumber: ordNumber });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -926,7 +881,7 @@ export default function Orders() {
           <Edit2 className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => handleRequestDelete(order.id!, order.orderNumber, order.grandTotal, contact?.name)}
+          onClick={() => handleRequestDelete(order.id!, order.orderNumber)}
           title={hasLock ? "Fatura veya İrsaliye oluşturulduğu için silinemez" : "Siparişi Sil"}
           className={cn(
             "p-1.5 rounded-lg transition-colors cursor-pointer",
@@ -1342,21 +1297,28 @@ export default function Orders() {
         </form>
       </Modal>
 
-      {/* Delete Confirmation In-App Modal */}
-      <DeleteOrderConfirmModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => { setIsDeleteModalOpen(false); setDeleteTarget(null); }}
-        target={deleteTarget}
-        error={deleteError}
-        isProcessing={isProcessing}
-        onConfirm={handleConfirmDelete}
-      />
-      {/* Blocked / Protected Order Warning Modal */}
-      <BlockedOrderModal
-        isOpen={isBlockedModalOpen}
-        onClose={() => { setIsBlockedModalOpen(false); setBlockedReason(null); }}
-        reason={blockedReason}
-      />
+      {/* Silme onayı: plan, cascade ve engeller sunucudan gelir */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          resource="orders"
+          id={deleteTarget.id}
+          title="Siparişi Sil"
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => {
+            const deletedNum = deleteTarget.orderNumber;
+            if (selectedOrder?.id === deleteTarget.id) {
+              setIsDetailModalOpen(false);
+              setSelectedOrder(null);
+            }
+            setDeleteTarget(null);
+            setFeedbackAlert({
+              type: 'success',
+              message: `"${deletedNum}" numaralı sipariş ve bağlı kayıtları silindi.`
+            });
+            setTimeout(() => setFeedbackAlert(null), 4000);
+          }}
+        />
+      )}
 
       {/* Advanced Product & Variant Selection Modal */}
       <ProductSelectorModal
