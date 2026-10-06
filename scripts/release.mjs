@@ -82,8 +82,10 @@ if (doPush) {
 }
 
 // 2. Sürümü yükselt (package.json + package-lock.json).
-const versionRes = mustRun('npm', ['version', bumpType, '--no-git-tag-version', '--json']);
-const newVersion = JSON.parse(versionRes.stdout);
+// Sürüm npm çıktısından değil paketten okunur: npm'in --json çıktısı
+// kabuk/yürütmeye göre değişkendir (düz "v1.0.1" basabilir).
+mustRun('npm', ['version', bumpType, '--no-git-tag-version']);
+const newVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const tagName = `v${newVersion}`;
 
 // 3. Sürüm notu şablonu (GitHub Release gövdesi + uygulama içi güncelleme
