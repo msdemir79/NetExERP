@@ -1,6 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { createApiRouter } from './server/api.js';
 import { testConnection, closePool } from './server/db.js';
@@ -158,13 +157,17 @@ async function startServer() {
 
   // Vite (geliştirme) / statik dosyalar (üretim)
   if (process.env.NODE_ENV !== 'production') {
+    // Tembel import: paketli backend node_modules'ünde vite bulunmaz; geliştirme
+    // modunda buraya yalnızca NODE_ENV!=production dalından ulaşılır.
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // Electron fork'u STATIC_DIR ile sahnelenen web/ dizinini işaret eder.
+    const distPath = process.env.STATIC_DIR || path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       if (req.path.startsWith('/api/')) {
