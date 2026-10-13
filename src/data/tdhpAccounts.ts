@@ -171,7 +171,7 @@ export const INITIAL_CASH_BOXES: Omit<CashBox, 'id'>[] = [
     name: 'Merkez TL Kasası',
     accountCode: '100.01',
     currency: 'TRY',
-    balance: 45000,
+    balance: 0,
     responsiblePerson: 'Muhasebe Müdürü',
     notes: 'Ana fabrika ve genel yönetim nakit kasası',
     createdAt: new Date()
@@ -181,7 +181,7 @@ export const INITIAL_CASH_BOXES: Omit<CashBox, 'id'>[] = [
     name: 'Şube / Mağaza Kasası',
     accountCode: '100.02',
     currency: 'TRY',
-    balance: 12500,
+    balance: 0,
     responsiblePerson: 'Mağaza Satış Sorumlusu',
     notes: 'Perakende satış noktası kasası',
     createdAt: new Date()
@@ -191,7 +191,7 @@ export const INITIAL_CASH_BOXES: Omit<CashBox, 'id'>[] = [
     name: 'Döviz Kasası (USD)',
     accountCode: '100.03',
     currency: 'USD',
-    balance: 3200,
+    balance: 0,
     responsiblePerson: 'Finans Yetkilisi',
     notes: 'İhracat ve dövizli tahsilat kasası',
     createdAt: new Date()
@@ -206,7 +206,7 @@ export const INITIAL_BANK_ACCOUNTS: Omit<BankAccount, 'id'>[] = [
     iban: 'TR62 0006 2000 0001 2345 6789 01',
     accountCode: '102.01',
     currency: 'TRY',
-    balance: 185400,
+    balance: 0,
     notes: 'Ana ticari operasyon hesabı',
     createdAt: new Date()
   },
@@ -217,7 +217,7 @@ export const INITIAL_BANK_ACCOUNTS: Omit<BankAccount, 'id'>[] = [
     iban: 'TR33 0001 0004 0000 9876 5432 10',
     accountCode: '102.02',
     currency: 'TRY',
-    balance: 92800,
+    balance: 0,
     notes: 'Vergi ve SGK ödeme hesabı',
     createdAt: new Date()
   },
@@ -228,7 +228,7 @@ export const INITIAL_BANK_ACCOUNTS: Omit<BankAccount, 'id'>[] = [
     iban: 'TR88 0006 4000 0012 3456 7890 12',
     accountCode: '102.03',
     currency: 'TRY',
-    balance: 54000,
+    balance: 0,
     notes: 'Tedarikçi EFT / Havale hesabı',
     createdAt: new Date()
   }

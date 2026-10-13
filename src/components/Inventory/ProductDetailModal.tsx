@@ -16,6 +16,7 @@ import { cn } from '../../lib/utils';
 import { formatQuantity } from '../../lib/inventoryCalculator';
 import ColorSwatch from '../Colors/ColorSwatch';
 import { useColorHexByName } from '../Colors/useColorMaster';
+import ProductionDemandPanel from './ProductionDemandPanel';
 import { inventoryService } from '../../services/inventoryService';
 import { CATEGORY_CONFIGS, getProductCategoryType } from './categoryConfig';
 import type { Account, BarcodeVariant, Product } from '../../types';
@@ -137,6 +138,11 @@ export default function ProductDetailModal({
                 )}
               </div>
             </div>
+
+            {/* Üretimden kaynaklanan bekleyen miktarlar (ihtiyaç / depoya girecek) */}
+            {product.id != null && (
+              <ProductionDemandPanel productId={product.id} unit={product.unit} stock={product.stock || 0} />
+            )}
 
             {/* Tab Bar */}
             <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit max-w-full overflow-x-auto">
