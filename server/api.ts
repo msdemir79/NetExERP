@@ -45,6 +45,7 @@ import {
   propagateColorRename,
   syncProductColorsFromBody,
 } from './colorService.js';
+import { normalizeMoldPayload, prepareMoldWrite } from './moldService.js';
 
 /* ------------------------------------------------------------------ */
 /* Yardımcılar                                                         */
@@ -211,6 +212,10 @@ async function assertVersionMatch(def: ResourceDef, pk: any, expected: number): 
 function applyResourceRules(resource: string, data: Record<string, any>): void {
   if (resource === 'colors') {
     normalizeColorPayload(data);
+    return;
+  }
+  if (resource === 'molds') {
+    normalizeMoldPayload(data);
     return;
   }
   // Yevmiye fişi disiplini: denge sunucuda doğrulanır, toplamlar sunucuda hesaplanır.
@@ -1249,6 +1254,7 @@ export function createApiRouter(): Router {
           // Renk kodu boşsa kilitli sayaçtan üretilir; kod benzersizliği burada
           // açıkça denetlenir (UNIQUE çakışması 500'e düşmesin).
           if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
+          if (resource === 'molds') await prepareMoldWrite(conn, data, { id: data[def.primaryKey] ?? null });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
           // Yevmiye fiş numarası her zaman sunucuda, kilitli sayaçtan üretilir
           // (item 8). İstemciden gelen entryNumber yok sayılır; böylece eşzamanlı
@@ -1321,6 +1327,7 @@ export function createApiRouter(): Router {
         const before = await snapshotForAudit(conn, def, resource, pk);
         // Renk kodu değişiyorsa benzersizlik transaction içinde denetlenir.
         if (resource === 'colors') await prepareColorWrite(conn, data, { id: pk });
+        if (resource === 'molds') await prepareMoldWrite(conn, data, { id: pk });
         if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
 
         let changes = 0;
@@ -1383,6 +1390,7 @@ export function createApiRouter(): Router {
         const affected = await withTransaction(async (conn) => {
           const before = await snapshotForAudit(conn, def, resource, id);
           if (resource === 'colors') await prepareColorWrite(conn, data, { id });
+          if (resource === 'molds') await prepareMoldWrite(conn, data, { id });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
           // SQL, transaction içinde kesinleşen alanlardan (renk kodu, targetColorId) kurulur.
           const { sql, params } = updateSql(
@@ -1423,6 +1431,7 @@ export function createApiRouter(): Router {
         await withTransaction(async (conn) => {
           // Renk kodu transaction içinde (kilitli sayaçtan) üretilir; INSERT SQL'i bu yüzden burada kurulur.
           if (resource === 'colors') await prepareColorWrite(conn, insertData, { id });
+          if (resource === 'molds') await prepareMoldWrite(conn, insertData, { id });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, insertData);
           const { sql, params } = insertSql(def, insertData);
           await conn.query(sql, params);
@@ -1471,6 +1480,7 @@ export function createApiRouter(): Router {
             const keys = Object.keys(updateData).filter((k) => k !== def.primaryKey);
             if (keys.length) {
               if (resource === 'colors') await prepareColorWrite(conn, updateData, { id: pk });
+              if (resource === 'molds') await prepareMoldWrite(conn, updateData, { id: pk });
               if (resource === 'recipes') await applyRecipeTargetColor(conn, updateData);
               const { sql, params } = updateSql(
                 def,
@@ -1487,6 +1497,7 @@ export function createApiRouter(): Router {
             }
           }
           if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
+          if (resource === 'molds') await prepareMoldWrite(conn, data, { id: data[def.primaryKey] ?? null });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
           const { sql, params } = insertSql(def, data);
           const [r] = await conn.query(sql, params);

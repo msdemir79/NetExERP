@@ -7,6 +7,10 @@ import Templates from './components/Inventory/Templates';
 import BarcodeCenter from './components/Inventory/BarcodeCenter';
 import BulkStockScreen from './components/Inventory/BulkStockScreen';
 import Production from './components/Production';
+import Molds from './components/Molds';
+import MoldMovementsScreen from './components/Molds/MoldMovementsScreen';
+import MoldSubcontractScreen from './components/Molds/MoldSubcontractScreen';
+import MoldReportsScreen from './components/Molds/MoldReportsScreen';
 import Orders from './components/Orders';
 import Invoices from './components/Invoices';
 import Waybills from './components/Waybills';
@@ -90,6 +94,10 @@ function DesktopRoutes() {
             <Route path="reports/broken" element={<BrokenSizeReport />} />
             
             <Route path="production" element={<Production />} />
+            <Route path="molds" element={<Molds />} />
+            <Route path="molds/movements" element={<MoldMovementsScreen />} />
+            <Route path="molds/subcontract" element={<MoldSubcontractScreen />} />
+            <Route path="molds/reports" element={<MoldReportsScreen />} />
             <Route path="orders" element={<Orders />} />
             <Route path="waybills" element={<Waybills />} />
             <Route path="invoices" element={<Invoices />} />

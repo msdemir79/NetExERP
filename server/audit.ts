@@ -52,6 +52,8 @@ export const AUDITED_RESOURCES: Record<string, { label: string; module: string }
   waybills: { label: 'İrsaliye', module: 'waybills' },
   workOrders: { label: 'İş Emri', module: 'production' },
   recipes: { label: 'Reçete', module: 'production' },
+  molds: { label: 'Kalıp', module: 'molds' },
+  moldMovements: { label: 'Kalıp Hareketi', module: 'molds' },
   employees: { label: 'Personel', module: 'hr' },
   attendanceRecords: { label: 'Puantaj', module: 'hr' },
   leaveRequests: { label: 'İzin Talebi', module: 'hr' },

@@ -567,6 +567,204 @@ async function reverseJournalEntryInTx(conn: PoolConnection, entryId: number): P
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Kalıp (last) takip motoru — sabitler ve yardımcılar                 */
+/* ------------------------------------------------------------------ */
+
+/** Kalıp konum kovaları. Bir çift her anda TEK kovada durur. */
+const MOLD_LOCATION_TYPES = [
+  'factory_warehouse',
+  'factory_line',
+  'factory_other',
+  'subcontract',
+  'subcontract_warehouse',
+  'maintenance',
+  'scrap_lost',
+  'allocated',
+] as const;
+type MoldLocationType = (typeof MOLD_LOCATION_TYPES)[number];
+
+const MOLD_LOCATION_LABELS: Record<MoldLocationType, string> = {
+  factory_warehouse: 'Fabrika Deposu',
+  factory_line: 'Üretim Hattı',
+  factory_other: 'Fabrika İçi Diğer',
+  subcontract: 'Fason Firma',
+  subcontract_warehouse: 'Fason Deposu',
+  maintenance: 'Bakım/Onarım',
+  scrap_lost: 'Hurda/Kayıp',
+  allocated: 'İş Emrine Tahsis',
+};
+
+/** Kullanılabilir çift hesabına girmeyen konumlar (bakım + hurda/kayıp). */
+const MOLD_UNAVAILABLE_LOCATIONS: MoldLocationType[] = ['maintenance', 'scrap_lost'];
+const MOLD_FACTORY_LOCATIONS: MoldLocationType[] = ['factory_warehouse', 'factory_line', 'factory_other'];
+const MOLD_SUBCONTRACT_LOCATIONS: MoldLocationType[] = ['subcontract', 'subcontract_warehouse'];
+
+/** /mold-move ucunun kabul ettiği fiziksel hareket türleri. count_adjust, allocate ve deallocate ayrı uçlarda işlenir. */
+const MOLD_MOVE_TYPES = [
+  'initial_entry',
+  'to_line',
+  'from_line_return',
+  'to_subcontract',
+  'from_subcontract_return',
+  'subcontract_transfer',
+  'warehouse_transfer',
+  'to_maintenance',
+  'from_maintenance',
+  'damage',
+  'loss',
+  'scrap',
+] as const;
+type MoldMoveType = (typeof MOLD_MOVE_TYPES)[number];
+
+const MOLD_MOVE_LABELS: Record<MoldMoveType | 'count_adjust' | 'allocate' | 'deallocate', string> = {
+  initial_entry: 'İlk Kalıp Girişi',
+  to_line: 'Üretim Hattına Transfer',
+  from_line_return: 'Hattan Depoya İade',
+  to_subcontract: 'Fasona Gönderim',
+  from_subcontract_return: 'Fasondan İade',
+  subcontract_transfer: 'Fasonlar Arası Transfer',
+  warehouse_transfer: 'Fabrika İçi Transfer',
+  to_maintenance: 'Bakıma Gönderim',
+  from_maintenance: 'Bakımdan Dönüş',
+  damage: 'Hasarlı Kalıp',
+  loss: 'Kayıp Kalıp',
+  scrap: 'Hurdaya Ayırma',
+  count_adjust: 'Sayım Düzeltmesi',
+  allocate: 'İş Emrine Tahsis',
+  deallocate: 'Tahsis İptali',
+};
+
+interface MoldBucketKey {
+  locationType: MoldLocationType;
+  subcontractId: number;
+}
+
+interface MoldMoveEndpoint {
+  locationType: MoldLocationType;
+  subcontractId: number;
+}
+
+/**
+ * Hareket türüne göre kaynak/hedef konumu çözer. Fason işlemlerinde ilgili cari
+ * (subcontractId) zorunludur; factory→factory transferlerinde açık konum gerekir.
+ */
+function resolveMoldMove(type: MoldMoveType, body: any): { from: MoldMoveEndpoint | null; to: MoldMoveEndpoint } {
+  const fromSub = Number(body.fromSubcontractId) || 0;
+  const toSub = Number(body.toSubcontractId) || 0;
+  const explicitFrom = String(body.fromLocationType || '') as MoldLocationType;
+  const explicitTo = String(body.toLocationType || '') as MoldLocationType;
+  const factoryFrom = (fallback: MoldLocationType): MoldMoveEndpoint => ({
+    locationType: MOLD_FACTORY_LOCATIONS.includes(explicitFrom) ? explicitFrom : fallback,
+    subcontractId: 0,
+  });
+
+  switch (type) {
+    case 'initial_entry':
+      return { from: null, to: { locationType: MOLD_FACTORY_LOCATIONS.includes(explicitTo) ? explicitTo : 'factory_warehouse', subcontractId: 0 } };
+    case 'to_line':
+      return { from: factoryFrom('factory_warehouse'), to: { locationType: 'factory_line', subcontractId: 0 } };
+    case 'from_line_return':
+      return { from: { locationType: 'factory_line', subcontractId: 0 }, to: { locationType: 'factory_warehouse', subcontractId: 0 } };
+    case 'to_subcontract': {
+      if (!toSub) throw new OpError(400, 'Fasona gönderim için hedef fason firma (cari) seçilmelidir.', 'SUBCONTRACT_REQUIRED');
+      return { from: factoryFrom('factory_warehouse'), to: { locationType: 'subcontract', subcontractId: toSub } };
+    }
+    case 'from_subcontract_return': {
+      if (!fromSub) throw new OpError(400, 'Fason iadesi için kaynak fason firma (cari) seçilmelidir.', 'SUBCONTRACT_REQUIRED');
+      return { from: { locationType: 'subcontract', subcontractId: fromSub }, to: { locationType: 'factory_warehouse', subcontractId: 0 } };
+    }
+    case 'subcontract_transfer': {
+      if (!fromSub || !toSub) throw new OpError(400, 'Fasonlar arası transfer için kaynak ve hedef fason firma seçilmelidir.', 'SUBCONTRACT_REQUIRED');
+      if (fromSub === toSub) throw new OpError(400, 'Kaynak ve hedef fason firma aynı olamaz.', 'SUBCONTRACT_SAME');
+      return { from: { locationType: 'subcontract', subcontractId: fromSub }, to: { locationType: 'subcontract', subcontractId: toSub } };
+    }
+    case 'warehouse_transfer': {
+      if (!MOLD_FACTORY_LOCATIONS.includes(explicitFrom) || !MOLD_FACTORY_LOCATIONS.includes(explicitTo)) {
+        throw new OpError(400, 'Fabrika içi transfer için kaynak ve hedef fabrika konumu seçilmelidir.', 'INVALID_LOCATION');
+      }
+      if (explicitFrom === explicitTo) throw new OpError(400, 'Kaynak ve hedef konum aynı olamaz.', 'SAME_LOCATION');
+      return { from: { locationType: explicitFrom, subcontractId: 0 }, to: { locationType: explicitTo, subcontractId: 0 } };
+    }
+    case 'to_maintenance':
+      return { from: factoryFrom('factory_warehouse'), to: { locationType: 'maintenance', subcontractId: 0 } };
+    case 'from_maintenance':
+      return { from: { locationType: 'maintenance', subcontractId: 0 }, to: { locationType: 'factory_warehouse', subcontractId: 0 } };
+    case 'damage':
+    case 'loss':
+    case 'scrap':
+      return { from: factoryFrom('factory_warehouse'), to: { locationType: 'scrap_lost', subcontractId: 0 } };
+    default:
+      throw new OpError(400, `Geçersiz kalıp hareketi türü: ${type}`, 'INVALID_MOLD_MOVE');
+  }
+}
+
+/** Kalıp stok kovasını satır kilidiyle okur (yoksa null). */
+async function lockMoldBucket(
+  conn: PoolConnection,
+  moldId: number,
+  size: string,
+  loc: { locationType: string; subcontractId: number },
+  workOrderId = 0,
+): Promise<any | null> {
+  const rows = await conn.query<any[]>(
+    'SELECT * FROM `moldStock` WHERE `moldId` = ? AND `size` = ? AND `locationType` = ? AND `subcontractId` = ? AND `workOrderId` = ? LIMIT 1 FOR UPDATE',
+    [moldId, size, loc.locationType, loc.subcontractId, workOrderId],
+  );
+  return (rows[0] as any[])[0] || null;
+}
+
+/** Hedef kovaya çift/tek parça ekler (yoksa oluşturur). Kalıp satır kilidi altında çağrılır. */
+async function addMoldBucket(
+  conn: PoolConnection,
+  moldId: number,
+  size: string,
+  loc: { locationType: string; subcontractId: number },
+  pairs: number,
+  looseLeft: number,
+  looseRight: number,
+  workOrderId = 0,
+): Promise<void> {
+  await conn.query(
+    `INSERT INTO \`moldStock\` (\`moldId\`, \`size\`, \`locationType\`, \`subcontractId\`, \`workOrderId\`, \`pairs\`, \`looseLeft\`, \`looseRight\`, \`updatedAt\`, \`version\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1)
+     ON DUPLICATE KEY UPDATE
+       \`pairs\` = \`pairs\` + VALUES(\`pairs\`),
+       \`looseLeft\` = \`looseLeft\` + VALUES(\`looseLeft\`),
+       \`looseRight\` = \`looseRight\` + VALUES(\`looseRight\`),
+       \`updatedAt\` = NOW(),
+       \`version\` = \`version\` + 1`,
+    [moldId, size, loc.locationType, loc.subcontractId, workOrderId, pairs, looseLeft, looseRight],
+  );
+}
+
+/** Kalıp ana kartını satır kilidiyle okur; tüm kalıp hareketleri bu kilitte sıraya girer. */
+async function lockMold(conn: PoolConnection, moldId: number): Promise<any> {
+  const rows = await conn.query<any[]>('SELECT * FROM `molds` WHERE `id` = ? LIMIT 1 FOR UPDATE', [moldId]);
+  const mold = (rows[0] as any[])[0];
+  if (!mold) throw new OpError(404, 'Kalıp bulunamadı.', 'MOLD_NOT_FOUND');
+  return mold;
+}
+
+/** Hareket satırlarını doğrular: [{size, pairs, looseLeft?, looseRight?}], en az bir satır, çift ≥ 0. */
+function parseMoldItems(body: any): { size: string; pairs: number; looseLeft: number; looseRight: number }[] {
+  const raw = Array.isArray(body?.items) ? body.items : [];
+  if (!raw.length) throw new OpError(400, 'En az bir numara satırı gereklidir.', 'NO_ITEMS');
+  const items: { size: string; pairs: number; looseLeft: number; looseRight: number }[] = [];
+  for (const it of raw) {
+    const size = String(it?.size ?? '').trim();
+    if (!size) throw new OpError(400, 'Numara (beden) zorunludur.', 'INVALID_SIZE');
+    const pairs = Number(it?.pairs) || 0;
+    const looseLeft = Math.max(0, Math.floor(Number(it?.looseLeft) || 0));
+    const looseRight = Math.max(0, Math.floor(Number(it?.looseRight) || 0));
+    if (pairs < 0) throw new OpError(400, `Çift miktarı negatif olamaz (${size}).`, 'INVALID_PAIRS');
+    if (pairs === 0 && looseLeft === 0 && looseRight === 0) continue;
+    items.push({ size, pairs: Number(pairs.toFixed(4)), looseLeft, looseRight });
+  }
+  if (!items.length) throw new OpError(400, 'Hareket miktarı sıfırdan büyük olmalıdır.', 'NO_QUANTITY');
+  return items;
+}
+
 export function createBusinessOpsRouter(): { router: Router; deleteEffects: DeleteEffects } {
   const router = express.Router();
 
@@ -3421,6 +3619,460 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       });
 
       if (result.generated.length) broadcast('products', 'update', result.generated.map(String));
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Kalıp (last) takip motoru                                         */
+  /* ---------------------------------------------------------------- */
+
+  /** Kalıp envanter özeti: KPI toplamları + kalıp başına konum kırılımı (çift). */
+  router.get('/mold-summary', async (req, res, next) => {
+    try {
+      assertAnyPermission(req.auth, [['molds', 'view']], 'Kalıp özeti için "Kalıp Takibi" modülünde görüntüleme yetkisi gerekir.');
+      const rows = await query<any>(
+        `SELECT m.id, m.code, m.name, m.sizeRange, m.moldType, m.brand, m.isActive, m.productId, m.image,
+                COALESCE(SUM(s.pairs), 0) AS totalPairs,
+                COALESCE(SUM(CASE WHEN s.locationType IN ('factory_warehouse','factory_line','factory_other') THEN s.pairs END), 0) AS factoryPairs,
+                COALESCE(SUM(CASE WHEN s.locationType IN ('subcontract','subcontract_warehouse') THEN s.pairs END), 0) AS subcontractPairs,
+                COALESCE(SUM(CASE WHEN s.locationType = 'maintenance' THEN s.pairs END), 0) AS maintenancePairs,
+                COALESCE(SUM(CASE WHEN s.locationType = 'scrap_lost' THEN s.pairs END), 0) AS scrapPairs,
+                COALESCE(SUM(CASE WHEN s.workOrderId > 0 THEN s.pairs END), 0) AS allocatedPairs,
+                COALESCE(SUM(s.looseLeft), 0) AS looseLeft,
+                COALESCE(SUM(s.looseRight), 0) AS looseRight
+           FROM molds m
+           LEFT JOIN moldStock s ON s.moldId = m.id
+          GROUP BY m.id, m.code, m.name, m.sizeRange, m.moldType, m.brand, m.isActive, m.productId, m.image
+          ORDER BY m.name ASC`,
+      );
+      const perMold = rows.map((r) => {
+        const totalPairs = Number(r.totalPairs) || 0;
+        const maintenancePairs = Number(r.maintenancePairs) || 0;
+        const scrapPairs = Number(r.scrapPairs) || 0;
+        return {
+          ...r,
+          totalPairs,
+          factoryPairs: Number(r.factoryPairs) || 0,
+          subcontractPairs: Number(r.subcontractPairs) || 0,
+          maintenancePairs,
+          scrapPairs,
+          allocatedPairs: Number(r.allocatedPairs) || 0,
+          looseLeft: Number(r.looseLeft) || 0,
+          looseRight: Number(r.looseRight) || 0,
+          availablePairs: Number((totalPairs - maintenancePairs - scrapPairs).toFixed(4)),
+          isActive: Boolean(r.isActive),
+        };
+      });
+      const totals = perMold.reduce(
+        (acc, m) => ({
+          moldCount: acc.moldCount + 1,
+          activeMoldCount: acc.activeMoldCount + (m.isActive ? 1 : 0),
+          totalPairs: acc.totalPairs + m.totalPairs,
+          factoryPairs: acc.factoryPairs + m.factoryPairs,
+          subcontractPairs: acc.subcontractPairs + m.subcontractPairs,
+          maintenancePairs: acc.maintenancePairs + m.maintenancePairs,
+          scrapPairs: acc.scrapPairs + m.scrapPairs,
+          allocatedPairs: acc.allocatedPairs + m.allocatedPairs,
+          availablePairs: acc.availablePairs + m.availablePairs,
+          looseLeft: acc.looseLeft + m.looseLeft,
+          looseRight: acc.looseRight + m.looseRight,
+        }),
+        { moldCount: 0, activeMoldCount: 0, totalPairs: 0, factoryPairs: 0, subcontractPairs: 0, maintenancePairs: 0, scrapPairs: 0, allocatedPairs: 0, availablePairs: 0, looseLeft: 0, looseRight: 0 },
+      );
+      res.json({ data: { totals, perMold } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Kalıp hareketi: bir çift kaynaktan hedefe atomik taşınır (initial_entry'de
+   * kaynak yoktur). Kalıp satırı FOR UPDATE ile kilitlenir → aynı kalıba yönelik
+   * eşzamanlı hareketler sıraya girer, fazla çıkış engellenir. Stok kovası ve
+   * hareket kaydı TEK transaction'da yazılır.
+   */
+  router.post('/mold-move', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const moldId = Number(body.moldId);
+      const type = String(body.type) as MoldMoveType;
+      if (!Number.isFinite(moldId) || moldId <= 0) throw new OpError(400, 'Geçerli bir kalıp seçilmelidir.');
+      if (!(MOLD_MOVE_TYPES as readonly string[]).includes(type)) {
+        throw new OpError(400, `Geçersiz kalıp hareketi türü: ${type}.`, 'INVALID_MOLD_MOVE');
+      }
+      assertAnyPermission(req.auth, [['molds', 'edit']], 'Kalıp hareketi için "Kalıp Takibi" modülünde düzenleme yetkisi gerekir.');
+
+      const items = parseMoldItems(body);
+      const endpoints = resolveMoldMove(type, body);
+      const moveDate = body.date ? new Date(body.date) : new Date();
+      if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz hareket tarihi.');
+      const workOrderId = Number(body.workOrderId) || 0;
+      const description = String(body.description || '').trim();
+      if (!description) throw new OpError(400, 'Hareket açıklaması zorunludur.', 'DESCRIPTION_REQUIRED');
+
+      const result = await withTransaction(async (conn) => {
+        const mold = await lockMold(conn, moldId);
+
+        if (endpoints.from) {
+          for (const it of items) {
+            const src = await lockMoldBucket(conn, moldId, it.size, endpoints.from);
+            const have = Number(src?.pairs) || 0;
+            if (have + 1e-9 < it.pairs) {
+              throw new OpError(
+                409,
+                `Yetersiz kalıp: ${it.size} numarasında "${MOLD_LOCATION_LABELS[endpoints.from.locationType]}" konumunda ${have} çift var, ${it.pairs} çift istendi.`,
+                'MOLD_INSUFFICIENT',
+              );
+            }
+            const leftHave = Number(src?.looseLeft) || 0;
+            const rightHave = Number(src?.looseRight) || 0;
+            if (leftHave < it.looseLeft || rightHave < it.looseRight) {
+              throw new OpError(409, `Yetersiz tek parça kalıp: ${it.size} numarasında sol/sağ miktarı yeterli değil.`, 'MOLD_INSUFFICIENT_LOOSE');
+            }
+            const newPairs = Number((have - it.pairs).toFixed(4));
+            const newLeft = leftHave - it.looseLeft;
+            const newRight = rightHave - it.looseRight;
+            if (newPairs === 0 && newLeft === 0 && newRight === 0) {
+              await conn.query('DELETE FROM `moldStock` WHERE `id` = ?', [src.id]);
+            } else {
+              await conn.query(
+                'UPDATE `moldStock` SET `pairs` = ?, `looseLeft` = ?, `looseRight` = ?, `updatedAt` = NOW(), `version` = `version` + 1 WHERE `id` = ?',
+                [newPairs, newLeft, newRight, src.id],
+              );
+            }
+          }
+        }
+
+        for (const it of items) {
+          await addMoldBucket(conn, moldId, it.size, endpoints.to, it.pairs, it.looseLeft, it.looseRight);
+        }
+
+        const movementNo = await allocateDocumentNumber(conn, { table: 'moldMovements', prefix: 'MV', pad: 5 });
+        const [mvRes] = await conn.query(
+          `INSERT INTO \`moldMovements\`
+             (\`movementNo\`, \`type\`, \`date\`, \`moldId\`, \`fromLocationType\`, \`fromSubcontractId\`, \`fromWorkOrderId\`,
+              \`toLocationType\`, \`toSubcontractId\`, \`toWorkOrderId\`, \`sendId\`, \`userId\`, \`deliveredBy\`, \`receivedBy\`,
+              \`description\`, \`documentRef\`, \`createdAt\`, \`version\`)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1)`,
+          [
+            movementNo, type, moveDate, moldId,
+            endpoints.from?.locationType ?? null, endpoints.from?.subcontractId ?? 0,
+            endpoints.to.locationType, endpoints.to.subcontractId, workOrderId,
+            body.sendId ? Number(body.sendId) : null, req.auth?.user?.id ?? null,
+            body.deliveredBy ? String(body.deliveredBy).trim() : null,
+            body.receivedBy ? String(body.receivedBy).trim() : null,
+            description, body.documentRef ? String(body.documentRef).trim() : null,
+          ],
+        );
+        const movementId = (mvRes as any).insertId;
+        for (const it of items) {
+          await conn.query(
+            'INSERT INTO `moldMovementItems` (`movementId`, `moldId`, `size`, `pairs`, `looseLeft`, `looseRight`, `version`) VALUES (?, ?, ?, ?, ?, ?, 1)',
+            [movementId, moldId, it.size, it.pairs, it.looseLeft, it.looseRight],
+          );
+        }
+
+        const totalPairs = Number(items.reduce((s, i) => s + i.pairs, 0).toFixed(4));
+        await writeAuditInTx(
+          conn,
+          {
+            action: 'create',
+            module: 'molds',
+            description: `Kalıp hareketi: ${MOLD_MOVE_LABELS[type]} — ${mold.code} ${mold.name} (${totalPairs} çift)${endpoints.from ? ` ${MOLD_LOCATION_LABELS[endpoints.from.locationType]} →` : ''} ${MOLD_LOCATION_LABELS[endpoints.to.locationType]}`,
+            entityId: movementId,
+            recordSummary: `${movementNo} — ${MOLD_MOVE_LABELS[type]} (${totalPairs} çift)`,
+          },
+          { auth: req.auth, ip: clientIp(req) },
+        );
+
+        return { movementId, movementNo, moldId, type, totalPairs };
+      });
+
+      broadcast('molds', 'update', [String(moldId)]);
+      broadcast('moldStock', 'update', []);
+      broadcast('moldMovements', 'create', [String(result.movementId)]);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Fiziki sayım düzeltmesi: seçilen konumdaki kova SAYILAN mutlak değere
+   * ayarlanır (fark hareket satırına delta olarak yazılır). Gerekçe zorunludur
+   * ve onay yetkisi ister; böylece sayım farkları denetlenebilir biçimde düzeltilir.
+   */
+  router.post('/mold-count-adjust', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const moldId = Number(body.moldId);
+      if (!Number.isFinite(moldId) || moldId <= 0) throw new OpError(400, 'Geçerli bir kalıp seçilmelidir.');
+      assertAnyPermission(req.auth, [['molds', 'approve']], 'Sayım düzeltmesi için "Kalıp Takibi" modülünde onay yetkisi gerekir.');
+      const locationType = String(body.locationType || 'factory_warehouse') as MoldLocationType;
+      if (!(MOLD_LOCATION_TYPES as readonly string[]).includes(locationType)) throw new OpError(400, 'Geçersiz konum.', 'INVALID_LOCATION');
+      const isSub = MOLD_SUBCONTRACT_LOCATIONS.includes(locationType);
+      const subcontractId = isSub ? Number(body.subcontractId) || 0 : 0;
+      if (isSub && !subcontractId) throw new OpError(400, 'Fason konumu için cari seçilmelidir.', 'SUBCONTRACT_REQUIRED');
+      const reason = String(body.reason || '').trim();
+      if (reason.length < 3) throw new OpError(400, 'Sayım düzeltmesi için gerekçe zorunludur (en az 3 karakter).', 'REASON_REQUIRED');
+      const raw = Array.isArray(body.items) ? body.items : [];
+      if (!raw.length) throw new OpError(400, 'Sayılan numara satırları gereklidir.', 'NO_ITEMS');
+      const moveDate = body.date ? new Date(body.date) : new Date();
+      if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz tarih.');
+
+      const result = await withTransaction(async (conn) => {
+        const mold = await lockMold(conn, moldId);
+        const diffs: { size: string; before: number; after: number; delta: number; looseLeft: number; looseRight: number }[] = [];
+        for (const it of raw) {
+          const size = String(it?.size ?? '').trim();
+          if (!size) throw new OpError(400, 'Numara zorunludur.', 'INVALID_SIZE');
+          const counted = Math.max(0, Number(it?.pairs) || 0);
+          const looseLeft = Math.max(0, Math.floor(Number(it?.looseLeft) || 0));
+          const looseRight = Math.max(0, Math.floor(Number(it?.looseRight) || 0));
+          const bucket = await lockMoldBucket(conn, moldId, size, { locationType, subcontractId });
+          const before = Number(bucket?.pairs) || 0;
+          const delta = Number((counted - before).toFixed(4));
+          const leftBefore = Number(bucket?.looseLeft) || 0;
+          const rightBefore = Number(bucket?.looseRight) || 0;
+          if (delta === 0 && looseLeft === leftBefore && looseRight === rightBefore) continue;
+          if (counted === 0 && looseLeft === 0 && looseRight === 0 && bucket) {
+            await conn.query('DELETE FROM `moldStock` WHERE `id` = ?', [bucket.id]);
+          } else {
+            await conn.query(
+              `INSERT INTO \`moldStock\` (\`moldId\`, \`size\`, \`locationType\`, \`subcontractId\`, \`workOrderId\`, \`pairs\`, \`looseLeft\`, \`looseRight\`, \`updatedAt\`, \`version\`)
+               VALUES (?, ?, ?, ?, 0, ?, ?, ?, NOW(), 1)
+               ON DUPLICATE KEY UPDATE \`pairs\` = VALUES(\`pairs\`), \`looseLeft\` = VALUES(\`looseLeft\`), \`looseRight\` = VALUES(\`looseRight\`), \`updatedAt\` = NOW(), \`version\` = \`version\` + 1`,
+              [moldId, size, locationType, subcontractId, counted, looseLeft, looseRight],
+            );
+          }
+          diffs.push({ size, before, after: counted, delta, looseLeft, looseRight });
+        }
+        if (!diffs.length) throw new OpError(400, 'Sayım sonucu mevcut kayıtlarla aynı; düzeltilecek fark yok.', 'NO_DIFF');
+
+        const movementNo = await allocateDocumentNumber(conn, { table: 'moldMovements', prefix: 'MV', pad: 5 });
+        const [mvRes] = await conn.query(
+          `INSERT INTO \`moldMovements\`
+             (\`movementNo\`, \`type\`, \`date\`, \`moldId\`, \`fromLocationType\`, \`fromSubcontractId\`, \`fromWorkOrderId\`,
+              \`toLocationType\`, \`toSubcontractId\`, \`toWorkOrderId\`, \`userId\`, \`description\`, \`createdAt\`, \`version\`)
+           VALUES (?, 'count_adjust', ?, ?, ?, ?, 0, ?, ?, 0, ?, ?, NOW(), 1)`,
+          [movementNo, moveDate, moldId, locationType, subcontractId, locationType, subcontractId, req.auth?.user?.id ?? null, `Sayım düzeltmesi: ${reason}`],
+        );
+        const movementId = (mvRes as any).insertId;
+        for (const d of diffs) {
+          await conn.query(
+            'INSERT INTO `moldMovementItems` (`movementId`, `moldId`, `size`, `pairs`, `looseLeft`, `looseRight`, `version`) VALUES (?, ?, ?, ?, ?, ?, 1)',
+            [movementId, moldId, d.size, d.delta, d.looseLeft, d.looseRight],
+          );
+        }
+        await writeAuditInTx(
+          conn,
+          {
+            action: 'update',
+            module: 'molds',
+            description: `Kalıp sayım düzeltmesi: ${mold.code} ${mold.name} — ${diffs.map((d) => `${d.size}: ${d.before}→${d.after}`).join(', ')}`,
+            entityId: movementId,
+            reason,
+            recordSummary: `${movementNo} — sayım düzeltmesi (${diffs.length} numara)`,
+          },
+          { auth: req.auth, ip: clientIp(req) },
+        );
+        return { movementId, movementNo, moldId, diffs };
+      });
+
+      broadcast('molds', 'update', [String(moldId)]);
+      broadcast('moldStock', 'update', []);
+      broadcast('moldMovements', 'create', [String(result.movementId)]);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * İş emrine tahsis: fabrika deposundaki serbest çiftler 'allocated' konumuna
+   * (workOrderId = iş emri) taşınır. Böylece allocatedPairs iş emri bazında izlenir
+   * ve serbest havuzdan düşer. Kalıp satırı FOR UPDATE ile kilitlenir.
+   */
+  router.post('/mold-allocate', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const moldId = Number(body.moldId);
+      const workOrderId = Number(body.workOrderId);
+      if (!Number.isFinite(moldId) || moldId <= 0) throw new OpError(400, 'Geçerli bir kalıp seçilmelidir.');
+      if (!Number.isFinite(workOrderId) || workOrderId <= 0) throw new OpError(400, 'Geçerli bir iş emri seçilmelidir.', 'WORKORDER_REQUIRED');
+      assertAnyPermission(req.auth, [['molds', 'edit']], 'Kalıp tahsisi için "Kalıp Takibi" modülünde düzenleme yetkisi gerekir.');
+
+      const items = parseMoldItems(body);
+      const moveDate = body.date ? new Date(body.date) : new Date();
+      if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz hareket tarihi.');
+      const description = String(body.description || '').trim();
+
+      const result = await withTransaction(async (conn) => {
+        const mold = await lockMold(conn, moldId);
+        const [woRows] = await conn.query<any[]>('SELECT `id` FROM `workOrders` WHERE `id` = ? LIMIT 1', [workOrderId]);
+        if (!(woRows as any[]).length) throw new OpError(404, 'İş emri bulunamadı.', 'WORKORDER_NOT_FOUND');
+
+        const fromLoc = { locationType: 'factory_warehouse' as const, subcontractId: 0 };
+        for (const it of items) {
+          const src = await lockMoldBucket(conn, moldId, it.size, fromLoc, 0);
+          const have = Number(src?.pairs) || 0;
+          if (have + 1e-9 < it.pairs) {
+            throw new OpError(
+              409,
+              `Yetersiz kalıp: ${it.size} numarasında fabrika deposunda ${have} çift var, ${it.pairs} çift istendi.`,
+              'MOLD_INSUFFICIENT',
+            );
+          }
+          const leftHave = Number(src?.looseLeft) || 0;
+          const rightHave = Number(src?.looseRight) || 0;
+          if (leftHave < it.looseLeft || rightHave < it.looseRight) {
+            throw new OpError(409, `Yetersiz tek parça kalıp: ${it.size} numarasında sol/sağ miktarı yeterli değil.`, 'MOLD_INSUFFICIENT_LOOSE');
+          }
+          const newPairs = Number((have - it.pairs).toFixed(4));
+          const newLeft = leftHave - it.looseLeft;
+          const newRight = rightHave - it.looseRight;
+          if (newPairs === 0 && newLeft === 0 && newRight === 0) {
+            await conn.query('DELETE FROM `moldStock` WHERE `id` = ?', [src.id]);
+          } else {
+            await conn.query(
+              'UPDATE `moldStock` SET `pairs` = ?, `looseLeft` = ?, `looseRight` = ?, `updatedAt` = NOW(), `version` = `version` + 1 WHERE `id` = ?',
+              [newPairs, newLeft, newRight, src.id],
+            );
+          }
+          await addMoldBucket(conn, moldId, it.size, { locationType: 'allocated', subcontractId: 0 }, it.pairs, it.looseLeft, it.looseRight, workOrderId);
+        }
+
+        const movementNo = await allocateDocumentNumber(conn, { table: 'moldMovements', prefix: 'MV', pad: 5 });
+        const [mvRes] = await conn.query(
+          `INSERT INTO \`moldMovements\`
+             (\`movementNo\`, \`type\`, \`date\`, \`moldId\`, \`fromLocationType\`, \`fromSubcontractId\`, \`fromWorkOrderId\`,
+              \`toLocationType\`, \`toSubcontractId\`, \`toWorkOrderId\`, \`userId\`, \`description\`, \`createdAt\`, \`version\`)
+           VALUES (?, 'allocate', ?, ?, 'factory_warehouse', 0, 0, 'allocated', 0, ?, ?, ?, NOW(), 1)`,
+          [movementNo, moveDate, moldId, workOrderId, req.auth?.user?.id ?? null, description || `İş emri #${workOrderId} için tahsis`],
+        );
+        const movementId = (mvRes as any).insertId;
+        for (const it of items) {
+          await conn.query(
+            'INSERT INTO `moldMovementItems` (`movementId`, `moldId`, `size`, `pairs`, `looseLeft`, `looseRight`, `version`) VALUES (?, ?, ?, ?, ?, ?, 1)',
+            [movementId, moldId, it.size, it.pairs, it.looseLeft, it.looseRight],
+          );
+        }
+
+        const totalPairs = Number(items.reduce((s, i) => s + i.pairs, 0).toFixed(4));
+        await writeAuditInTx(
+          conn,
+          {
+            action: 'create',
+            module: 'molds',
+            description: `Kalıp tahsisi: ${mold.code} ${mold.name} — ${totalPairs} çift → İş Emri #${workOrderId}`,
+            entityId: movementId,
+            recordSummary: `${movementNo} — iş emrine tahsis (${totalPairs} çift)`,
+          },
+          { auth: req.auth, ip: clientIp(req) },
+        );
+
+        return { movementId, movementNo, moldId, workOrderId, type: 'allocate' as const, totalPairs };
+      });
+
+      broadcast('molds', 'update', [String(moldId)]);
+      broadcast('moldStock', 'update', []);
+      broadcast('moldMovements', 'create', [String(result.movementId)]);
+      broadcast('workOrders', 'update', [String(workOrderId)]);
+      res.json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Tahsis iptali: 'allocated' konumundaki (workOrderId = iş emri) çiftler fabrika
+   * deposuna geri taşınır. Kalıp satırı FOR UPDATE ile kilitlenir.
+   */
+  router.post('/mold-deallocate', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const moldId = Number(body.moldId);
+      const workOrderId = Number(body.workOrderId);
+      if (!Number.isFinite(moldId) || moldId <= 0) throw new OpError(400, 'Geçerli bir kalıp seçilmelidir.');
+      if (!Number.isFinite(workOrderId) || workOrderId <= 0) throw new OpError(400, 'Geçerli bir iş emri seçilmelidir.', 'WORKORDER_REQUIRED');
+      assertAnyPermission(req.auth, [['molds', 'edit']], 'Tahsis iptali için "Kalıp Takibi" modülünde düzenleme yetkisi gerekir.');
+
+      const items = parseMoldItems(body);
+      const moveDate = body.date ? new Date(body.date) : new Date();
+      if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz hareket tarihi.');
+      const description = String(body.description || '').trim();
+
+      const result = await withTransaction(async (conn) => {
+        const mold = await lockMold(conn, moldId);
+        const allocLoc = { locationType: 'allocated' as const, subcontractId: 0 };
+        for (const it of items) {
+          const src = await lockMoldBucket(conn, moldId, it.size, allocLoc, workOrderId);
+          const have = Number(src?.pairs) || 0;
+          if (have + 1e-9 < it.pairs) {
+            throw new OpError(
+              409,
+              `Yetersiz tahsisli kalıp: ${it.size} numarasında iş emri #${workOrderId} için ${have} çift tahsisli, ${it.pairs} çift istendi.`,
+              'MOLD_INSUFFICIENT',
+            );
+          }
+          const leftHave = Number(src?.looseLeft) || 0;
+          const rightHave = Number(src?.looseRight) || 0;
+          if (leftHave < it.looseLeft || rightHave < it.looseRight) {
+            throw new OpError(409, `Yetersiz tek parça kalıp: ${it.size} numarasında sol/sağ miktarı yeterli değil.`, 'MOLD_INSUFFICIENT_LOOSE');
+          }
+          const newPairs = Number((have - it.pairs).toFixed(4));
+          const newLeft = leftHave - it.looseLeft;
+          const newRight = rightHave - it.looseRight;
+          if (newPairs === 0 && newLeft === 0 && newRight === 0) {
+            await conn.query('DELETE FROM `moldStock` WHERE `id` = ?', [src.id]);
+          } else {
+            await conn.query(
+              'UPDATE `moldStock` SET `pairs` = ?, `looseLeft` = ?, `looseRight` = ?, `updatedAt` = NOW(), `version` = `version` + 1 WHERE `id` = ?',
+              [newPairs, newLeft, newRight, src.id],
+            );
+          }
+          await addMoldBucket(conn, moldId, it.size, { locationType: 'factory_warehouse', subcontractId: 0 }, it.pairs, it.looseLeft, it.looseRight, 0);
+        }
+
+        const movementNo = await allocateDocumentNumber(conn, { table: 'moldMovements', prefix: 'MV', pad: 5 });
+        const [mvRes] = await conn.query(
+          `INSERT INTO \`moldMovements\`
+             (\`movementNo\`, \`type\`, \`date\`, \`moldId\`, \`fromLocationType\`, \`fromSubcontractId\`, \`fromWorkOrderId\`,
+              \`toLocationType\`, \`toSubcontractId\`, \`toWorkOrderId\`, \`userId\`, \`description\`, \`createdAt\`, \`version\`)
+           VALUES (?, 'deallocate', ?, ?, 'allocated', 0, ?, 'factory_warehouse', 0, 0, ?, ?, NOW(), 1)`,
+          [movementNo, moveDate, moldId, workOrderId, req.auth?.user?.id ?? null, description || `İş emri #${workOrderId} tahsis iptali`],
+        );
+        const movementId = (mvRes as any).insertId;
+        for (const it of items) {
+          await conn.query(
+            'INSERT INTO `moldMovementItems` (`movementId`, `moldId`, `size`, `pairs`, `looseLeft`, `looseRight`, `version`) VALUES (?, ?, ?, ?, ?, ?, 1)',
+            [movementId, moldId, it.size, it.pairs, it.looseLeft, it.looseRight],
+          );
+        }
+
+        const totalPairs = Number(items.reduce((s, i) => s + i.pairs, 0).toFixed(4));
+        await writeAuditInTx(
+          conn,
+          {
+            action: 'update',
+            module: 'molds',
+            description: `Kalıp tahsis iptali: ${mold.code} ${mold.name} — ${totalPairs} çift ← İş Emri #${workOrderId}`,
+            entityId: movementId,
+            recordSummary: `${movementNo} — tahsis iptali (${totalPairs} çift)`,
+          },
+          { auth: req.auth, ip: clientIp(req) },
+        );
+
+        return { movementId, movementNo, moldId, workOrderId, type: 'deallocate' as const, totalPairs };
+      });
+
+      broadcast('molds', 'update', [String(moldId)]);
+      broadcast('moldStock', 'update', []);
+      broadcast('moldMovements', 'create', [String(result.movementId)]);
+      broadcast('workOrders', 'update', [String(workOrderId)]);
       res.json({ data: result });
     } catch (err) {
       next(err);

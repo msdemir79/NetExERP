@@ -1,18 +1,42 @@
 import { useMemo, useState } from 'react';
-import { Search, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Search, AlertTriangle, ChevronRight, ScanBarcode } from 'lucide-react';
 import { api } from '../api/client';
 import { useApiQueryFull } from '../hooks/useApiQuery';
 import type { Product } from '../types';
 import { formatNum } from './format';
 import { cn } from '../lib/utils';
 import MobileStockDetail from './MobileStockDetail';
+import CameraBarcodeScannerModal from '../components/Common/CameraBarcodeScannerModal';
+import { isNativeApp, scanBarcodeNative } from './nativeBridge';
 
-/** Mobil stok listesi: kritik (stok<=min) uyarıları + arama; karta dokununca detay açılır. */
+/** Mobil stok listesi: kritik (stok<=min) uyarıları + arama + kamera barkod okuyucu; karta dokununca detay açılır. */
 export default function MobileInventory() {
   const [q, setQ] = useState('');
   const [onlyCritical, setOnlyCritical] = useState(false);
   const [sel, setSel] = useState<Product | null>(null);
-  const { data, loading } = useApiQueryFull<Product[]>(() => api.products.list(), [], ['products']);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const { data, loading, refetch } = useApiQueryFull<Product[]>(() => api.products.list(), [], ['products']);
+
+  const handleOpenScanner = async () => {
+    if (isNativeApp()) {
+      const code = await scanBarcodeNative();
+      if (code) {
+        const found = (data ?? []).find(
+          (p) =>
+            p.barcode === code ||
+            p.code === code ||
+            p.variantBarcodes?.some((vb) => vb.barcode === code),
+        );
+        if (found) {
+          setSel(found);
+        } else {
+          setQ(code);
+        }
+      }
+      return;
+    }
+    setScannerOpen(true);
+  };
 
   const { rows, criticalCount } = useMemo(() => {
     const all = data ?? [];
@@ -45,14 +69,25 @@ export default function MobileInventory() {
         <span className="text-[11px] text-slate-500 dark:text-slate-400">{onlyCritical ? 'gizleniyor' : 'filtrele'}</span>
       </button>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Stok ara (ad, kod)"
-          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Stok ara (ad, kod)"
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenScanner}
+          title="Kamera ile Barkod Oku"
+          aria-label="Kamera ile barkod oku"
+          className="flex items-center justify-center p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 transition-all shadow-xs shrink-0"
+        >
+          <ScanBarcode className="w-5 h-5" />
+        </button>
       </div>
 
       {loading && <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Yükleniyor…</div>}
@@ -99,6 +134,22 @@ export default function MobileInventory() {
       </div>
 
       {sel && <MobileStockDetail product={sel} onClose={() => setSel(null)} />}
+
+      {scannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          initialMode="stock_count"
+          onProductScanned={(scannedProduct) => {
+            setScannerOpen(false);
+            setSel(scannedProduct);
+            void refetch();
+          }}
+          onSuccess={() => {
+            void refetch();
+          }}
+        />
+      )}
     </>
   );
 }

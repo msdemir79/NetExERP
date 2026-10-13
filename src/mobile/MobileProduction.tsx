@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Search, AlertTriangle } from 'lucide-react';
+import { Search, AlertTriangle, ScanBarcode } from 'lucide-react';
 import { api } from '../api/client';
 import { useApiQueryFull } from '../hooks/useApiQuery';
 import { PRODUCTION_STAGES_CONFIG } from '../services/productionService';
 import type { WorkOrder, Product } from '../types';
 import { formatNum } from './format';
 import { cn } from '../lib/utils';
+import CameraBarcodeScannerModal from '../components/Common/CameraBarcodeScannerModal';
+import { isNativeApp, scanBarcodeNative } from './nativeBridge';
 
 const MATERIAL_LABEL: Record<string, { text: string; cls: string }> = {
   materials_ready: { text: 'Malzeme Hazır', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
@@ -19,8 +21,20 @@ const MATERIAL_LABEL: Record<string, { text: string; cls: string }> = {
 export default function MobileProduction() {
   const [q, setQ] = useState('');
   const [stage, setStage] = useState<string>('all');
-  const { data: workOrders, loading } = useApiQueryFull<WorkOrder[]>(() => api.workOrders.list(), [], ['workOrders']);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const { data: workOrders, loading, refetch } = useApiQueryFull<WorkOrder[]>(() => api.workOrders.list(), [], ['workOrders']);
   const { data: products } = useApiQueryFull<Product[]>(() => api.products.list(), [], ['products']);
+
+  const handleOpenScanner = async () => {
+    if (isNativeApp()) {
+      const code = await scanBarcodeNative();
+      if (code) {
+        setQ(code);
+      }
+      return;
+    }
+    setScannerOpen(true);
+  };
 
   const nameOf = useMemo(() => {
     const m = new Map<number, string>();
@@ -46,14 +60,25 @@ export default function MobileProduction() {
 
   return (
     <>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="İş emri, model, sipariş ara"
-          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="İş emri, model, sipariş ara"
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenScanner}
+          title="Refakat Kartı Barkodu Oku"
+          aria-label="Refakat kartı barkodu oku"
+          className="flex items-center justify-center p-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white active:scale-95 transition-all shadow-xs shrink-0"
+        >
+          <ScanBarcode className="w-5 h-5" />
+        </button>
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
@@ -119,6 +144,22 @@ export default function MobileProduction() {
           );
         })}
       </div>
+
+      {scannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          initialMode="production_wo"
+          onWorkOrderFound={(wo) => {
+            setScannerOpen(false);
+            setQ(wo.barcode);
+            void refetch();
+          }}
+          onSuccess={() => {
+            void refetch();
+          }}
+        />
+      )}
     </>
   );
 }

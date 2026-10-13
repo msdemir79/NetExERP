@@ -10,14 +10,16 @@ import ActionMenu from './Common/ActionMenu';
 import SegmentedFilter, { SegmentOption } from './Common/SegmentedFilter';
 import EmptyState from './Common/EmptyState';
 import DeleteConfirmModal from './Common/DeleteConfirmModal';
-import { controlClass, Input, Select } from './Common/Field';
+import FilterBar from './Common/FilterBar';
+import DetailPanel from './Common/DetailPanel';
+import StatusBadge from './Common/StatusBadge';
+import { Select } from './Common/Field';
 import {
   Users,
   UserPlus,
   Phone,
   Mail,
   MapPin,
-  Search,
   Filter,
   ArrowUpRight,
   ArrowDownLeft,
@@ -81,6 +83,7 @@ export default function Contacts() {
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [deleteConfirmContact, setDeleteConfirmContact] = useState<Contact | null>(null);
+  const [detailContact, setDetailContact] = useState<Contact | null>(null);
 
   // Financial Metrics Calculation
   const metrics = useMemo(() => {
@@ -453,31 +456,17 @@ export default function Contacts() {
       </div>
 
       {/* Main Control Panel & Filter Bar */}
-      <div className="space-y-3 rounded-card border border-line bg-surface p-3 shadow-card">
-        {/* Search & Quick Controls */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Search Box */}
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-fg-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <Input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari Ünvanı, Kod, Yetkili, Telefon, Vergi No veya Şehir ile arayın..."
-              className="pl-9 pr-16"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-2xs text-fg-muted hover:text-fg-strong font-bold"
-              >
-                Temizle
-              </button>
-            )}
-          </div>
-
-          {/* City, Category & Sort Dropdowns */}
-          <div className="flex flex-wrap items-center gap-2">
+      <FilterBar
+        search={{
+          value: searchTerm,
+          onChange: setSearchTerm,
+          placeholder: 'Cari ünvanı, kod, yetkili, telefon, vergi no veya şehir ile arayın…',
+        }}
+        clearable={searchTerm !== '' || filterType !== 'all' || selectedCity !== 'all' || selectedCategory !== 'all'}
+        onClear={() => { setSearchTerm(''); setFilterType('all'); setSelectedCity('all'); setSelectedCategory('all'); }}
+        resultCount={filteredContacts.length}
+        filters={
+          <>
             <Select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
@@ -544,17 +533,16 @@ export default function Contacts() {
                 <LayoutGrid className="w-4 h-4" />
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* Filter Pills */}
+          </>
+        }
+      >
         <SegmentedFilter
           ariaLabel="Cari filtre türü"
           options={filterOptions}
           value={filterType}
           onChange={(key) => setFilterType(key as FilterType)}
         />
-      </div>
+      </FilterBar>
 
       {/* Content Area: Table View or Grid View */}
       {filteredContacts.length === 0 ? (
@@ -581,11 +569,13 @@ export default function Contacts() {
           density="compact"
           loading={contactsQuery.loading}
           emptyMessage="Arama kriterlerinize uygun cari hesap bulunamadı."
+          onRowClick={(c) => setDetailContact(c)}
           rowActions={(c) => (
             <ActionMenu
               label={`${c.name} işlemleri`}
               icon={<MoreHorizontal className="h-4 w-4" />}
               items={[
+                { key: 'detail', label: 'Detay', icon: <ChevronRight className="h-4 w-4" />, onSelect: () => setDetailContact(c) },
                 { key: 'statement', label: 'Cari Hesap Ekstresi', icon: <FileText className="h-4 w-4" />, onSelect: () => handleOpenStatement(c) },
                 {
                   key: 'payment',
@@ -765,6 +755,154 @@ export default function Contacts() {
           contactsQuery.refetch();
         }}
       />
+
+      {/* PANEL 6: Cari Detayı (DMR Kinetiq — sağdan kayan okunur panel) */}
+      <DetailPanel
+        isOpen={!!detailContact}
+        onClose={() => setDetailContact(null)}
+        title={detailContact?.name || 'Cari Detayı'}
+        widthClass="max-w-[480px]"
+        badge={
+          detailContact ? (
+            <StatusBadge
+              tone={
+                detailContact.type === 'customer'
+                  ? 'brand'
+                  : detailContact.type === 'supplier'
+                  ? 'warning'
+                  : 'success'
+              }
+            >
+              {detailContact.type === 'customer'
+                ? 'Müşteri'
+                : detailContact.type === 'supplier'
+                ? 'Tedarikçi'
+                : 'Müşteri+Tedarikçi'}
+            </StatusBadge>
+          ) : undefined
+        }
+        footer={
+          detailContact ? (
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<FileText className="h-4 w-4" />}
+                onClick={() => {
+                  const c = detailContact;
+                  setDetailContact(null);
+                  handleOpenStatement(c);
+                }}
+              >
+                Ekstre
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<DollarSign className="h-4 w-4" />}
+                onClick={() => {
+                  const c = detailContact;
+                  setDetailContact(null);
+                  handleOpenPayment(c, c.type === 'supplier' ? 'expense' : 'income');
+                }}
+              >
+                {detailContact.type === 'supplier' ? 'Ödeme' : 'Tahsilat'}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Edit className="h-4 w-4" />}
+                onClick={() => {
+                  const c = detailContact;
+                  setDetailContact(null);
+                  handleOpenEditModal(c);
+                }}
+              >
+                Düzenle
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {detailContact &&
+          (() => {
+            const c = detailContact;
+            const money = (v: number) =>
+              `₺${Math.abs(v || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const isRiskExceeded = !!c.creditLimit && c.balance > c.creditLimit;
+            const section = (title: string, rows: [string, string][]) => (
+              <div>
+                <h4 className="mb-2 text-label font-black uppercase tracking-widest text-fg-muted">{title}</h4>
+                <dl className="divide-y divide-line overflow-hidden rounded-card border border-line">
+                  {rows.map(([label, value]) => (
+                    <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
+                      <dt className="shrink-0 text-xs font-semibold text-fg-muted">{label}</dt>
+                      <dd className="min-w-0 break-words text-right text-xs font-bold text-fg-strong">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            );
+            return (
+              <div className="space-y-5">
+                {/* Bakiye özeti */}
+                <div className="rounded-card border border-line bg-surface-hover/40 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-label font-bold uppercase tracking-wide text-fg-muted">Cari Bakiye</span>
+                    <StatusBadge tone={c.balance > 0 ? 'success' : c.balance < 0 ? 'danger' : 'neutral'}>
+                      {c.balance > 0 ? 'Alacaklı' : c.balance < 0 ? 'Borçlu' : 'Kapalı'}
+                    </StatusBadge>
+                  </div>
+                  <div
+                    className={cn(
+                      'mt-1 font-mono text-2xl font-black tabular-nums',
+                      c.balance > 0 ? 'text-success' : c.balance < 0 ? 'text-danger' : 'text-fg-strong'
+                    )}
+                  >
+                    {money(c.balance)}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-fg-muted">Kredi / Risk Limiti</div>
+                      <div className="font-bold tabular-nums text-fg-strong">{c.creditLimit ? money(c.creditLimit) : '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-fg-muted">Vade</div>
+                      <div className="font-bold text-fg-strong">{c.paymentTermDays ? `${c.paymentTermDays} gün` : '—'}</div>
+                    </div>
+                  </div>
+                  {isRiskExceeded && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs font-bold text-danger">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Kredi limiti aşıldı
+                    </div>
+                  )}
+                </div>
+
+                {section('İletişim', [
+                  ['Cari Kodu', c.code || '—'],
+                  ['Yetkili Kişi', c.contactPerson || '—'],
+                  ['Kategori', c.category || '—'],
+                  ['Sabit Telefon', c.phone || '—'],
+                  ['GSM / Cep', c.mobile || '—'],
+                  ['E-posta', c.email || '—'],
+                  ['Web Sitesi', c.website || '—'],
+                ])}
+
+                {section('Adres', [
+                  ['İl / İlçe', [c.city, c.district].filter(Boolean).join(' / ') || '—'],
+                  ['Fatura Adresi', c.address || '—'],
+                  ['Sevkiyat Adresi', c.shippingAddress || '—'],
+                ])}
+
+                {section('Vergi Bilgileri', [
+                  ['Vergi Dairesi', c.taxOffice || '—'],
+                  ['Vergi No', c.taxNumber || '—'],
+                  ['TC Kimlik No', c.tcKimlik || '—'],
+                ])}
+              </div>
+            );
+          })()}
+      </DetailPanel>
     </div>
   );
 }

@@ -115,6 +115,22 @@ export const META: Record<string, ResourceMeta> = {
     searchable: ['barcode', 'orderNumber', 'customerName', 'documentNo', 'moldCode', 'moldGroup', 'color'],
     defaultOrder: 'id DESC',
   },
+  /**
+   * Kalıp (last) ana kartı. Ayakkabı kalıpları çift bazında, numara kırılımlı
+   * ve konum kovalarıyla takip edilir; numara kümesi asorti şablonundan türer.
+   * code otomatik `KLP-` numarası alır (numbering.ts).
+   */
+  molds: {
+    module: 'molds',
+    searchable: ['code', 'name', 'brand', 'moldType', 'material', 'supplierName', 'barcode', 'sizeRange'],
+    defaultOrder: 'name ASC',
+  },
+  /** Kalıp stok kovaları: yalnızca hareket op'ları yazar; çift/konum bütünlüğü satır kilidi altında korunur. */
+  moldStock: { module: 'molds', searchable: [], defaultOrder: 'id ASC', movementTable: true },
+  /** Kalıp hareket başlıkları (ledger): generic satır yazımı kapalı, yalnızca op'lar yazar. */
+  moldMovements: { module: 'molds', searchable: ['movementNo', 'description', 'documentRef', 'deliveredBy', 'receivedBy'], defaultOrder: 'id DESC', movementTable: true },
+  /** Kalıp hareket satırları (numara bazında çift / tek parça). */
+  moldMovementItems: { module: 'molds', searchable: [], defaultOrder: 'id ASC', movementTable: true },
   inventoryLogs: { module: 'inventory', searchable: ['description', 'color', 'size'], defaultOrder: 'id DESC', movementTable: true },
   /**
    * Cari hareketler: bakiyeyi değiştiren bir kayıttır, bu yüzden yalnızca

@@ -400,6 +400,231 @@ export interface WorkOrder {
   operator?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Kalıp (last) takip modülü                                          */
+/* ------------------------------------------------------------------ */
+
+export type MoldLocationType =
+  | 'factory_warehouse'
+  | 'factory_line'
+  | 'factory_other'
+  | 'subcontract'
+  | 'subcontract_warehouse'
+  | 'maintenance'
+  | 'scrap_lost'
+  | 'allocated';
+
+export type MoldMoveType =
+  | 'initial_entry'
+  | 'to_line'
+  | 'from_line_return'
+  | 'to_subcontract'
+  | 'from_subcontract_return'
+  | 'subcontract_transfer'
+  | 'warehouse_transfer'
+  | 'to_maintenance'
+  | 'from_maintenance'
+  | 'damage'
+  | 'loss'
+  | 'scrap'
+  | 'count_adjust'
+  | 'allocate'
+  | 'deallocate';
+
+/** Kalıp ana kartı. `sizeRange` sunucuda assortiment'tan türer (salt okunur). */
+export interface Mold {
+  id?: number;
+  code: string;
+  name: string;
+  productId?: number | null;
+  moldType?: string | null;
+  brand?: string | null;
+  sizeRange?: string | null;
+  material?: string | null;
+  supplierId?: number | null;
+  supplierName?: string | null;
+  purchaseCost?: number | null;
+  currency?: string | null;
+  firstRecordDate?: string | null;
+  description?: string | null;
+  image?: string | null;
+  barcode?: string | null;
+  assortmentTemplateId?: number | null;
+  assortment?: { size: string; quantity: number }[] | null;
+  isActive?: number | boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  version?: number;
+}
+
+/** Kalıp stok kovası: (kalıp, numara, konum, fason cari, iş emri) başına çift. */
+export interface MoldStock {
+  id?: number;
+  moldId: number;
+  size: string;
+  locationType: MoldLocationType;
+  subcontractId: number;
+  workOrderId: number;
+  pairs: number;
+  looseLeft: number;
+  looseRight: number;
+  updatedAt?: string;
+  version?: number;
+}
+
+export interface MoldMovement {
+  id?: number;
+  movementNo: string;
+  type: MoldMoveType;
+  date: string;
+  moldId: number;
+  fromLocationType?: MoldLocationType | null;
+  fromSubcontractId: number;
+  fromWorkOrderId: number;
+  toLocationType?: MoldLocationType | null;
+  toSubcontractId: number;
+  toWorkOrderId: number;
+  sendId?: number | null;
+  userId?: number | null;
+  deliveredBy?: string | null;
+  receivedBy?: string | null;
+  description?: string | null;
+  documentRef?: string | null;
+  createdAt?: string;
+  version?: number;
+}
+
+export interface MoldMovementItem {
+  id?: number;
+  movementId: number;
+  moldId: number;
+  size: string;
+  pairs: number;
+  looseLeft: number;
+  looseRight: number;
+  version?: number;
+}
+
+export interface MoldSummaryRow {
+  id: number;
+  code: string;
+  name: string;
+  sizeRange: string | null;
+  moldType: string | null;
+  brand: string | null;
+  isActive: boolean;
+  productId: number | null;
+  image: string | null;
+  totalPairs: number;
+  factoryPairs: number;
+  subcontractPairs: number;
+  maintenancePairs: number;
+  scrapPairs: number;
+  allocatedPairs: number;
+  availablePairs: number;
+  looseLeft: number;
+  looseRight: number;
+}
+
+export interface MoldSummaryTotals {
+  moldCount: number;
+  activeMoldCount: number;
+  totalPairs: number;
+  factoryPairs: number;
+  subcontractPairs: number;
+  maintenancePairs: number;
+  scrapPairs: number;
+  allocatedPairs: number;
+  availablePairs: number;
+  looseLeft: number;
+  looseRight: number;
+}
+
+export interface MoldSummary {
+  totals: MoldSummaryTotals;
+  perMold: MoldSummaryRow[];
+}
+
+export interface MoldMoveItemInput {
+  size: string;
+  pairs: number;
+  looseLeft?: number;
+  looseRight?: number;
+}
+
+export interface MoldMoveInput {
+  moldId: number;
+  type: Exclude<MoldMoveType, 'count_adjust'>;
+  items: MoldMoveItemInput[];
+  date?: string;
+  workOrderId?: number;
+  description: string;
+  fromSubcontractId?: number;
+  toSubcontractId?: number;
+  fromLocationType?: MoldLocationType;
+  toLocationType?: MoldLocationType;
+  deliveredBy?: string;
+  receivedBy?: string;
+  documentRef?: string;
+}
+
+export interface MoldMoveResult {
+  movementId: number;
+  movementNo: string;
+  moldId: number;
+  type: string;
+  totalPairs: number;
+}
+
+export interface MoldCountAdjustInput {
+  moldId: number;
+  locationType?: MoldLocationType;
+  subcontractId?: number;
+  reason: string;
+  date?: string;
+  items: MoldMoveItemInput[];
+}
+
+export interface MoldCountAdjustResult {
+  movementId: number;
+  movementNo: string;
+  moldId: number;
+  diffs: { size: string; before: number; after: number; delta: number; looseLeft: number; looseRight: number }[];
+}
+
+/** İş emrine kalıp tahsisi / tahsis iptali girdisi. */
+export interface MoldAllocateInput {
+  moldId: number;
+  workOrderId: number;
+  items: MoldMoveItemInput[];
+  date?: string;
+  description?: string;
+}
+
+export interface MoldAllocateResult {
+  movementId: number;
+  movementNo: string;
+  moldId: number;
+  workOrderId: number;
+  type: 'allocate' | 'deallocate';
+  totalPairs: number;
+}
+
+/** Bir iş emri için kalıp uygunluk özeti (üretim ekranı göstergesi). */
+export interface WorkOrderMoldAvailability {
+  workOrderId: number;
+  productId: number | null;
+  moldId: number | null;
+  moldCode: string | null;
+  moldName: string | null;
+  /** Fabrika deposunda tahsissiz (workOrderId=0) serbest çift. */
+  freePairs: number;
+  /** Bu iş emrine hâlihazırda tahsisli çift. */
+  allocatedPairs: number;
+  /** İş emrinin talep ettiği çift (miktar). */
+  requiredPairs: number;
+}
+
 export interface MrpRequirementItem {
   rawMaterialId: number;
   rawMaterialName: string;
@@ -980,6 +1205,7 @@ export type AppModule =
   | 'accounting'
   | 'hr'
   | 'production'
+  | 'molds'
   | 'contacts'
   | 'reports'
   | 'users'

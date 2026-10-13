@@ -31,6 +31,8 @@ const NUMBER_COLUMN: Record<string, string> = {
   waybills: 'waybillNumber',
   orders: 'orderNumber',
   colors: 'code',
+  molds: 'code',
+  moldMovements: 'movementNo',
 };
 
 /** Yevmiye fişi tipi → numara öneki. Bilinmeyen tipler 'YEV' (mahsup) alır. */

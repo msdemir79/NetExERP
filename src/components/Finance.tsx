@@ -24,6 +24,8 @@ import {
 import { Link } from 'react-router-dom';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill, type PillTone } from './Common/DataGrid';
+import KpiCard from './Common/KpiCard';
+import Button from './Common/Button';
 import EditCashBoxModal from './Finance/EditCashBoxModal';
 import EditBankAccountModal from './Finance/EditBankAccountModal';
 import DeleteConfirmModal from './Common/DeleteConfirmModal';
@@ -149,103 +151,84 @@ export default function Finance() {
         iconColor="emerald"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
+              variant="secondary"
+              icon={<ArrowDownLeft className="h-3.5 w-3.5 text-success" />}
               onClick={() => {
                 setReceiptType('collection');
                 setIsReceiptModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 shadow-xs transition-colors cursor-pointer"
             >
-              <ArrowDownLeft className="w-3.5 h-3.5" />
-              <span>Tahsilat Al</span>
-            </button>
+              Tahsilat Al
+            </Button>
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<ArrowUpRight className="h-3.5 w-3.5 text-danger" />}
               onClick={() => {
                 setReceiptType('disbursement');
                 setIsReceiptModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 shadow-xs transition-colors cursor-pointer"
             >
-              <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>Ödeme Yap</span>
-            </button>
+              Ödeme Yap
+            </Button>
 
-            <button
+            <Button
+              variant="primary"
+              icon={<ArrowRightLeft className="h-3.5 w-3.5" />}
               onClick={() => setIsVirmanModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 shadow-xs transition-colors cursor-pointer"
             >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              <span>Virman Transferi</span>
-            </button>
+              Virman Transferi
+            </Button>
           </div>
         }
       />
 
       {/* Financial KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Kasa */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Toplam Nakit Kasa</span>
-            <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <Wallet className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">₺{totalCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
-          <p className="text-xs text-gray-500 mt-1">{cashBoxes.length} Adet Aktif Kasa</p>
-        </div>
-
-        {/* Banka */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Toplam Banka Mevduatı</span>
-            <span className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <Landmark className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">₺{totalBankBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
-          <p className="text-xs text-gray-500 mt-1">{bankAccounts.length} Adet Banka Hesabı</p>
-        </div>
-
-        {/* Portföydeki Alınan Çekler */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Portföydeki Çekler</span>
-            <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-              <FileCheck className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-indigo-900 mt-2">₺{totalPortfolioChecks.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
-          <p className="text-xs text-gray-500 mt-1">{portfolioChecks.length} Adet Alınan Çek</p>
-        </div>
-
-        {/* Verilen Çekler */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm hover:border-gray-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Ödenecek Firma Çekleri</span>
-            <span className="p-2 rounded-lg bg-amber-50 text-amber-600">
-              <Clock className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-amber-900 mt-2">₺{totalPayableGivenChecks.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
-          <p className="text-xs text-gray-500 mt-1">{payableGivenChecks.length} Adet Ödeme Bekleyen Çek</p>
-        </div>
+        <KpiCard
+          label="Toplam Nakit Kasa"
+          value={`₺${totalCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub={`${cashBoxes.length} adet aktif kasa`}
+          icon={Wallet}
+          tone="success"
+        />
+        <KpiCard
+          label="Toplam Banka Mevduatı"
+          value={`₺${totalBankBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub={`${bankAccounts.length} adet banka hesabı`}
+          icon={Landmark}
+          tone="info"
+        />
+        <KpiCard
+          label="Portföydeki Çekler"
+          value={`₺${totalPortfolioChecks.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub={`${portfolioChecks.length} adet alınan çek`}
+          icon={FileCheck}
+          tone="brand"
+        />
+        <KpiCard
+          label="Ödenecek Firma Çekleri"
+          value={`₺${totalPayableGivenChecks.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub={`${payableGivenChecks.length} adet ödeme bekleyen çek`}
+          icon={Clock}
+          tone="warning"
+        />
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 space-x-8">
+      <div className="flex border-b border-line space-x-8">
         <button
           onClick={() => setActiveTab('receipts')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'receipts'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <CreditCard className="w-4 h-4" />
           Tahsilat & Tediye Makbuzları
-          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {receipts.length}
           </span>
         </button>
@@ -254,13 +237,13 @@ export default function Finance() {
           onClick={() => setActiveTab('cash')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'cash'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <Wallet className="w-4 h-4" />
           Kasa Yönetimi
-          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {cashBoxes.length}
           </span>
         </button>
@@ -269,13 +252,13 @@ export default function Finance() {
           onClick={() => setActiveTab('bank')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'bank'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <Landmark className="w-4 h-4" />
           Banka Hesapları
-          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {bankAccounts.length}
           </span>
         </button>
@@ -284,13 +267,13 @@ export default function Finance() {
           onClick={() => setActiveTab('checks')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'checks'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <FileCheck className="w-4 h-4" />
           Çek - Senet Portföyü
-          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1.5 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {checks.length}
           </span>
         </button>
@@ -299,13 +282,13 @@ export default function Finance() {
           onClick={() => setActiveTab('aging')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'aging'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
-          <TrendingUp className="w-4 h-4 text-indigo-600" />
+          <TrendingUp className="w-4 h-4 text-brand" />
           <span>Vade & Yaşlandırma Analizi</span>
-          <span className="ml-1 py-0.5 px-2 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+          <span className="ml-1 py-0.5 px-2 rounded-full text-[10px] bg-brand-soft text-brand-fg font-bold border border-brand/30">
             Nakit Akışı
           </span>
         </button>
@@ -314,8 +297,8 @@ export default function Finance() {
           onClick={() => setActiveTab('reports')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
             activeTab === 'reports'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <BarChart3 className="w-4 h-4 text-emerald-600" />
@@ -325,7 +308,7 @@ export default function Finance() {
         <div className="ml-auto flex items-center pr-2">
           <Link
             to="/reports?tab=finance"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-fg bg-brand-soft hover:bg-brand-soft rounded-lg transition-colors"
           >
             <span>Raporlar Merkezi</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -337,8 +320,8 @@ export default function Finance() {
       {activeTab === 'receipts' && (
         <DataGrid<CollectionReceipt>
           columns={[
-            { key: 'receiptNumber', title: 'Makbuz No', render: (rc) => <span className="font-mono font-medium text-indigo-600">{rc.receiptNumber}</span> },
-            { key: 'date', title: 'Tarih', render: (rc) => <span className="text-gray-500 whitespace-nowrap">{new Date(rc.date).toLocaleDateString('tr-TR')}</span>, filterValue: (rc) => new Date(rc.date).toISOString().slice(0, 10) },
+            { key: 'receiptNumber', title: 'Makbuz No', render: (rc) => <span className="font-mono font-medium text-brand">{rc.receiptNumber}</span> },
+            { key: 'date', title: 'Tarih', render: (rc) => <span className="text-fg-muted whitespace-nowrap">{new Date(rc.date).toLocaleDateString('tr-TR')}</span>, filterValue: (rc) => new Date(rc.date).toISOString().slice(0, 10) },
             {
               key: 'type', title: 'İşlem Türü',
               render: (rc) => rc.type === 'collection'
@@ -346,13 +329,13 @@ export default function Finance() {
                 : <StatusPill tone="red"><span className="inline-flex items-center gap-1"><ArrowUpRight className="w-3.5 h-3.5" />Tediye</span></StatusPill>,
               filterValue: (rc) => rc.type === 'collection' ? 'Tahsilat' : 'Tediye',
             },
-            { key: 'contactName', title: 'Cari Hesap', render: (rc) => <span className="font-medium text-gray-900">{rc.contactName}</span> },
-            { key: 'instrument', title: 'Ödeme Aracı', render: (rc) => <span className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{instrumentLabel(rc.instrument)}</span>, filterValue: (rc) => instrumentLabel(rc.instrument) },
+            { key: 'contactName', title: 'Cari Hesap', render: (rc) => <span className="font-medium text-fg-strong">{rc.contactName}</span> },
+            { key: 'instrument', title: 'Ödeme Aracı', render: (rc) => <span className="text-xs text-fg-muted bg-surface-hover px-2 py-0.5 rounded">{instrumentLabel(rc.instrument)}</span>, filterValue: (rc) => instrumentLabel(rc.instrument) },
             {
               key: 'amount', title: 'Tutar', align: 'right',
               render: (rc) => <span className={`font-bold ${rc.type === 'collection' ? 'text-emerald-600' : 'text-rose-600'}`}>{rc.type === 'collection' ? '+' : '-'}₺{rc.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>,
             },
-            { key: 'description', title: 'Açıklama', render: (rc) => <span className="text-gray-500">{rc.description || '-'}</span> },
+            { key: 'description', title: 'Açıklama', render: (rc) => <span className="text-fg-muted">{rc.description || '-'}</span> },
             {
               key: 'journalEntryId', title: 'TDHP Kaydı', align: 'center', filterable: false,
               render: (rc) => rc.journalEntryId
@@ -367,7 +350,7 @@ export default function Finance() {
               <select
                 value={filterReceiptType}
                 onChange={(e) => setFilterReceiptType(e.target.value as any)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="all">Tüm Makbuzlar</option>
                 <option value="collection">Sadece Tahsilat (Giriş)</option>
@@ -377,7 +360,7 @@ export default function Finance() {
               <select
                 value={filterInstrument}
                 onChange={(e) => setFilterInstrument(e.target.value)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="all">Tüm Ödeme Araçları</option>
                 <option value="cash">Nakit (Kasa)</option>
@@ -390,7 +373,7 @@ export default function Finance() {
           rowActions={(rc) => (
             <button
               onClick={() => setSelectedReceiptForPrint(rc)}
-              className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-indigo-600 p-1 rounded hover:bg-gray-100 transition-colors"
+              className="inline-flex items-center gap-1 text-xs text-fg-muted hover:text-brand p-1 rounded hover:bg-surface-hover transition-colors"
               title="Makbuzu Yazdır"
             >
               <Printer className="w-4 h-4" />
@@ -404,10 +387,10 @@ export default function Finance() {
       {activeTab === 'cash' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">Nakit Kasalar</h2>
+            <h2 className="text-base font-semibold text-fg-strong">Nakit Kasalar</h2>
             <button
               onClick={() => setIsCashBoxModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-hover shadow-sm transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Yeni Kasa Tanımla
@@ -416,15 +399,15 @@ export default function Finance() {
 
           <DataGrid<CashBox>
             columns={[
-              { key: 'code', title: 'Kasa Kodu', render: (box) => <span className="font-mono text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded">{box.code}</span> },
-              { key: 'name', title: 'Kasa Adı', render: (box) => <span className="text-base font-bold text-gray-900">{box.name}</span> },
-              { key: 'responsiblePerson', title: 'Sorumlu', render: (box) => <span className="text-gray-500">{box.responsiblePerson || 'Belirtilmedi'}</span> },
-              { key: 'accountCode', title: 'TDHP Hesabı', render: (box) => <span className="font-mono text-xs text-gray-500">TDHP: {box.accountCode}</span> },
+              { key: 'code', title: 'Kasa Kodu', render: (box) => <span className="font-mono text-xs text-brand font-semibold bg-brand-soft px-2 py-0.5 rounded">{box.code}</span> },
+              { key: 'name', title: 'Kasa Adı', render: (box) => <span className="text-base font-bold text-fg-strong">{box.name}</span> },
+              { key: 'responsiblePerson', title: 'Sorumlu', render: (box) => <span className="text-fg-muted">{box.responsiblePerson || 'Belirtilmedi'}</span> },
+              { key: 'accountCode', title: 'TDHP Hesabı', render: (box) => <span className="font-mono text-xs text-fg-muted">TDHP: {box.accountCode}</span> },
               {
                 key: 'balance', title: 'Mevcut Bakiye', align: 'right',
                 render: (box) => <span className={`font-bold ${box.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>₺{box.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>,
               },
-              { key: 'notes', title: 'Notlar', render: (box) => box.notes ? <span className="text-xs text-gray-400">{box.notes}</span> : <span className="text-gray-300">-</span> },
+              { key: 'notes', title: 'Notlar', render: (box) => box.notes ? <span className="text-xs text-fg-muted">{box.notes}</span> : <span className="text-fg-muted">-</span> },
             ]}
             data={cashBoxes}
             rowKey="id"
@@ -442,10 +425,10 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => setEditingCashBox(box)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-700 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 border border-slate-200 dark:border-slate-700 hover:border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-brand-fg bg-slate-100 dark:bg-slate-800 hover:bg-brand-soft border border-slate-200 dark:border-slate-700 hover:border-brand/30 rounded-lg transition-colors cursor-pointer"
                   title="Kasa kartı ve bakiyesini düzenle"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                  <Edit3 className="w-3.5 h-3.5 text-brand" />
                   Düzenle
                 </button>
                 <button
@@ -468,10 +451,10 @@ export default function Finance() {
       {activeTab === 'bank' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">Banka Hesapları</h2>
+            <h2 className="text-base font-semibold text-fg-strong">Banka Hesapları</h2>
             <button
               onClick={() => setIsBankAccountModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium hover:bg-brand-hover shadow-sm transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Yeni Banka Hesabı Tanımla
@@ -480,10 +463,10 @@ export default function Finance() {
 
           <DataGrid<BankAccount>
             columns={[
-              { key: 'bankName', title: 'Banka', render: (acc) => <span className="font-semibold text-sm text-gray-900 inline-flex items-center gap-1.5"><Building2 className="w-4 h-4 text-blue-600" />{acc.bankName}</span> },
-              { key: 'branchName', title: 'Şube / Hesap No', render: (acc) => <span className="text-xs text-gray-500">{acc.branchName || 'Merkez'} - {acc.accountNumber || ''}</span>, filterValue: (acc) => `${acc.branchName || ''} ${acc.accountNumber || ''}` },
-              { key: 'iban', title: 'IBAN', render: (acc) => <span className="font-mono text-xs font-medium text-gray-700 bg-gray-50 px-2 py-1 rounded border border-gray-100 select-all">{acc.iban}</span> },
-              { key: 'accountCode', title: 'TDHP Hesabı', render: (acc) => <span className="font-mono text-xs text-gray-500">TDHP: {acc.accountCode}</span> },
+              { key: 'bankName', title: 'Banka', render: (acc) => <span className="font-semibold text-sm text-fg-strong inline-flex items-center gap-1.5"><Building2 className="w-4 h-4 text-blue-600" />{acc.bankName}</span> },
+              { key: 'branchName', title: 'Şube / Hesap No', render: (acc) => <span className="text-xs text-fg-muted">{acc.branchName || 'Merkez'} - {acc.accountNumber || ''}</span>, filterValue: (acc) => `${acc.branchName || ''} ${acc.accountNumber || ''}` },
+              { key: 'iban', title: 'IBAN', render: (acc) => <span className="font-mono text-xs font-medium text-fg bg-surface-raised px-2 py-1 rounded border border-line select-all">{acc.iban}</span> },
+              { key: 'accountCode', title: 'TDHP Hesabı', render: (acc) => <span className="font-mono text-xs text-fg-muted">TDHP: {acc.accountCode}</span> },
               {
                 key: 'balance', title: 'Mevduat Bakiyesi', align: 'right',
                 render: (acc) => <span className={`font-bold ${acc.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>₺{acc.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>,
@@ -505,10 +488,10 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => setEditingBankAccount(acc)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-700 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 border border-slate-200 dark:border-slate-700 hover:border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-brand-fg bg-slate-100 dark:bg-slate-800 hover:bg-brand-soft border border-slate-200 dark:border-slate-700 hover:border-brand/30 rounded-lg transition-colors cursor-pointer"
                   title="Banka hesabı ve bakiyesini düzenle"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                  <Edit3 className="w-3.5 h-3.5 text-brand" />
                   Düzenle
                 </button>
                 <button
@@ -531,18 +514,18 @@ export default function Finance() {
       {activeTab === 'checks' && (
         <DataGrid<CheckNote>
           columns={[
-            { key: 'portfolioNumber', title: 'Portföy No', render: (chk) => <span className="font-mono font-medium text-indigo-600">{chk.portfolioNumber}</span> },
-            { key: 'type', title: 'Tür', render: (chk) => <span className="text-xs font-medium text-gray-600">{checkTypeLabel(chk.type)}</span>, filterValue: (chk) => checkTypeLabel(chk.type) },
-            { key: 'serialNumber', title: 'Çek / Senet No', render: (chk) => <span className="font-mono text-gray-800">{chk.serialNumber}</span> },
-            { key: 'bankName', title: 'Banka / Şube', render: (chk) => <span className="text-gray-600">{chk.bankName ? `${chk.bankName} ${chk.branchName ? `(${chk.branchName})` : ''}` : '-'}</span>, filterValue: (chk) => `${chk.bankName || ''} ${chk.branchName || ''}` },
-            { key: 'drawer', title: 'Keşideci', render: (chk) => <span className="font-medium text-gray-900">{chk.drawer}</span> },
-            { key: 'contactName', title: 'İlgili Cari', render: (chk) => <span className="text-gray-600">{chk.contactName}</span> },
+            { key: 'portfolioNumber', title: 'Portföy No', render: (chk) => <span className="font-mono font-medium text-brand">{chk.portfolioNumber}</span> },
+            { key: 'type', title: 'Tür', render: (chk) => <span className="text-xs font-medium text-fg-muted">{checkTypeLabel(chk.type)}</span>, filterValue: (chk) => checkTypeLabel(chk.type) },
+            { key: 'serialNumber', title: 'Çek / Senet No', render: (chk) => <span className="font-mono text-fg-strong">{chk.serialNumber}</span> },
+            { key: 'bankName', title: 'Banka / Şube', render: (chk) => <span className="text-fg-muted">{chk.bankName ? `${chk.bankName} ${chk.branchName ? `(${chk.branchName})` : ''}` : '-'}</span>, filterValue: (chk) => `${chk.bankName || ''} ${chk.branchName || ''}` },
+            { key: 'drawer', title: 'Keşideci', render: (chk) => <span className="font-medium text-fg-strong">{chk.drawer}</span> },
+            { key: 'contactName', title: 'İlgili Cari', render: (chk) => <span className="text-fg-muted">{chk.contactName}</span> },
             {
               key: 'dueDate', title: 'Vade Tarihi',
               render: (chk) => {
                 const isOverdue = new Date(chk.dueDate) < new Date() && chk.status === 'portfolio';
                 return (
-                  <span className={`whitespace-nowrap font-medium ${isOverdue ? 'text-rose-600 font-bold' : 'text-gray-700'}`}>
+                  <span className={`whitespace-nowrap font-medium ${isOverdue ? 'text-rose-600 font-bold' : 'text-fg'}`}>
                     {new Date(chk.dueDate).toLocaleDateString('tr-TR')}
                     {isOverdue && <StatusPill tone="red" className="ml-1">Gecikmiş</StatusPill>}
                   </span>
@@ -550,7 +533,7 @@ export default function Finance() {
               },
               filterValue: (chk) => new Date(chk.dueDate).toISOString().slice(0, 10),
             },
-            { key: 'amount', title: 'Tutar', align: 'right', render: (chk) => <span className="font-bold text-gray-900">₺{chk.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            { key: 'amount', title: 'Tutar', align: 'right', render: (chk) => <span className="font-bold text-fg-strong">₺{chk.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
             {
               key: 'status', title: 'Durum', align: 'center',
               render: (chk) => <StatusPill tone={checkStatusMeta[chk.status].tone}>{checkStatusMeta[chk.status].label}</StatusPill>,
@@ -564,7 +547,7 @@ export default function Finance() {
               <select
                 value={filterCheckType}
                 onChange={(e) => setFilterCheckType(e.target.value)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg"
               >
                 <option value="all">Tüm Çek/Senet Türleri</option>
                 <option value="received_check">Alınan Çek (Müşteri)</option>
@@ -576,7 +559,7 @@ export default function Finance() {
               <select
                 value={filterCheckStatus}
                 onChange={(e) => setFilterCheckStatus(e.target.value)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg"
               >
                 <option value="all">Tüm Durumlar</option>
                 <option value="portfolio">Cüzdanda (Portföy)</option>
@@ -589,10 +572,10 @@ export default function Finance() {
               <button
                 type="button"
                 onClick={() => setActiveTab('reports')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-md shadow-xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-soft hover:bg-brand-soft text-brand-fg border border-brand/30 text-xs font-semibold rounded-md shadow-xs transition-colors cursor-pointer"
                 title="Çek ve Senet Raporu & Yaşlandırma Ekstresi"
               >
-                <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+                <BarChart3 className="w-3.5 h-3.5 text-brand" />
                 <span className="hidden sm:inline">Çek/Senet Raporu</span>
               </button>
             </div>
@@ -602,10 +585,10 @@ export default function Finance() {
               <button
                 type="button"
                 onClick={() => setSelectedCheckForHistory(chk)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-700 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-brand-fg bg-slate-100 dark:bg-slate-800 hover:bg-brand-soft border border-slate-200 dark:border-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
                 title="Çek hareket geçmişi ve bordro kartı"
               >
-                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                <FileText className="w-3.5 h-3.5 text-brand" />
                 <span className="hidden md:inline">Hareketler</span>
               </button>
               {chk.status === 'portfolio' || chk.status === 'bank_collection' ? (
@@ -614,12 +597,12 @@ export default function Finance() {
                     setSelectedCheckForAction(chk);
                     setCheckActionType('collect');
                   }}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:text-brand-fg bg-brand-soft hover:bg-brand-soft px-2.5 py-1 rounded transition-colors cursor-pointer"
                 >
                   Durum Güncelle
                 </button>
               ) : (
-                <span className="text-xs text-gray-400">Tamamlandı</span>
+                <span className="text-xs text-fg-muted">Tamamlandı</span>
               )}
             </div>
           )}

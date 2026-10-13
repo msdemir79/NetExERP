@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Search, ChevronRight } from 'lucide-react';
+import { Search, ChevronRight, ScanBarcode } from 'lucide-react';
 import { api } from '../api/client';
 import { useApiQueryFull } from '../hooks/useApiQuery';
 import type { Order, OrderStatus } from '../types';
 import { formatTRY, formatDate } from './format';
 import { cn } from '../lib/utils';
 import MobileOrderDetail from './MobileOrderDetail';
+import CameraBarcodeScannerModal from '../components/Common/CameraBarcodeScannerModal';
+import { isNativeApp, scanBarcodeNative } from './nativeBridge';
 
 const STATUS: Record<OrderStatus, { label: string; cls: string }> = {
   draft: { label: 'Taslak', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
@@ -19,7 +21,19 @@ const STATUS: Record<OrderStatus, { label: string; cls: string }> = {
 export default function MobileOrders() {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<Order | null>(null);
-  const { data, loading } = useApiQueryFull<Order[]>(() => api.orders.list(), [], ['orders']);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const { data, loading, refetch } = useApiQueryFull<Order[]>(() => api.orders.list(), [], ['orders']);
+
+  const handleOpenScanner = async () => {
+    if (isNativeApp()) {
+      const code = await scanBarcodeNative();
+      if (code) {
+        setQ(code);
+      }
+      return;
+    }
+    setScannerOpen(true);
+  };
 
   const rows = useMemo(() => {
     const all = data ?? [];
@@ -32,14 +46,25 @@ export default function MobileOrders() {
 
   return (
     <>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Sipariş no ara"
-          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Sipariş no ara"
+            className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenScanner}
+          title="Kamera ile Sipariş / İrsaliye Barkodu Oku"
+          aria-label="Kamera ile barkod oku"
+          className="flex items-center justify-center p-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white active:scale-95 transition-all shadow-xs shrink-0"
+        >
+          <ScanBarcode className="w-5 h-5" />
+        </button>
       </div>
 
       {loading && <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Yükleniyor…</div>}
@@ -76,6 +101,17 @@ export default function MobileOrders() {
       </div>
 
       {sel && <MobileOrderDetail order={sel} onClose={() => setSel(null)} />}
+
+      {scannerOpen && (
+        <CameraBarcodeScannerModal
+          isOpen={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          initialMode="waybill_dispatch"
+          onSuccess={() => {
+            void refetch();
+          }}
+        />
+      )}
     </>
   );
 }
