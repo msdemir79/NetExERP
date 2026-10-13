@@ -186,27 +186,30 @@ export default function DataGrid<T>({
 
   const colCount = columns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0);
 
+  const checkboxClass =
+    'rounded border-line-strong text-brand focus:ring-ring cursor-pointer align-middle';
+
   return (
-    <div className={cn('bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm', compact ? 'text-xs' : 'text-sm', className)}>
+    <div className={cn('bg-surface border border-line rounded-card overflow-hidden shadow-card', compact ? 'text-xs' : 'text-sm', className)}>
       {toolbar && (
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-line">
           {toolbar}
         </div>
       )}
       {isMobile ? (
-        <div className="divide-y divide-slate-200 dark:divide-slate-800 overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
+        <div className="divide-y divide-line overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
           {loading ? (
             Array.from({ length: 4 }).map((_, i) => (
               <div key={`mskel-${i}`} className="space-y-2 p-3">
-                <div className="h-4 w-2/3 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
-                <div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
-                <div className="h-3 w-1/2 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                <div className="h-4 w-2/3 rounded bg-surface-hover animate-pulse" />
+                <div className="h-3 w-full rounded bg-surface-hover animate-pulse" />
+                <div className="h-3 w-1/2 rounded bg-surface-hover animate-pulse" />
               </div>
             ))
           ) : filtered.length === 0 ? (
             <div className="px-4 py-12 text-center">
-              <PackageOpen className="w-10 h-10 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-              <p className="text-sm text-slate-400">{emptyMessage}</p>
+              <PackageOpen className="w-10 h-10 mx-auto mb-2 text-fg-muted opacity-40" />
+              <p className="text-sm text-fg-muted">{emptyMessage}</p>
             </div>
           ) : (
             filtered.map((row, i) => {
@@ -216,7 +219,7 @@ export default function DataGrid<T>({
                 <div
                   key={String(id)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={cn('p-3', onRowClick && 'cursor-pointer active:bg-slate-50 dark:active:bg-slate-800/40')}
+                  className={cn('p-3', onRowClick && 'cursor-pointer active:bg-surface-hover')}
                 >
                   <div className="flex items-start gap-2.5">
                     {selectable && (
@@ -225,7 +228,7 @@ export default function DataGrid<T>({
                         checked={selectedSet.has(id)}
                         onChange={() => toggleOne(id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        className={cn('mt-1 h-4 w-4 shrink-0', checkboxClass)}
                       />
                     )}
                     <div className="min-w-0 flex-1">
@@ -236,10 +239,10 @@ export default function DataGrid<T>({
                     <div className="mt-2.5 space-y-1.5">
                       {restCols.map((col) => (
                         <div key={col.key} className="flex items-baseline justify-between gap-3">
-                          <span className="shrink-0 text-label uppercase tracking-wide text-slate-500 dark:text-slate-400">{col.title}</span>
+                          <span className="shrink-0 text-label uppercase tracking-wide text-fg-muted">{col.title}</span>
                           <div
                             className={cn(
-                              'min-w-0 text-sm text-slate-700 dark:text-slate-300',
+                              'min-w-0 text-sm text-fg',
                               col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                             )}
                           >
@@ -251,7 +254,7 @@ export default function DataGrid<T>({
                   )}
                   {rowActions && (
                     <div
-                      className="mt-2.5 flex items-center justify-end gap-1 border-t border-slate-100 dark:border-slate-800 pt-2"
+                      className="mt-2.5 flex items-center justify-end gap-1 border-t border-line pt-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {rowActions(row)}
@@ -265,15 +268,15 @@ export default function DataGrid<T>({
       ) : (
       <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full border-collapse min-w-[640px]">
-          <thead className="bg-slate-50 dark:bg-slate-800/60 sticky top-0 z-10">
-            <tr className="border-b border-slate-200 dark:border-slate-700">
+          <thead className="bg-surface-raised sticky top-0 z-10">
+            <tr className="border-b border-line">
               {selectable && (
                 <th className={cn('w-10', headPad)}>
                   <input
                     type="checkbox"
                     checked={filtered.length > 0 && filtered.every((r) => selectedSet.has(getKey(r)))}
                     onChange={toggleAll}
-                    className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer align-middle"
+                    className={cn('w-3.5 h-3.5', checkboxClass)}
                   />
                 </th>
               )}
@@ -284,26 +287,26 @@ export default function DataGrid<T>({
                   onClick={() => toggleSort(col)}
                   className={cn(
                     headPad,
-                    'text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap',
+                    'text-xs font-bold text-fg-muted whitespace-nowrap',
                     col.align ? ALIGN[col.align] : 'text-left',
-                    col.sortable !== false && 'cursor-pointer select-none hover:text-slate-900 dark:hover:text-slate-100'
+                    col.sortable !== false && 'cursor-pointer select-none hover:text-fg-strong'
                   )}
                 >
                   <span className="inline-flex items-center gap-1">
                     {col.title}
-                    <Filter className="w-3 h-3 text-slate-400" />
+                    <Filter className="w-3 h-3 text-fg-muted opacity-60" />
                     {sort.key === col.key &&
                       (sort.dir === 'asc' ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-indigo-500" />
+                        <ChevronUp className="w-3.5 h-3.5 text-brand" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-indigo-500" />
+                        <ChevronDown className="w-3.5 h-3.5 text-brand" />
                       ))}
                   </span>
                 </th>
               ))}
               {rowActions && <th className={cn('w-10', headPad)} />}
             </tr>
-            <tr className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <tr className="border-b border-line bg-surface">
               {selectable && <th className="w-10" />}
               {columns.map((col) =>
                 col.filterable === false ? (
@@ -311,12 +314,12 @@ export default function DataGrid<T>({
                 ) : (
                   <th key={col.key} style={col.width ? { width: col.width } : undefined} className="px-2 py-1.5">
                     <div className="relative">
-                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-fg-muted pointer-events-none" />
                       <input
                         value={filters[col.key] || ''}
                         onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
                         placeholder="Ara"
-                        className="w-full h-7 pl-7 pr-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 dark:focus:ring-indigo-500/30"
+                        className="w-full h-7 pl-7 pr-2 text-xs rounded-md border border-line bg-surface-raised text-fg placeholder:text-fg-muted outline-none focus:border-brand focus:ring-1 focus:ring-ring"
                       />
                     </div>
                   </th>
@@ -328,15 +331,15 @@ export default function DataGrid<T>({
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
-                <tr key={`skel-${i}`} className="border-b border-slate-100 dark:border-slate-800/70">
+                <tr key={`skel-${i}`} className="border-b border-line">
                   {selectable && (
                     <td className={cellPad}>
-                      <div className="w-3.5 h-3.5 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                      <div className="w-3.5 h-3.5 rounded bg-surface-hover animate-pulse" />
                     </td>
                   )}
                   {columns.map((col) => (
                     <td key={col.key} className={cellPad}>
-                      <div className="h-3.5 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" style={{ width: `${55 + ((i * 17 + col.key.length * 13) % 40)}%` }} />
+                      <div className="h-3.5 rounded bg-surface-hover animate-pulse" style={{ width: `${55 + ((i * 17 + col.key.length * 13) % 40)}%` }} />
                     </td>
                   ))}
                   {rowActions && <td className={cellPad} />}
@@ -345,8 +348,8 @@ export default function DataGrid<T>({
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={colCount} className="px-4 py-12 text-center">
-                  <PackageOpen className="w-10 h-10 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                  <p className="text-sm text-slate-400">{emptyMessage}</p>
+                  <PackageOpen className="w-10 h-10 mx-auto mb-2 text-fg-muted opacity-40" />
+                  <p className="text-sm text-fg-muted">{emptyMessage}</p>
                 </td>
               </tr>
             ) : (
@@ -357,7 +360,7 @@ export default function DataGrid<T>({
                     key={String(id)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
                     className={cn(
-                      'border-b border-slate-100 dark:border-slate-800/70 last:border-0 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40',
+                      'border-b border-line last:border-0 transition-colors hover:bg-surface-hover',
                       onRowClick && 'cursor-pointer'
                     )}
                   >
@@ -367,14 +370,14 @@ export default function DataGrid<T>({
                           type="checkbox"
                           checked={selectedSet.has(id)}
                           onChange={() => toggleOne(id)}
-                          className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer align-middle"
+                          className={cn('w-3.5 h-3.5', checkboxClass)}
                         />
                       </td>
                     )}
                     {columns.map((col) => (
                       <td
                         key={col.key}
-                        className={cn(cellPad, 'text-slate-700 dark:text-slate-300', col.align ? ALIGN[col.align] : 'text-left')}
+                        className={cn(cellPad, 'text-fg', col.align ? ALIGN[col.align] : 'text-left')}
                       >
                         {col.render ? col.render(row, i) : String((row as Record<string, unknown>)[col.key] ?? '')}
                       </td>
@@ -392,7 +395,7 @@ export default function DataGrid<T>({
         </table>
       </div>
       )}
-      {footer && <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500">{footer}</div>}
+      {footer && <div className="px-3 py-2 border-t border-line text-xs text-fg-muted">{footer}</div>}
     </div>
   );
 }

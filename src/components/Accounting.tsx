@@ -23,6 +23,8 @@ import type { Account, JournalEntry, Contact, Invoice, CollectionReceipt } from 
 import { Calculator } from 'lucide-react';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill } from './Common/DataGrid';
+import KpiCard from './Common/KpiCard';
+import Button from './Common/Button';
 import { showToast, confirmDialog } from '../lib/feedback';
 import JournalEntryModal from './Accounting/JournalEntryModal';
 import JournalEntryPrintModal from './Accounting/JournalEntryPrintModal';
@@ -177,101 +179,80 @@ export default function Accounting() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {unaccountedInvoicesCount > 0 && (
-              <button
+              <Button
+                variant="secondary"
+                icon={<RefreshCw className="h-3.5 w-3.5" />}
+                loading={integrating}
                 onClick={handleAutoAccountInvoices}
-                disabled={integrating}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${integrating ? 'animate-spin' : ''}`} />
-                <span>{unaccountedInvoicesCount} Faturayı Muhasebeleştir</span>
-              </button>
+                {unaccountedInvoicesCount} Faturayı Muhasebeleştir
+              </Button>
             )}
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<Plus className="h-3.5 w-3.5" />}
               onClick={() => setIsAccountModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:bg-slate-50 dark:bg-slate-800/50 shadow-xs transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Yeni Alt Hesap</span>
-            </button>
+              Yeni Alt Hesap
+            </Button>
 
-            <button
+            <Button
+              variant="primary"
+              icon={<Plus className="h-3.5 w-3.5" />}
               onClick={() => setIsEntryModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 shadow-xs transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Yeni Yevmiye Fişi</span>
-            </button>
+              Yeni Yevmiye Fişi
+            </Button>
           </div>
         }
       />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Kayıtlı Yevmiye Fişi</span>
-            <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-              <BookOpen className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">{totalEntriesCount} Adet</p>
-          <p className="text-xs text-emerald-600 font-medium mt-1">Borç/Alacak Dengeli</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Toplam Yevmiye Hacmi</span>
-            <span className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <DollarSign className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">
-            ₺{totalDebitSum.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Genel Toplam Borç = Alacak</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">600 Satış Gelirleri</span>
-            <span className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <TrendingUp className="w-5 h-5" />
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-emerald-600 mt-2">
-            ₺{sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Brüt Yurtiçi Satışlar</p>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Dönem Net Faaliyet Kârı</span>
-            <span className={`p-2 rounded-lg ${netIncome >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-              <BarChart3 className="w-5 h-5" />
-            </span>
-          </div>
-          <p className={`text-2xl font-bold mt-2 ${netIncome >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-            ₺{netIncome.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">600 Gelir - 700 Gider Dengesi</p>
-        </div>
+        <KpiCard
+          label="Kayıtlı Yevmiye Fişi"
+          value={`${totalEntriesCount} Adet`}
+          sub="Borç/Alacak dengeli"
+          icon={BookOpen}
+          tone="brand"
+        />
+        <KpiCard
+          label="Toplam Yevmiye Hacmi"
+          value={`₺${totalDebitSum.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub="Genel toplam Borç = Alacak"
+          icon={DollarSign}
+          tone="info"
+        />
+        <KpiCard
+          label="600 Satış Gelirleri"
+          value={`₺${sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub="Brüt yurtiçi satışlar"
+          icon={TrendingUp}
+          tone="success"
+        />
+        <KpiCard
+          label="Dönem Net Faaliyet Kârı"
+          value={`₺${netIncome.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+          sub="600 Gelir − 700 Gider dengesi"
+          icon={BarChart3}
+          tone={netIncome >= 0 ? 'success' : 'danger'}
+        />
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 space-x-6 overflow-x-auto">
+      <div className="flex border-b border-line space-x-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab('entries')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'entries'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <BookOpen className="w-4 h-4" />
           Yevmiye Defteri (Fişler)
-          <span className="ml-1 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {journalEntries.length}
           </span>
         </button>
@@ -280,13 +261,13 @@ export default function Accounting() {
           onClick={() => setActiveTab('chart')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'chart'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <Layers className="w-4 h-4" />
           Hesap Planı (TDHP)
-          <span className="ml-1 py-0.5 px-2 rounded-full text-xs bg-gray-100 text-gray-600 font-semibold">
+          <span className="ml-1 py-0.5 px-2 rounded-full text-xs bg-surface-hover text-fg-muted font-semibold">
             {accounts.length}
           </span>
         </button>
@@ -295,8 +276,8 @@ export default function Accounting() {
           onClick={() => setActiveTab('mizan')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'mizan'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -307,8 +288,8 @@ export default function Accounting() {
           onClick={() => setActiveTab('kebir')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'kebir'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <Building2 className="w-4 h-4" />
@@ -319,8 +300,8 @@ export default function Accounting() {
           onClick={() => setActiveTab('financial')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'financial'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <BarChart3 className="w-4 h-4" />
@@ -331,8 +312,8 @@ export default function Accounting() {
           onClick={() => setActiveTab('integration')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'integration'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <RefreshCw className="w-4 h-4" />
@@ -348,8 +329,8 @@ export default function Accounting() {
           onClick={() => setActiveTab('reports')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'reports'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-fg-muted hover:text-fg-strong hover:border-line-strong'
           }`}
         >
           <BarChart3 className="w-4 h-4 text-emerald-600" />
@@ -359,7 +340,7 @@ export default function Accounting() {
         <div className="ml-auto flex items-center pr-2">
           <Link
             to="/reports?tab=accounting"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-fg bg-brand-soft hover:bg-brand-soft rounded-lg transition-colors whitespace-nowrap"
           >
             <span>Raporlar Merkezi</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -371,8 +352,8 @@ export default function Accounting() {
       {activeTab === 'entries' && (
         <DataGrid<JournalEntry>
           columns={[
-            { key: 'entryNumber', title: 'Yevmiye Fiş No', render: (entry) => <span className="font-mono font-bold text-indigo-600">{entry.entryNumber}</span> },
-            { key: 'date', title: 'Tarih', render: (entry) => <span className="text-gray-500 whitespace-nowrap">{new Date(entry.date).toLocaleDateString('tr-TR')}</span>, filterValue: (entry) => new Date(entry.date).toISOString().slice(0, 10) },
+            { key: 'entryNumber', title: 'Yevmiye Fiş No', render: (entry) => <span className="font-mono font-bold text-brand">{entry.entryNumber}</span> },
+            { key: 'date', title: 'Tarih', render: (entry) => <span className="text-fg-muted whitespace-nowrap">{new Date(entry.date).toLocaleDateString('tr-TR')}</span>, filterValue: (entry) => new Date(entry.date).toISOString().slice(0, 10) },
             {
               key: 'entryType', title: 'Fiş Tipi',
               render: (entry) => <StatusPill tone={entryTypeMeta[entry.entryType].tone}>{entryTypeMeta[entry.entryType].label}</StatusPill>,
@@ -381,16 +362,16 @@ export default function Accounting() {
             {
               key: 'description', title: 'Açıklama',
               render: (entry) => (
-                <div className="font-medium text-gray-900 max-w-sm truncate">
+                <div className="font-medium text-fg-strong max-w-sm truncate">
                   {entry.description}
-                  <span className="text-xs text-gray-400 block font-normal">{entry.lines.length} satır kayıt</span>
+                  <span className="text-xs text-fg-muted block font-normal">{entry.lines.length} satır kayıt</span>
                 </div>
               ),
               filterValue: (entry) => `${entry.entryNumber} ${entry.description} ${entry.documentNumber || ''} ${entry.lines.map(l => `${l.accountCode} ${l.accountName} ${l.description || ''}`).join(' ')}`,
             },
-            { key: 'documentNumber', title: 'Belge No', filterable: false, render: (entry) => <span className="font-mono text-xs text-gray-600">{entry.documentNumber || '-'}</span> },
-            { key: 'totalDebit', title: 'Borç Toplamı', align: 'right', render: (entry) => <span className="font-bold text-gray-900">₺{entry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
-            { key: 'totalCredit', title: 'Alacak Toplamı', align: 'right', render: (entry) => <span className="font-bold text-gray-900">₺{entry.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            { key: 'documentNumber', title: 'Belge No', filterable: false, render: (entry) => <span className="font-mono text-xs text-fg-muted">{entry.documentNumber || '-'}</span> },
+            { key: 'totalDebit', title: 'Borç Toplamı', align: 'right', render: (entry) => <span className="font-bold text-fg-strong">₺{entry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
+            { key: 'totalCredit', title: 'Alacak Toplamı', align: 'right', render: (entry) => <span className="font-bold text-fg-strong">₺{entry.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span> },
             {
               key: 'isBalanced', title: 'Denge', align: 'center', filterable: false,
               render: (entry) => entry.isBalanced
@@ -405,7 +386,7 @@ export default function Accounting() {
               <select
                 value={entryTypeFilter}
                 onChange={(e) => setEntryTypeFilter(e.target.value)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg"
               >
                 <option value="all">Tüm Fiş Türleri</option>
                 <option value="mahsup">Mahsup Fişleri</option>
@@ -419,14 +400,14 @@ export default function Accounting() {
             <div className="inline-flex items-center gap-1">
               <button
                 onClick={() => setSelectedEntryForPrint(entry)}
-                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded"
+                className="p-1.5 text-fg-muted hover:text-brand hover:bg-surface-hover rounded"
                 title="Resmi Fişi Görüntüle / Yazdır"
               >
                 <Printer className="w-4 h-4" />
               </button>
               <button
                 onClick={() => handleDeleteEntry(entry.id!)}
-                className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-gray-100 rounded"
+                className="p-1.5 text-fg-muted hover:text-rose-600 hover:bg-surface-hover rounded"
                 title="Fişi Sil"
               >
                 <Trash2 className="w-4 h-4" />
@@ -458,14 +439,14 @@ export default function Accounting() {
       {/* TAB 3: Mizan Raporu (Trial Balance) */}
       {activeTab === 'mizan' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-gray-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-line">
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+              <label className="flex items-center gap-2 text-xs font-semibold text-fg cursor-pointer">
                 <input
                   type="checkbox"
                   checked={mizanOnlyBalance}
                   onChange={(e) => setMizanOnlyBalance(e.target.checked)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  className="rounded border-line-strong text-brand focus:ring-ring"
                 />
                 Sadece Bakiyesi Olan Hesapları Göster
               </label>
@@ -473,7 +454,7 @@ export default function Accounting() {
               <select
                 value={mizanLevelFilter}
                 onChange={(e) => setMizanLevelFilter(e.target.value as any)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-700"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg"
               >
                 <option value="all">Tüm Seviyeler (Sınıf, Grup, Ana, Alt)</option>
                 <option value="class">Sadece Sınıflar (1, 2, 3, 4, 5, 6, 7)</option>
@@ -485,7 +466,7 @@ export default function Accounting() {
 
             <button
               onClick={() => setIsMizanPrintModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-xs font-semibold text-indigo-700 shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand/30 bg-brand-soft hover:bg-brand-soft rounded-lg text-xs font-semibold text-brand-fg shadow-sm transition-colors"
               title="Resmi Mizan Cetveli Önizleme ve Yazdırma"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -500,13 +481,13 @@ export default function Accounting() {
                 title: 'Hesap Kodu',
                 width: '8rem',
                 render: (r) => (
-                  <span className={`font-mono font-medium ${r.level <= 2 ? 'font-bold text-gray-900 dark:text-gray-100' : ''}`}>{r.code}</span>
+                  <span className={`font-mono font-medium ${r.level <= 2 ? 'font-bold text-fg-strong' : ''}`}>{r.code}</span>
                 ),
               },
               {
                 key: 'name',
                 title: 'Hesap Adı',
-                render: (r) => <span className={r.level <= 2 ? 'font-bold text-gray-900 dark:text-gray-100' : ''}>{r.name}</span>,
+                render: (r) => <span className={r.level <= 2 ? 'font-bold text-fg-strong' : ''}>{r.name}</span>,
               },
               {
                 key: 'totalDebit',
@@ -544,15 +525,15 @@ export default function Accounting() {
       {/* TAB 4: Defter-i Kebir (Büyük Defter) */}
       {activeTab === 'kebir' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-gray-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-line">
             <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">
+              <label className="text-xs font-semibold text-fg whitespace-nowrap">
                 Hesap Seçimi:
               </label>
               <select
                 value={selectedKebirCode}
                 onChange={(e) => setSelectedKebirCode(e.target.value)}
-                className="text-xs border border-gray-300 rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-gray-900 font-mono font-bold min-w-[280px]"
+                className="text-xs border border-line-strong rounded-md py-1.5 px-2.5 bg-white dark:bg-slate-900 text-fg-strong font-mono font-bold min-w-[280px]"
               >
                 {accounts.map((acc) => (
                   <option key={`kebir-opt-${acc.code}`} value={acc.code}>
@@ -564,7 +545,7 @@ export default function Accounting() {
 
             <button
               onClick={() => setIsKebirPrintModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-xs font-semibold text-indigo-700 shadow-sm transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-brand/30 bg-brand-soft hover:bg-brand-soft rounded-lg text-xs font-semibold text-brand-fg shadow-sm transition-colors"
               title="Defter-i Kebir Ekstresi Önizleme ve Yazdırma"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -578,7 +559,7 @@ export default function Accounting() {
                 key: 'entryNumber',
                 title: 'Yevmiye Fiş No',
                 width: '9rem',
-                render: (row) => <span className="font-mono font-bold text-indigo-600">{row.entryNumber}</span>,
+                render: (row) => <span className="font-mono font-bold text-brand">{row.entryNumber}</span>,
               },
               {
                 key: 'date',
@@ -623,39 +604,39 @@ export default function Accounting() {
       {activeTab === 'financial' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* GELİR TABLOSU */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-line p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-base font-bold text-gray-900">Özet Gelir Tablosu (6 Grubu)</h2>
-              <span className="text-xs text-gray-500">TL Bazında</span>
+              <h2 className="text-base font-bold text-fg-strong">Özet Gelir Tablosu (6 Grubu)</h2>
+              <span className="text-xs text-fg-muted">TL Bazında</span>
             </div>
 
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between py-1.5 border-b border-gray-100">
-                <span className="font-semibold text-gray-800">A. BRÜT SATIŞLAR (600)</span>
-                <span className="font-mono font-bold text-gray-900">₺{sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+              <div className="flex justify-between py-1.5 border-b border-line">
+                <span className="font-semibold text-fg-strong">A. BRÜT SATIŞLAR (600)</span>
+                <span className="font-mono font-bold text-fg-strong">₺{sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-600 pl-4">
+              <div className="flex justify-between py-1.5 border-b border-line text-fg-muted pl-4">
                 <span>B. Satış İndirimleri (-)</span>
                 <span className="font-mono">₺0,00</span>
               </div>
 
-              <div className="flex justify-between py-1.5 bg-gray-50 px-2 rounded font-bold">
+              <div className="flex justify-between py-1.5 bg-surface-raised px-2 rounded font-bold">
                 <span>NET SATIŞLAR</span>
-                <span className="font-mono text-indigo-700">₺{sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono text-brand-fg">₺{sales600.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="flex justify-between py-1.5 border-b border-gray-100 text-rose-600 pl-4">
+              <div className="flex justify-between py-1.5 border-b border-line text-rose-600 pl-4">
                 <span>C. Satışların Maliyeti (620) (-)</span>
                 <span className="font-mono">-₺{cogs620.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="flex justify-between py-1.5 bg-indigo-50/50 px-2 rounded font-bold">
+              <div className="flex justify-between py-1.5 bg-brand-soft/50 px-2 rounded font-bold">
                 <span>BRÜT SATIŞ KÂRI / ZARARI</span>
-                <span className="font-mono text-indigo-900">₺{(sales600 - cogs620).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono text-brand-fg">₺{(sales600 - cogs620).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="flex justify-between py-1.5 border-b border-gray-100 text-rose-600 pl-4">
+              <div className="flex justify-between py-1.5 border-b border-line text-rose-600 pl-4">
                 <span>D. Faaliyet Giderleri (760/770) (-)</span>
                 <span className="font-mono">-₺{expenses700.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
               </div>
@@ -668,10 +649,10 @@ export default function Accounting() {
           </div>
 
           {/* BİLANÇO ÖZETİ */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-line p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-base font-bold text-gray-900">Özet Bilanço Göstergesi</h2>
-              <span className="text-xs text-gray-500">Aktif = Pasif</span>
+              <h2 className="text-base font-bold text-fg-strong">Özet Bilanço Göstergesi</h2>
+              <span className="text-xs text-fg-muted">Aktif = Pasif</span>
             </div>
 
             <div className="space-y-4 text-sm">
@@ -699,7 +680,7 @@ export default function Accounting() {
                 </div>
               </div>
 
-              <div className="text-xs text-gray-500 italic bg-gray-50 p-2.5 rounded">
+              <div className="text-xs text-fg-muted italic bg-surface-raised p-2.5 rounded">
                 * Bilanço kalemleri, Tek Düzen Hesap Planındaki 1-5 sınıf hesaplarının yevmiye kapanış bakiyelerinden anlık olarak üretilmektedir.
               </div>
             </div>
@@ -710,11 +691,11 @@ export default function Accounting() {
       {/* TAB 6: Entegrasyon Merkezi */}
       {activeTab === 'integration' && (
         <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-line p-6 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">ERP Modülleri Otomatik TDHP Entegrasyonu</h2>
-                <p className="text-xs text-gray-500 mt-1">
+                <h2 className="text-lg font-bold text-fg-strong">ERP Modülleri Otomatik TDHP Entegrasyonu</h2>
+                <p className="text-xs text-fg-muted mt-1">
                   Faturalar (Satış/Alış) ve Tahsilat/Tediye makbuzlarının Tek Düzen Hesap Planına tek tıkla toplu aktarımı
                 </p>
               </div>
@@ -722,7 +703,7 @@ export default function Accounting() {
               <button
                 onClick={handleAutoAccountInvoices}
                 disabled={integrating || unaccountedInvoicesCount === 0}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 shadow-sm transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-hover shadow-sm transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 ${integrating ? 'animate-spin' : ''}`} />
                 {integrating ? 'Muhasebeleştiriliyor...' : 'Bekleyen Faturaları Muhasebeleştir'}
@@ -752,12 +733,12 @@ export default function Accounting() {
               {
                 key: 'invoiceNumber',
                 title: 'Fatura No',
-                render: (inv) => <span className="font-mono font-medium text-indigo-600">{inv.invoiceNumber}</span>,
+                render: (inv) => <span className="font-mono font-medium text-brand">{inv.invoiceNumber}</span>,
               },
               {
                 key: 'date',
                 title: 'Tarih',
-                render: (inv) => <span className="text-gray-500 dark:text-gray-400">{new Date(inv.date).toLocaleDateString('tr-TR')}</span>,
+                render: (inv) => <span className="text-fg-muted">{new Date(inv.date).toLocaleDateString('tr-TR')}</span>,
                 filterValue: (inv) => new Date(inv.date).toLocaleDateString('tr-TR'),
               },
               {
@@ -770,7 +751,7 @@ export default function Accounting() {
                 key: 'contact',
                 title: 'Cari',
                 render: (inv) => (
-                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                  <span className="font-medium text-fg-strong">
                     {contacts.find(c => c.id === inv.contactId)?.name || `Cari #${inv.contactId}`}
                   </span>
                 ),
@@ -798,7 +779,7 @@ export default function Accounting() {
             data={invoices}
             rowKey="id"
             emptyMessage="Henüz kayıtlı fatura bulunmuyor."
-            toolbar={<h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">Faturaların Muhasebe Durumu</h3>}
+            toolbar={<h3 className="text-sm font-bold text-fg-strong">Faturaların Muhasebe Durumu</h3>}
             rowActions={(inv) =>
               accountedDocIds.has(inv.id) ? null : (
                 <button
@@ -806,7 +787,7 @@ export default function Accounting() {
                     await accountingService.createInvoiceJournalEntry(inv.id!);
                     showToast(`${inv.invoiceNumber} faturası başarıyla muhasebeleştirildi.`, 'success');
                   }}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold whitespace-nowrap"
+                  className="text-xs text-brand hover:text-brand-fg font-semibold whitespace-nowrap"
                 >
                   Şimdi Muhasebeleştir
                 </button>

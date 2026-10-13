@@ -7,6 +7,8 @@ import type { Invoice, InvoiceType, InvoiceStatus, InvoiceScenario } from '../ty
 import { Receipt, Plus, CheckCircle2, Clock, AlertCircle, X, Trash2, Eye, ArrowUpRight, ArrowDownLeft, DollarSign, Percent, Check, Ban, RotateCcw, Info, Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
+import KpiCard from './Common/KpiCard';
+import Button from './Common/Button';
 import { InvoicePrintModal } from './Invoices/InvoicePrintModal';
 import PageHeader from './PageHeader';
 import CreateInvoiceModal from './Invoices/CreateInvoiceModal';
@@ -371,115 +373,73 @@ export default function Invoices() {
         iconColor="purple"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
+              variant="secondary"
+              icon={<RotateCcw className="h-3.5 w-3.5 text-danger" />}
               onClick={() => setIsResetModalOpen(true)}
-              className="bg-white dark:bg-slate-900 border border-rose-200 hover:bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
               title="Tüm faturaları ve stok hareketlerini sıfırla"
             >
-              <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
               <span className="hidden sm:inline">Sıfırla</span>
-            </button>
+            </Button>
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<Truck className="h-3.5 w-3.5 text-brand" />}
               onClick={() => setIsGlobalWaybillSelectorOpen(true)}
-              className="bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
               title="Depodan sevk edilmiş açık irsaliyeleri faturaya dönüştür"
             >
-              <Truck className="w-3.5 h-3.5 text-purple-600" />
-              <span>İrsaliyeyi Faturalandır</span>
-            </button>
+              İrsaliyeyi Faturalandır
+            </Button>
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<ArrowDownLeft className="h-3.5 w-3.5 text-warning" />}
               onClick={() => openCreateModal('purchase')}
-              className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <ArrowDownLeft className="w-3.5 h-3.5 text-amber-400" />
-              <span>Gelen Alış Faturası</span>
-            </button>
+              Gelen Alış Faturası
+            </Button>
 
-            <button
+            <Button
+              variant="primary"
+              icon={<Plus className="h-3.5 w-3.5" />}
               onClick={() => openCreateModal('sales')}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Yeni Satış Faturası</span>
-            </button>
+              Yeni Satış Faturası
+            </Button>
           </div>
         }
       />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Satış Faturaları</span>
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-              <ArrowUpRight className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">
-              ₺{totalSalesAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-1">
-              {salesInvoices.length} Adet Kesilen Satış Faturası
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Alış Faturaları</span>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-              <ArrowDownLeft className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-slate-800 dark:text-slate-200 font-mono">
-              ₺{totalPurchaseAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-1">
-              {purchaseInvoices.length} Adet Gelen Alış Faturası
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Hesaplanan KDV</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-              <Percent className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-emerald-600 font-mono">
-              ₺{totalSalesTax.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-1">
-              İndirilecek KDV: ₺{totalPurchaseTax.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ödenecek Net KDV</span>
-            <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
-              <DollarSign className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className={cn(
-              "text-2xl font-black font-mono",
-              netVatPayable >= 0 ? "text-purple-700" : "text-amber-600"
-            )}>
-              ₺{Math.abs(netVatPayable).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-1">
-              {netVatPayable >= 0 ? 'Maliyeye Ödenecek KDV Farkı' : 'Devreden KDV Fazlası'}
-            </div>
-          </div>
-        </div>
+        <KpiCard
+          label="Satış Faturaları"
+          value={`₺${totalSalesAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={`${salesInvoices.length} adet kesilen satış faturası`}
+          icon={ArrowUpRight}
+          tone="brand"
+        />
+        <KpiCard
+          label="Alış Faturaları"
+          value={`₺${totalPurchaseAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={`${purchaseInvoices.length} adet gelen alış faturası`}
+          icon={ArrowDownLeft}
+          tone="orange"
+        />
+        <KpiCard
+          label="Hesaplanan KDV"
+          value={`₺${totalSalesTax.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={`İndirilecek KDV: ₺${totalPurchaseTax.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={Percent}
+          tone="success"
+        />
+        <KpiCard
+          label="Ödenecek Net KDV"
+          value={`₺${Math.abs(netVatPayable).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={netVatPayable >= 0 ? 'Maliyeye ödenecek KDV farkı' : 'Devreden KDV fazlası'}
+          icon={DollarSign}
+          tone={netVatPayable >= 0 ? 'violet' : 'warning'}
+        />
       </div>
 
       {/* Main Table Card */}

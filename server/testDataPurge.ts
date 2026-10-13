@@ -180,6 +180,15 @@ function steps(): PurgeStep[] {
       sample: 'CONCAT(`code`, \' — \', `name`)',
       blockers: [{ table: 'productColors', column: 'colorId', label: 'ürün bağı' }],
     },
+    {
+      // Kalıp alt tabloları (moldStock, moldMovements, moldMovementItems) molds'a
+      // ON DELETE CASCADE bağlı; işaretli kalıp silinince kova/hareket satırları da gider.
+      table: 'molds',
+      label: 'Kalıp',
+      where: `((${textMarked(['name', 'description'])}) OR (${codeMarked('code')}))`,
+      scopeColumns: ['name', 'code'],
+      sample: 'CONCAT(`code`, \' — \', `name`)',
+    },
   ];
 }
 

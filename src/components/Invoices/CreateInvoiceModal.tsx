@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { api } from '../../api/client';
 import { invoiceService } from '../../services/invoiceService';
@@ -9,7 +9,9 @@ import { getCartonSize } from '../../lib/carton';
 import { showToast } from '../../lib/feedback';
 import { ColorSelect } from '../Colors/ColorSelect';
 import { ContactSelect } from '../Contacts/ContactSelect';
+import { ProductSelect } from '../Common/ProductSelect';
 import { OrderImportSelector, WaybillImportSelector } from './InvoiceImportSelectors';
+import { useProductionDemand, demandOptionSuffix, demandChipText } from '../../services/productionDemand';
 
 // -----------------------------------------------------------------------------------------
 // CREATE INVOICE MODAL COMPONENT (Full Support for Partial Order Invoicing & Manual Items)
@@ -42,8 +44,8 @@ export default function CreateInvoiceModal({
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
-  const [status, setStatus] = useState<InvoiceStatus>('issued');
   const [isStockDeducted, setIsStockDeducted] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | undefined>(initialOrderId);
   const [selectedOrderNumber, setSelectedOrderNumber] = useState<string | undefined>('');
   const [selectedWaybillId, setSelectedWaybillId] = useState<number | undefined>(initialWaybillId);
@@ -64,6 +66,8 @@ export default function CreateInvoiceModal({
   const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
   const products = useApiQuery(() => api.products.list(), [], ['products']);
   const templates = useApiQuery(() => api.assortmentTemplates.list(), [], ['assortmentTemplates']);
+  // Üretimden bekleyen ihtiyaç: yalnızca modal açıkken hesaplanır
+  const { demand } = useProductionDemand(isOpen);
 
   // Generate initial invoice number and ETTN
   useEffect(() => {
@@ -314,14 +318,21 @@ export default function CreateInvoiceModal({
   }
   const grandTotal = subtotal - discountTotal + taxTotal - withholdingAmount;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Kayıt durumu altbilgi düğmesinden gelir: "Taslak Kaydet" → draft,
+   * "Faturayı Kes" → issued (cari bakiyesine yansır).
+   */
+  const handleSubmit = async (nextStatus: InvoiceStatus) => {
     if (!contactId) {
       showToast('Lütfen bir müşteri veya tedarikçi cari seçiniz.', 'warning');
       return;
     }
     if (items.length === 0) {
       showToast('Lütfen faturaya en az bir ürün veya hizmet satırı ekleyiniz.', 'warning');
+      return;
+    }
+    if (!date) {
+      showToast('Fatura tarihi zorunludur.', 'warning');
       return;
     }
 
@@ -353,17 +364,20 @@ export default function CreateInvoiceModal({
       grandTotal,
       currency: 'TRY',
       paymentStatus: 'unpaid',
-      status,
+      status: nextStatus,
       notes,
       isStockDeducted
     };
 
+    setIsSubmitting(true);
     try {
       const newInvoiceId = await invoiceService.createInvoice(invoiceData, items);
       onSuccess(newInvoiceId as number);
     } catch (err: any) {
       console.error(err);
       showToast('Fatura kaydedilirken bir hata oluştu: ' + err.message, 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -373,69 +387,72 @@ export default function CreateInvoiceModal({
   }) || [];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col max-h-[92vh] overflow-hidden my-auto animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-5xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl flex flex-col max-h-[96vh] overflow-hidden border border-slate-200 dark:border-slate-700">
         
         {/* Modal Header */}
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50/50 flex items-center justify-between">
+        <div className="bg-slate-900 text-white p-5 px-6 flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
             <div className={cn(
-              "w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm",
-              type === 'sales' ? "bg-indigo-600 text-white" : "bg-amber-600 text-white"
+              "w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md",
+              type === 'sales' ? "bg-indigo-600 shadow-indigo-500/20" : "bg-amber-600 shadow-amber-500/20"
             )}>
               <Receipt className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-slate-200 tracking-tight">
-                {type === 'sales' ? 'YENİ SATIŞ FATURASI DÜZENLE' : 'YENİ ALIŞ FATURASI GİRİŞİ'}
-              </h2>
-              <p className="text-xs text-slate-400 font-medium">
-                {type === 'sales' ? 'Müşteriye resmi satış faturası kesme ve cari hesap borçlandırma' : 'Tedarikçi alış faturası girişi ve stok/borç güncelleme'}
+              <h3 className="text-base font-black tracking-tight">
+                {type === 'sales' ? 'Yeni Satış Faturası Düzenle' : 'Yeni Alış Faturası Girişi'}
+              </h3>
+              <p className="text-xs text-slate-400">
+                {type === 'sales' ? 'e-Fatura / e-Arşiv Standartlarında Satış ve Cari Borçlandırma Kaydı' : 'Tedarikçi Alış Faturası, Stok Girişi ve Borç Kaydı'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex bg-slate-200/80 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setType('sales')}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-                  type === 'sales' ? "bg-white dark:bg-slate-900 text-indigo-600 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-indigo-600"
-                )}
-              >
-                Satış Faturası
-              </button>
-              <button
-                type="button"
-                onClick={() => setType('purchase')}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-                  type === 'purchase' ? "bg-white dark:bg-slate-900 text-amber-600 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-amber-600"
-                )}
-              >
-                Alış Faturası
-              </button>
-            </div>
-
-            <button 
-              onClick={onClose}
-              className="w-9 h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 dark:bg-slate-800/50 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Modal Form Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-800/50 text-xs">
           
           {/* Top Form Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+            {/* Invoice Type Toggle */}
+            <div>
+              <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">Fatura Türü</label>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setType('sales')}
+                  className={cn(
+                    "py-1.5 rounded-lg font-bold text-xs transition-all",
+                    type === 'sales' ? "bg-white dark:bg-slate-900 text-indigo-700 shadow-2xs" : "text-slate-600 dark:text-slate-400"
+                  )}
+                >
+                  Satış Faturası
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType('purchase')}
+                  className={cn(
+                    "py-1.5 rounded-lg font-bold text-xs transition-all",
+                    type === 'purchase' ? "bg-white dark:bg-slate-900 text-amber-700 shadow-2xs" : "text-slate-600 dark:text-slate-400"
+                  )}
+                >
+                  Alış Faturası
+                </button>
+              </div>
+            </div>
+
             {/* Contact Select */}
-            <div className="md:col-span-2 space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+            <div className="md:col-span-2">
+              <label className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center justify-between">
                 <span>{type === 'sales' ? 'Müşteri Cari' : 'Tedarikçi Cari'} *</span>
                 {contactId && pendingOrders.length > 0 && (
                   <span className="text-[10px] text-indigo-600 font-bold">
@@ -459,7 +476,7 @@ export default function CreateInvoiceModal({
 
             {/* Invoice Number */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+              <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                 Fatura Seri / Sıra No *
               </label>
               <input
@@ -474,7 +491,7 @@ export default function CreateInvoiceModal({
 
             {/* Scenario */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+              <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                 Fatura Senaryosu
               </label>
               <select
@@ -492,7 +509,7 @@ export default function CreateInvoiceModal({
 
             {/* Invoice Date */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+              <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                 Fatura Tarihi *
               </label>
               <input
@@ -506,7 +523,7 @@ export default function CreateInvoiceModal({
 
             {/* Due Date */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+              <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                 Vade Tarihi
               </label>
               <input
@@ -520,7 +537,7 @@ export default function CreateInvoiceModal({
             {/* ETTN No (UUID) */}
             <div className="md:col-span-2 space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                <label className="font-bold text-slate-700 dark:text-slate-200">
                   e-Fatura / e-Arşiv UUID (ETTN)
                 </label>
                 <button
@@ -571,92 +588,79 @@ export default function CreateInvoiceModal({
             </div>
           )}
 
-          {/* Import from Orders & Waybills banner / buttons */}
-          <div className="bg-gradient-to-r from-indigo-50 to-slate-50 p-4 rounded-2xl border border-indigo-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                <ShoppingBag className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-indigo-950">
-                  {selectedOrderNumber ? `Bağlı Sipariş: ${selectedOrderNumber}` : 'Sipariş veya İrsaliyeden Otomatik Kalem Aktarımı'}
-                </div>
-                <div className="text-[11px] text-indigo-700/80">
-                  {selectedOrderNumber 
-                    ? 'Siparişin kalan miktarları aktarıldı. İhtiyacınıza göre kısmi fatura adetlerini satırlarda düzenleyebilirsiniz.'
-                    : 'Cariye ait bekleyen açık sipariş veya sevk irsaliyelerini çağırarak tek tıkla fatura kesin.'}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!contactId) {
-                    showToast('Lütfen önce bir cari seçiniz.', 'warning');
-                    return;
-                  }
-                  setIsWaybillSelectorOpen(true);
-                }}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
-              >
-                <Truck className="w-3.5 h-3.5" />
-                İrsaliyeden Çağır ({pendingWaybills.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (!contactId) {
-                    showToast('Lütfen önce bir cari seçiniz.', 'warning');
-                    return;
-                  }
-                  setIsOrderSelectorOpen(true);
-                }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
-              >
-                <ShoppingBag className="w-3.5 h-3.5" />
-                Siparişten Çağır ({pendingOrders.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={addBlankItem}
-                className="bg-white dark:bg-slate-900 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Serbest Satır Ekle
-              </button>
-            </div>
-          </div>
-
           {/* Invoice Items Table */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs overflow-hidden">
+            <div className="p-3 px-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Package className="w-4 h-4 text-indigo-600" />
-                Fatura Kalemleri & Satır Detayları ({items.length})
-              </h3>
-              <span className="text-[10px] text-slate-400 font-bold uppercase">
-                Tüm tutarlar KDV hariç birim fiyattır
-              </span>
+                <span className="font-black text-slate-800 dark:text-slate-200 text-xs">Fatura Kalemleri & Satır Detayları</span>
+                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                  {items.length} Kalem
+                </span>
+                {selectedOrderNumber && (
+                  <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                    Bağlı Sipariş: {selectedOrderNumber}
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-400 font-bold">Tüm tutarlar KDV hariç birim fiyattır</span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!contactId) {
+                      showToast('Lütfen önce bir cari seçiniz.', 'warning');
+                      return;
+                    }
+                    setIsWaybillSelectorOpen(true);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs shrink-0 cursor-pointer"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  İrsaliyeden Çağır ({pendingWaybills.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!contactId) {
+                      showToast('Lütfen önce bir cari seçiniz.', 'warning');
+                      return;
+                    }
+                    setIsOrderSelectorOpen(true);
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs shrink-0 cursor-pointer"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  Siparişten Çağır ({pendingOrders.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={addBlankItem}
+                  className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-2xs shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Serbest Satır Ekle
+                </button>
+              </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                  <tr>
-                    <th className="px-3 py-3 w-12 text-center">#</th>
-                    <th className="px-3 py-3">Ürün / Hizmet</th>
-                    <th className="px-3 py-3 w-28">Renk / Beden</th>
-                    <th className="px-3 py-3 w-24 text-right">Miktar</th>
-                    <th className="px-3 py-3 w-20">Birim</th>
-                    <th className="px-3 py-3 w-28 text-right">Birim Fiyat (₺)</th>
-                    <th className="px-3 py-3 w-20 text-right">İsk %</th>
-                    <th className="px-3 py-3 w-20 text-right">KDV %</th>
-                    <th className="px-3 py-3 w-32 text-right">Satır Net Tutar</th>
-                    <th className="px-3 py-3 w-10 text-center"></th>
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800/75 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <th className="p-2.5 w-10 text-center">#</th>
+                    <th className="p-2.5 min-w-[220px]">Ürün / Hizmet</th>
+                    <th className="p-2.5 w-56">Renk / Beden</th>
+                    <th className="p-2.5 w-20 text-center">Miktar</th>
+                    <th className="p-2.5 w-16 text-center">Birim</th>
+                    <th className="p-2.5 w-24 text-right">Birim Fiyat</th>
+                    <th className="p-2.5 w-14 text-center">İsk %</th>
+                    <th className="p-2.5 w-16 text-center">KDV %</th>
+                    <th className="p-2.5 w-28 text-right">Satır Net Tutar</th>
+                    <th className="p-2.5 w-10"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -674,25 +678,31 @@ export default function CreateInvoiceModal({
                       const itemCarton = getCartonSize(itemProd, templates);
 
                       return (
-                        <tr key={`inv-item-row-${item.productId || 'p'}-${idx}`} className="hover:bg-slate-50 dark:bg-slate-800/50/60 transition-colors">
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-400 font-bold">
+                        <tr key={`inv-item-row-${item.productId || 'p'}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="p-2.5 text-center font-mono text-slate-400 font-bold">
                             {idx + 1}
                           </td>
-                          <td className="px-3 py-2.5">
-                            <select
-                              value={item.productId || ''}
-                              onChange={(e) => updateItemField(idx, 'productId', e.target.value)}
-                              className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-200"
-                            >
-                              {products?.map(p => {
+                          <td className="p-2.5">
+                            <ProductSelect
+                              compact
+                              allowClear={false}
+                              placeholder="Ürün seçin..."
+                              products={products || []}
+                              value={item.productId ?? null}
+                              onChange={(productId) => updateItemField(idx, 'productId', productId ?? '')}
+                              optionSuffix={(p) => {
                                 const carton = getCartonSize(p, templates);
-                                return (
-                                  <option key={`inv-prod-opt-${p.id}`} value={p.id}>
-                                    [{p.code}] {p.name} {carton > 1 ? `(Asortili - ${carton}'li Koli)` : ''}
-                                  </option>
-                                );
-                              })}
-                            </select>
+                                return [
+                                  carton > 1 ? `Asortili ${carton}'li koli` : '',
+                                  demandOptionSuffix(p.id != null ? demand.get(p.id) : undefined).trim(),
+                                ].filter(Boolean).join(' · ');
+                              }}
+                            />
+                            {item.productId != null && demandChipText(demand.get(item.productId), item.color) && (
+                              <div className="mt-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                                {demandChipText(demand.get(item.productId), item.color)}
+                              </div>
+                            )}
                             {isFootwear && (
                               <div className="text-[10px] text-indigo-600 font-medium mt-0.5">
                                 {item.size && item.size !== 'Asorti' && item.size !== 'Tüm Bedenler' 
@@ -701,7 +711,7 @@ export default function CreateInvoiceModal({
                               </div>
                             )}
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="p-2.5">
                             <div className="flex gap-1">
                               <ColorSelect
                                 compact
@@ -732,21 +742,21 @@ export default function CreateInvoiceModal({
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className="p-2.5">
                             <input
                               type="number"
                               min="1"
                               step="any"
                               value={item.quantity}
                               onChange={(e) => updateItemField(idx, 'quantity', Number(e.target.value))}
-                              className="w-20 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-mono font-bold text-indigo-700"
+                              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-right font-mono font-bold text-indigo-700"
                             />
                           </td>
                           <td className="px-3 py-2.5">
                             <select
                               value={item.unit || 'Çift'}
                               onChange={(e) => updateItemField(idx, 'unit', e.target.value)}
-                              className="w-16 px-1.5 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-[11px]"
+                              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-[11px] text-slate-800 dark:text-slate-200"
                             >
                               <option value="Çift">Çift</option>
                               <option value="Adet">Adet</option>
@@ -756,31 +766,31 @@ export default function CreateInvoiceModal({
                               <option value="Paket">Paket</option>
                             </select>
                           </td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className="p-2.5">
                             <input
                               type="number"
                               min="0"
                               step="any"
                               value={item.unitPrice}
                               onChange={(e) => updateItemField(idx, 'unitPrice', Number(e.target.value))}
-                              className="w-24 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-mono font-bold text-slate-800 dark:text-slate-200"
+                              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-right font-mono font-bold text-slate-800 dark:text-slate-200"
                             />
                           </td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className="p-2.5">
                             <input
                               type="number"
                               min="0"
                               max="100"
                               value={item.discountRate}
                               onChange={(e) => updateItemField(idx, 'discountRate', Number(e.target.value))}
-                              className="w-16 px-1.5 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-mono"
+                              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-right font-mono"
                             />
                           </td>
-                          <td className="px-3 py-2.5 text-right">
+                          <td className="p-2.5">
                             <select
                               value={item.taxRate}
                               onChange={(e) => updateItemField(idx, 'taxRate', Number(e.target.value))}
-                              className="w-16 px-1 py-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg text-right font-mono font-bold"
+                              className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded text-center font-mono font-bold text-slate-800 dark:text-slate-200"
                             >
                               <option value={0}>%0</option>
                               <option value={1}>%1</option>
@@ -788,14 +798,14 @@ export default function CreateInvoiceModal({
                               <option value={20}>%20</option>
                             </select>
                           </td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                          <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                             ₺{item.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-3 py-2.5 text-center">
+                          <td className="p-2.5 text-center">
                             <button
                               type="button"
                               onClick={() => removeItem(idx)}
-                              className="text-slate-300 hover:text-rose-600 transition-colors p-1"
+                              className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -809,12 +819,11 @@ export default function CreateInvoiceModal({
             </div>
           </div>
 
-          {/* Bottom Grid: Options & Totals */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            {/* Notes & Options */}
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+          {/* Bottom Summary & Notes */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                <label className="font-bold text-slate-700 dark:text-slate-200 block mb-1">
                   Fatura Açıklaması / Dipnot (e-Arşiv Metni)
                 </label>
                 <textarea
@@ -822,18 +831,20 @@ export default function CreateInvoiceModal({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Banka hesap bilgileri, teslimat notu veya e-fatura özel açıklamaları..."
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder:text-slate-300"
+                  className="w-full p-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50/50 cursor-pointer hover:bg-slate-50 dark:bg-slate-800/50">
-                  <input
-                    type="checkbox"
-                    checked={isStockDeducted}
-                    onChange={(e) => setIsStockDeducted(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                  />
+              {/* Stok Hareketi Checkbox */}
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="invoiceStockDeduct"
+                  checked={isStockDeducted}
+                  onChange={(e) => setIsStockDeducted(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 text-indigo-600 rounded border-slate-300"
+                />
+                <label htmlFor="invoiceStockDeduct" className="cursor-pointer">
                   <div className="text-xs">
                     <span className="font-bold text-slate-800 dark:text-slate-200 block">Stok Hareketi Otomatik İşlensin (Asorti & Beden Dağılımlı)</span>
                     <span className="text-slate-500 dark:text-slate-400 text-[10px]">
@@ -843,98 +854,87 @@ export default function CreateInvoiceModal({
                     </span>
                   </div>
                 </label>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-slate-600">Kayıt Durumu:</span>
-                  <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="status"
-                      value="issued"
-                      checked={status === 'issued'}
-                      onChange={() => setStatus('issued')}
-                      className="text-indigo-600"
-                    />
-                    <span>Resmi Olarak Kes (Bakiyeye Yansıt)</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="status"
-                      value="draft"
-                      checked={status === 'draft'}
-                      onChange={() => setStatus('draft')}
-                      className="text-indigo-600"
-                    />
-                    <span>Taslak Olarak Kaydet</span>
-                  </label>
-                </div>
               </div>
             </div>
 
             {/* Calculations Box */}
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>Ara Toplam (Matrah):</span>
-                <span className="font-mono font-bold">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs space-y-2 font-mono text-xs">
+              <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                <span className="font-sans font-bold">Ara Toplam (Matrah):</span>
+                <span className="font-bold text-slate-900 dark:text-slate-100">
                   ₺{subtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
 
               {discountTotal > 0 && (
-                <div className="flex justify-between text-xs text-rose-600">
-                  <span>Toplam İskonto:</span>
-                  <span className="font-mono font-bold">
+                <div className="flex justify-between text-rose-600">
+                  <span className="font-sans">Toplam İskonto:</span>
+                  <span className="font-bold">
                     -₺{discountTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               )}
 
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>Hesaplanan KDV Toplamı:</span>
-                <span className="font-mono font-bold text-indigo-600">
+              <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                <span className="font-sans">Hesaplanan KDV Toplamı:</span>
+                <span className="font-bold text-indigo-600">
                   ₺{taxTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
 
               {withholdingAmount > 0 && (
-                <div className="flex justify-between text-xs text-purple-700 font-medium">
-                  <span>Tevkifat KDV Tutarı (5/10):</span>
-                  <span className="font-mono font-bold">
+                <div className="flex justify-between text-purple-700 dark:text-purple-300">
+                  <span className="font-sans">Tevkifat KDV Tutarı (5/10):</span>
+                  <span className="font-bold">
                     -₺{withholdingAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               )}
 
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-between items-baseline">
-                <span className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-baseline">
+                <span className="font-sans text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">
                   Genel Toplam:
                 </span>
-                <span className="text-2xl font-black font-mono text-indigo-600">
+                <span className="text-xl font-black text-indigo-600">
                   ₺{grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Modal Footer Actions */}
-          <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50/50 flex items-center justify-end gap-3 -mx-6 -mb-6">
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 px-6 bg-slate-900 text-white flex items-center justify-between border-t border-slate-800 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+          >
+            Vazgeç
+          </button>
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 hover:bg-slate-100 dark:bg-slate-800 transition-colors uppercase tracking-wider"
+              disabled={isSubmitting}
+              onClick={() => handleSubmit('draft')}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-bold transition-colors disabled:opacity-60 cursor-pointer"
             >
-              Vazgeç
+              Taslak Kaydet
             </button>
+
             <button
-              type="submit"
-              className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-indigo-200 flex items-center gap-2"
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleSubmit('issued')}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-60 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              Faturayı Kaydet & Oluştur
+              <span>Faturayı Kes & Bakiyeye İşle</span>
             </button>
           </div>
-        </form>
+        </div>
       </div>
 
       {/* SUB-MODAL: CHOOSE PENDING ORDER TO IMPORT */}

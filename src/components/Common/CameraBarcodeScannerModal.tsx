@@ -32,6 +32,7 @@ import {
   ProductionWoPanel,
 } from './CameraScannerPanels';
 import { Html5Qrcode } from 'html5-qrcode';
+import { isNativeApp, scanBarcodeNative } from '../../mobile/nativeBridge';
 
 export type ScannerMode = 'stock_count' | 'goods_receipt' | 'waybill_dispatch' | 'production_wo';
 
@@ -172,12 +173,38 @@ export default function CameraBarcodeScannerModal({
     }
   }, [initialBarcode, isOpen]);
 
+  const handleNativeScan = async () => {
+    try {
+      const code = await scanBarcodeNative();
+      if (code) {
+        handleCodeDetected(code);
+      }
+    } catch (err: any) {
+      console.warn('Native scan error:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && isNativeApp()) {
+      const timer = setTimeout(() => {
+        void handleNativeScan();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
   // Initialize and start Camera Scanner
   useEffect(() => {
     let isMounted = true;
 
     async function startCameraScanner() {
       if (!isOpen) return;
+
+      // Mobil yerel uygulamada WebRTC/Html5Qrcode yerine Google ML Kit kullanılır
+      if (isNativeApp()) {
+        setCameraActive(false);
+        return;
+      }
 
       try {
         setCameraError(null);
@@ -694,96 +721,118 @@ export default function CameraBarcodeScannerModal({
         </div>
 
         {/* CAMERA VIEWFINDER & LIVE SCANNER AREA */}
-        <div className="relative rounded-3xl overflow-hidden bg-slate-950 border-2 border-slate-800 text-white min-h-[260px] flex flex-col items-center justify-center shadow-xl">
-          {/* HTML5 QRCODE CONTAINER */}
-          <div 
-            id={scannerContainerId} 
-            className="w-full max-w-md h-64 overflow-hidden rounded-2xl flex items-center justify-center"
-          />
-
-          {/* Crosshair Laser Scanning Line Overlay */}
-          {cameraActive && (
-            <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-              <div className="w-64 h-36 border-2 border-indigo-400/70 rounded-2xl relative overflow-hidden shadow-2xl">
-                {/* Animated Red Laser Line */}
-                <div className="w-full h-0.5 bg-rose-500 shadow-[0_0_8px_#f43f5e] animate-bounce absolute top-0" />
-                {/* Corner markers */}
-                <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-white" />
-                <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-white" />
-                <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-white" />
-                <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-white" />
-              </div>
-              <span className="text-[10px] font-bold text-slate-300 bg-black/60 px-3 py-1 rounded-full mt-2 backdrop-blur-xs">
-                Barkodu veya Karekodu kırmızı kılavuz alanına hizalayınız
-              </span>
+        {isNativeApp() ? (
+          <div className="relative rounded-3xl overflow-hidden bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-indigo-500/40 text-white min-h-[220px] p-6 flex flex-col items-center justify-center text-center shadow-xl space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-inner">
+              <Camera className="w-8 h-8" />
             </div>
-          )}
-
-          {/* Camera Controls Overlay (Top Bar) */}
-          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-auto">
-            <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-xs">
-              <span className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="text-[11px] font-bold">
-                {cameraActive ? 'Kamera Canlı Okuyor' : 'Kamera Bekliyor'}
-              </span>
+            <div>
+              <h3 className="text-sm font-bold text-white">Mobil Donanım Barkod Okuyucu</h3>
+              <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                Google ML Kit ile 1D barkodları ve QR kodları ultra hızlı ve otomatik netlemeyle tarayın.
+              </p>
             </div>
-
-            <div className="flex items-center gap-1.5">
-              {/* Processing Indicator */}
-              {isProcessing && (
-                <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-xs">
-                  <Loader2 className="w-3.5 h-3.5 text-indigo-300 animate-spin" />
-                  <span className="text-[11px] font-bold">İşleniyor…</span>
-                </div>
-              )}
-
-              {/* Camera Selection Dropdown */}
-              {availableCameras.length > 0 && (
-                <select
-                  value={selectedCameraId}
-                  onChange={(e) => handleCameraChange(e.target.value)}
-                  className="max-w-40 p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer text-[11px] font-bold"
-                  title="Kamera Seç"
-                  aria-label="Kamera seçimi"
-                >
-                  {availableCameras.map(c => (
-                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
-                      {c.label || 'Kamera'}
-                    </option>
-                  ))}
-                </select>
-              )}
-
-              {/* Torch Toggle */}
-              <button
-                type="button"
-                onClick={toggleTorch}
-                className="p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer"
-                title="Feneri Aç / Kapat"
-              >
-                {isTorchOn ? <Flashlight className="w-4 h-4 text-amber-400" /> : <FlashlightOff className="w-4 h-4 text-slate-400" />}
-              </button>
-
-              {/* Sound Toggle */}
-              <button
-                type="button"
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                className="p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer"
-                title={soundEnabled ? 'Sesi Kapat' : 'Sesi Aç'}
-              >
-                {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleNativeScan}
+              className="w-full max-w-xs py-3 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+            >
+              <Camera className="w-5 h-5" />
+              <span>Kamerayı Aç ve Tara</span>
+            </button>
           </div>
+        ) : (
+          <div className="relative rounded-3xl overflow-hidden bg-slate-950 border-2 border-slate-800 text-white min-h-[260px] flex flex-col items-center justify-center shadow-xl">
+            {/* HTML5 QRCODE CONTAINER */}
+            <div 
+              id={scannerContainerId} 
+              className="w-full max-w-md h-64 overflow-hidden rounded-2xl flex items-center justify-center"
+            />
 
-          {/* Camera Error / Fallback Message */}
-          {cameraError && (
-            <div className="p-4 m-3 bg-amber-950/80 border border-amber-500/50 rounded-2xl text-amber-200 text-xs text-center space-y-2">
-              <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
-              <p>{cameraError}</p>
+            {/* Crosshair Laser Scanning Line Overlay */}
+            {cameraActive && (
+              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                <div className="w-64 h-36 border-2 border-indigo-400/70 rounded-2xl relative overflow-hidden shadow-2xl">
+                  {/* Animated Red Laser Line */}
+                  <div className="w-full h-0.5 bg-rose-500 shadow-[0_0_8px_#f43f5e] animate-bounce absolute top-0" />
+                  {/* Corner markers */}
+                  <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-white" />
+                  <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-white" />
+                  <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-white" />
+                  <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-white" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-300 bg-black/60 px-3 py-1 rounded-full mt-2 backdrop-blur-xs">
+                  Barkodu veya Karekodu kırmızı kılavuz alanına hizalayınız
+                </span>
+              </div>
+            )}
+
+            {/* Camera Controls Overlay (Top Bar) */}
+            <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-auto">
+              <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+                <span className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span className="text-[11px] font-bold">
+                  {cameraActive ? 'Kamera Canlı Okuyor' : 'Kamera Bekliyor'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {/* Processing Indicator */}
+                {isProcessing && (
+                  <div className="flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+                    <Loader2 className="w-3.5 h-3.5 text-indigo-300 animate-spin" />
+                    <span className="text-[11px] font-bold">İşleniyor…</span>
+                  </div>
+                )}
+
+                {/* Camera Selection Dropdown */}
+                {availableCameras.length > 0 && (
+                  <select
+                    value={selectedCameraId}
+                    onChange={(e) => handleCameraChange(e.target.value)}
+                    className="max-w-40 p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer text-[11px] font-bold"
+                    title="Kamera Seç"
+                    aria-label="Kamera seçimi"
+                  >
+                    {availableCameras.map(c => (
+                      <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                        {c.label || 'Kamera'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Torch Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleTorch}
+                  className="p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer"
+                  title="Feneri Aç / Kapat"
+                >
+                  {isTorchOn ? <Flashlight className="w-4 h-4 text-amber-400" /> : <FlashlightOff className="w-4 h-4 text-slate-400" />}
+                </button>
+
+                {/* Sound Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className="p-2 rounded-xl bg-black/70 hover:bg-black text-white border border-white/10 transition-all cursor-pointer"
+                  title={soundEnabled ? 'Sesi Kapat' : 'Sesi Aç'}
+                >
+                  {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Camera Error / Fallback Message */}
+            {cameraError && (
+              <div className="p-4 m-3 bg-amber-950/80 border border-amber-500/50 rounded-2xl text-amber-200 text-xs text-center space-y-2">
+                <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto" />
+                <p>{cameraError}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* MANUAL CODE ENTRY / SCANNER GUN INPUT & IMAGE UPLOAD TOOLBAR */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">

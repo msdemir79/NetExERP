@@ -7,6 +7,8 @@ import type { Waybill, WaybillType, WaybillStatus } from '../types';
 import { Truck, Plus, CheckCircle2, AlertCircle, X, Trash2, Eye, ArrowUpRight, ArrowDownLeft, Calendar, Package, Check, Ban, RotateCcw, Info, Car, Receipt, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
+import KpiCard from './Common/KpiCard';
+import Button from './Common/Button';
 import { WaybillPrintModal } from './Waybills/WaybillPrintModal';
 import CreateWaybillModal from './Waybills/CreateWaybillModal';
 import ActionWaybillModal from './Waybills/ActionWaybillModal';
@@ -399,135 +401,84 @@ export default function Waybills() {
         iconColor="blue"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
+              variant="secondary"
+              icon={<Receipt className="h-3.5 w-3.5 text-brand" />}
               onClick={() => navigate('/invoices?action=selectWaybill')}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
               title="Faturalanmamış açık irsaliyeleri listeleyip faturaya dönüştür"
             >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>İrsaliyeyi Faturalandır</span>
-            </button>
+              İrsaliyeyi Faturalandır
+            </Button>
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<RotateCcw className="h-3.5 w-3.5 text-danger" />}
               onClick={() => setIsResetModalOpen(true)}
-              className="bg-white dark:bg-slate-900 hover:bg-rose-50 border border-slate-200 dark:border-slate-700 hover:border-rose-300 text-slate-600 hover:text-rose-700 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
               title="İrsaliyeleri ve sevkiyat durumlarını sıfırla"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Sıfırla</span>
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              icon={<Camera className="h-3.5 w-3.5 text-brand" />}
               onClick={() => setIsCameraScannerOpen(true)}
-              className="bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
               title="Kamera ile barkod okutarak sevkiyat veya mal kabul irsaliyesi hazırla"
             >
-              <Camera className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Kamera ile İrsaliye Oku</span>
-            </button>
+              Kamera ile İrsaliye Oku
+            </Button>
 
-            <button
+            <Button
+              variant="secondary"
+              icon={<ArrowDownLeft className="h-3.5 w-3.5 text-success" />}
               onClick={() => openCreateModal('purchase')}
-              className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
-              <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Gelen İrsaliye</span>
-            </button>
+              Gelen İrsaliye
+            </Button>
 
-            <button
+            <Button
+              variant="primary"
+              icon={<Plus className="h-3.5 w-3.5" />}
               onClick={() => openCreateModal('sales')}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Yeni Sevk İrsaliyesi</span>
-            </button>
+              Yeni Sevk İrsaliyesi
+            </Button>
           </div>
         }
       />
 
       {/* KPI SUMMARY CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Sevk İrsaliyeleri */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Satış & Sevk İrsaliyeleri</span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <ArrowUpRight className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-              {totalSalesGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-            </div>
-            <div className="text-xs text-indigo-600 font-semibold mt-0.5">
-              {salesWaybills.length} adet sevk irsaliyesi kesildi
-            </div>
-          </div>
-        </div>
-
-        {/* Toplam Sevk Miktarı */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Toplam Sevk Miktarı</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Package className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-              {totalSalesQuantity.toLocaleString('tr-TR')} <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Çift</span>
-            </div>
-            <div className="text-xs text-emerald-600 font-semibold mt-0.5">
-              Depodan sevk edilen net ürün hacmi
-            </div>
-          </div>
-        </div>
-
-        {/* Alış & Mal Kabul İrsaliyeleri */}
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Alış / Gelen İrsaliye</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <ArrowDownLeft className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-              {totalPurchaseGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-            </div>
-            <div className="text-xs text-amber-600 font-semibold mt-0.5">
-              {totalPurchaseQuantity.toLocaleString('tr-TR')} Çift / {purchaseWaybills.length} belge
-            </div>
-          </div>
-        </div>
-
-        {/* Faturalanmayı Bekleyen İrsaliyeler */}
-        <div 
-          onClick={() => {
-            setInvoicedFilter(invoicedFilter === 'not_invoiced' ? 'all' : 'not_invoiced');
-          }}
-          className={cn(
-            "bg-white dark:bg-slate-900 p-5 rounded-2xl border transition-all cursor-pointer shadow-2xs flex flex-col justify-between",
-            invoicedFilter === 'not_invoiced' ? "border-purple-400 ring-2 ring-purple-400/20 bg-purple-50/20" : "border-slate-200 dark:border-slate-700 hover:border-purple-300"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Faturalanacak İrsaliyeler</span>
-            <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Receipt className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-              {pendingInvoicingAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-            </div>
-            <div className="text-xs text-purple-600 font-semibold mt-0.5 flex items-center gap-1">
-              <span>{pendingInvoicingCount} adet irsaliye fatura bekliyor</span>
-              {invoicedFilter === 'not_invoiced' && <span className="font-bold text-purple-700">(Filtrelendi)</span>}
-            </div>
-          </div>
-        </div>
+        <KpiCard
+          label="Satış & Sevk İrsaliyeleri"
+          value={`${totalSalesGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`}
+          sub={`${salesWaybills.length} adet sevk irsaliyesi kesildi`}
+          icon={ArrowUpRight}
+          tone="brand"
+        />
+        <KpiCard
+          label="Toplam Sevk Miktarı"
+          value={`${totalSalesQuantity.toLocaleString('tr-TR')} Çift`}
+          sub="Depodan sevk edilen net ürün hacmi"
+          icon={Package}
+          tone="success"
+        />
+        <KpiCard
+          label="Alış / Gelen İrsaliye"
+          value={`${totalPurchaseGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`}
+          sub={`${totalPurchaseQuantity.toLocaleString('tr-TR')} Çift / ${purchaseWaybills.length} belge`}
+          icon={ArrowDownLeft}
+          tone="orange"
+        />
+        <KpiCard
+          label="Faturalanacak İrsaliyeler"
+          value={`${pendingInvoicingAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`}
+          sub={`${pendingInvoicingCount} adet irsaliye fatura bekliyor${invoicedFilter === 'not_invoiced' ? ' · Filtrelendi' : ''}`}
+          icon={Receipt}
+          tone="violet"
+          onClick={() => setInvoicedFilter(invoicedFilter === 'not_invoiced' ? 'all' : 'not_invoiced')}
+          className={cn(invoicedFilter === 'not_invoiced' && 'border-brand ring-2 ring-ring')}
+        />
       </div>
 
       {/* WAYBILLS DATA TABLE */}

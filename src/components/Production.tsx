@@ -36,7 +36,8 @@ import {
   Truck,
   Factory,
   LayoutGrid,
-  Table2
+  Table2,
+  Boxes
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -58,6 +59,8 @@ import BarcodeTerminalTab from './Production/BarcodeTerminalTab';
 import MrpTab from './Production/MrpTab';
 import MrpPurchaseOrderModal from './Production/MrpPurchaseOrderModal';
 import { getMrpKey } from './Production/mrpUtils';
+import MoldAllocateModal from './Molds/MoldAllocateModal';
+import { MOLD_FACTORY_LOCATIONS, formatPairs } from './Molds/moldConstants';
 import type { 
   WorkOrder, 
   ProductionStage, 
@@ -67,7 +70,9 @@ import type {
   MrpCalculationResult, 
   Order, 
   OrderItem,
-  MaterialReadinessStatus 
+  MaterialReadinessStatus,
+  Mold,
+  MoldStock
 } from '../types';
 
 type ProductionTab = 'pipeline' | 'orders_pool' | 'mrp' | 'barcode_terminal' | 'recipes' | 'reports';
@@ -79,6 +84,8 @@ export default function Production() {
   const orders = useApiQuery(() => api.orders.list({ where: { type: 'sales' }, orderBy: 'id', orderDir: 'desc' }), [], ['orders']);
   const orderItems = useApiQuery(() => api.orderItems.list(), [], ['orderItems']);
   const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
+  const molds = useApiQuery<Mold[]>(() => api.molds.list(), [], ['molds']) || [];
+  const moldStock = useApiQuery<MoldStock[]>(() => api.moldStock.list({ limit: 5000 }), [], ['moldStock']) || [];
 
   const [activeTab, setActiveTab] = React.useState<ProductionTab>('pipeline');
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -149,6 +156,44 @@ export default function Production() {
   // Helper Maps
   const productMap = React.useMemo(() => new Map((products || []).map(p => [p.id!, p])), [products]);
   const recipeMap = React.useMemo(() => new Map((recipes || []).map(r => [r.productId, r])), [recipes]);
+
+  // Kalıp uygunluk göstergesi: iş emrinin ürününe bağlı kalıpların serbest ve bu
+  // iş emrine tahsisli çift toplamları (istemci tarafında moldStock'tan türetilir).
+  const moldAvailabilityByWo = React.useMemo(() => {
+    const map = new Map<number, { freePairs: number; allocatedPairs: number; moldCount: number }>();
+    const moldsByProduct = new Map<number, Mold[]>();
+    for (const m of molds) {
+      const pid = Number(m.productId) || 0;
+      if (!pid) continue;
+      const arr = moldsByProduct.get(pid);
+      if (arr) arr.push(m); else moldsByProduct.set(pid, [m]);
+    }
+    for (const wo of workOrders || []) {
+      const woMolds = moldsByProduct.get(Number(wo.productId)) || [];
+      if (!woMolds.length) continue;
+      const moldIds = new Set(woMolds.map((m) => Number(m.id)));
+      let freePairs = 0;
+      let allocatedPairs = 0;
+      for (const b of moldStock) {
+        if (!moldIds.has(Number(b.moldId))) continue;
+        const pairs = Number(b.pairs) || 0;
+        if (b.locationType === 'allocated' && Number(b.workOrderId) === Number(wo.id)) {
+          allocatedPairs += pairs;
+        } else if (Number(b.workOrderId) === 0 && MOLD_FACTORY_LOCATIONS.includes(b.locationType as (typeof MOLD_FACTORY_LOCATIONS)[number])) {
+          freePairs += pairs;
+        }
+      }
+      map.set(Number(wo.id), { freePairs, allocatedPairs, moldCount: woMolds.length });
+    }
+    return map;
+  }, [molds, moldStock, workOrders]);
+
+  const [allocateWorkOrder, setAllocateWorkOrder] = React.useState<WorkOrder | null>(null);
+  const [isAllocateModalOpen, setIsAllocateModalOpen] = React.useState(false);
+  const openAllocateModal = (wo: WorkOrder) => {
+    setAllocateWorkOrder(wo);
+    setIsAllocateModalOpen(true);
+  };
 
   // Run initial MRP calculation when tab opens or on demand
   const handleCalculateMRP = async (targetIds?: number[]) => {
@@ -423,6 +468,36 @@ export default function Production() {
     }
   };
 
+  // İş emri için kalıp uygunluk rozeti: tahsisli çift / gerekli miktar.
+  const renderMoldAvailabilityBadge = (wo: WorkOrder) => {
+    const av = moldAvailabilityByWo.get(Number(wo.id));
+    if (!av) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+          <Boxes className="w-3 h-3" /> Kalıp Bağlı Değil
+        </span>
+      );
+    }
+    const required = Number(wo.quantity) || 0;
+    const ready = av.allocatedPairs + 1e-9 >= required;
+    const tone = ready
+      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+      : av.freePairs + av.allocatedPairs + 1e-9 >= required
+      ? 'bg-sky-100 text-sky-800 border-sky-200'
+      : 'bg-rose-100 text-rose-800 border-rose-200';
+    const label = ready ? 'Kalıp Tahsisli' : av.freePairs + 1e-9 >= required ? 'Kalıp Hazır' : 'Kalıp Eksik';
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); openAllocateModal(wo); }}
+        title="Kalıp tahsisini yönet"
+        className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border cursor-pointer', tone)}
+      >
+        <Boxes className="w-3 h-3" /> {label} · {formatPairs(av.allocatedPairs)}/{formatPairs(required)}
+      </button>
+    );
+  };
+
   // Pipeline grid (tablo) görünümü kolonları
   const woColumns = React.useMemo<GridColumn<WorkOrder>[]>(() => [
     { key: 'barcode', title: 'İş Emri', width: '110px' },
@@ -469,11 +544,16 @@ export default function Production() {
       filterValue: (wo) => wo.materialStatus || '',
     },
     {
+      key: 'moldAvailability', title: 'Kalıp',
+      render: (wo) => renderMoldAvailabilityBadge(wo),
+      filterable: false,
+    },
+    {
       key: 'targetDate', title: 'Termin', width: '100px',
       render: (wo) => <span className="text-xs tabular-nums">{wo.targetDate ? new Date(wo.targetDate).toLocaleDateString('tr-TR') : '-'}</span>,
       sortValue: (wo) => (wo.targetDate ? new Date(wo.targetDate).getTime() : 0),
     },
-  ], [productMap]);
+  ], [productMap, moldAvailabilityByWo]);
 
   return (
     <div className="space-y-6">
@@ -511,7 +591,7 @@ export default function Production() {
               disabled={isMrpCalculating}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-50 dark:bg-slate-800/50 transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5 text-indigo-600", isMrpCalculating && "animate-spin")} />
+              <RefreshCw className={cn("w-3.5 h-3.5 text-brand", isMrpCalculating && "animate-spin")} />
               <span>{isMrpCalculating ? "Hesaplanıyor..." : "MRP İhtiyaç Hesapla"}</span>
             </button>
 
@@ -525,7 +605,7 @@ export default function Production() {
 
             <button
               onClick={() => setIsAddModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-brand text-white rounded-lg text-xs font-semibold hover:bg-brand-hover transition-colors shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Yeni İş Emri</span>
@@ -543,7 +623,7 @@ export default function Production() {
               {workOrders?.filter(w => w.status !== 'completed' && w.status !== 'cancelled').length || 0}
             </span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-brand-soft text-brand flex items-center justify-center">
             <Layers className="w-5 h-5" />
           </div>
         </div>
@@ -696,7 +776,7 @@ export default function Production() {
         <div className="flex items-center gap-2">
           <Link
             to="/reports?tab=production"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-fg bg-brand-soft hover:bg-brand-soft rounded-lg transition-colors"
           >
             <span>Raporlar Merkezi</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -712,7 +792,7 @@ export default function Production() {
                 placeholder="İş emri, barkod, model ara..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
             <select
@@ -734,7 +814,7 @@ export default function Production() {
                 className={cn(
                   'px-2.5 py-1.5 transition-colors',
                   pipelineView === 'cards'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-brand text-white'
                     : 'bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                 )}
               >
@@ -748,7 +828,7 @@ export default function Production() {
                 className={cn(
                   'px-2.5 py-1.5 transition-colors',
                   pipelineView === 'grid'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-brand text-white'
                     : 'bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                 )}
               >
@@ -776,7 +856,7 @@ export default function Production() {
                     "p-3 rounded-2xl border text-left transition-all relative overflow-hidden",
                     isActive
                       ? "bg-indigo-900 text-white border-indigo-900 shadow-md ring-2 ring-indigo-400"
-                      : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                      : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-brand/40"
                   )}
                 >
                   <div className="flex items-center justify-between mb-1">
@@ -853,7 +933,7 @@ export default function Production() {
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                             {product?.code || 'KODSUZ'}
                           </div>
-                          <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 line-clamp-1 group-hover:text-indigo-600 transition-colors">
+                          <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 line-clamp-1 group-hover:text-brand transition-colors">
                             {product?.name || 'Bilinmeyen Ürün'}
                           </h4>
                         </div>
@@ -879,7 +959,7 @@ export default function Production() {
                           </span>
                         )}
                         {wo.orderNumber && (
-                          <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold uppercase">
+                          <span className="bg-brand-soft text-brand-fg px-2 py-0.5 rounded font-bold uppercase">
                             Sip: {wo.orderNumber}
                           </span>
                         )}
@@ -902,6 +982,7 @@ export default function Production() {
 
                       <div className="text-right">
                         {renderMaterialStatusBadge(wo.materialStatus, wo.productId)}
+                        <div className="mt-1 flex justify-end">{renderMoldAvailabilityBadge(wo)}</div>
                       </div>
                     </div>
 
@@ -913,7 +994,7 @@ export default function Production() {
                       </div>
                       <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden flex">
                         <div 
-                          className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+                          className="bg-brand h-full rounded-full transition-all duration-300"
                           style={{ width: `${(stageInfo.order / 8) * 100}%` }}
                         />
                       </div>
@@ -924,10 +1005,10 @@ export default function Production() {
                       <button
                         type="button"
                         onClick={() => openRefakatKarti(wo)}
-                        className="p-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-black transition-all flex items-center justify-center shrink-0 shadow-xs cursor-pointer"
+                        className="p-2 rounded-xl bg-brand-soft hover:bg-brand-soft dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 border border-brand/30 dark:border-indigo-800 text-brand-fg dark:text-indigo-300 text-xs font-black transition-all flex items-center justify-center shrink-0 shadow-xs cursor-pointer"
                         title="Üretim Refakat Kartı (Kesim ➔ Dikim ➔ Montaj ➔ Finisaj Takip ve Onay Kutucuklu Fiş)"
                       >
-                        <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <FileText className="w-4 h-4 text-brand dark:text-indigo-400" />
                       </button>
 
                       <button
@@ -961,7 +1042,7 @@ export default function Production() {
                         <button
                           type="button"
                           onClick={() => handleOpenStageTransition(wo)}
-                          className="flex-1 py-2 px-3 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                          className="flex-1 py-2 px-3 bg-slate-900 hover:bg-brand text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-xs"
                         >
                           <Play className="w-3.5 h-3.5" />
                           Sonraki Aşamaya Geç
@@ -1005,7 +1086,7 @@ export default function Production() {
               <button
                 type="button"
                 onClick={() => handleTransferOrderToProduction(order.id!)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-xs whitespace-nowrap"
+                className="px-4 py-2 bg-brand hover:bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-xs whitespace-nowrap"
               >
                 ⚡ Üretim Planına Al
               </button>
@@ -1046,7 +1127,7 @@ export default function Production() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-xs">
             <div>
               <div className="flex items-center gap-2">
-                <Layers className="w-5 h-5 text-indigo-600" />
+                <Layers className="w-5 h-5 text-brand" />
                 <h3 className="text-base font-black text-slate-900 dark:text-slate-100 uppercase tracking-tight">Ürün Reçeteleri & Varyant BoM Yönetimi</h3>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
@@ -1061,7 +1142,7 @@ export default function Production() {
                 const firstId = finishedProds[0]?.id || 0;
                 openRecipeModalForProduct(firstId, 'all');
               }}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-xs shrink-0"
+              className="px-4 py-2.5 bg-brand hover:bg-brand-hover text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-xs shrink-0"
             >
               <Plus className="w-4 h-4" /> Yeni Reçete Tanımla
             </button>
@@ -1115,7 +1196,7 @@ export default function Production() {
                                     ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
                                     : hasGenericRecipe
                                     ? "bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
-                                    : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-700 hover:border-indigo-300"
+                                    : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-700 hover:border-brand/40"
                                 )}
                               >
                                 <span>{col}</span>
@@ -1139,14 +1220,14 @@ export default function Production() {
                         {allProdRecipes.map((rc, rcIdx) => (
                           <div key={`prod-${prod.id}-rc-${rc.id || rcIdx}-${rc.targetColor || 'genel'}`} className="bg-slate-50 dark:bg-slate-800/50/80 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md uppercase bg-indigo-100 text-indigo-800 border border-indigo-200">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md uppercase bg-brand-soft text-brand-fg border border-brand/30">
                                 {rc.targetColor ? `🎨 ${rc.targetColor} Reçetesi` : '🌐 Genel (Tüm Renkler)'}
                               </span>
                               <div className="flex items-center gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => openRecipeModalForProduct(prod.id!, rc.targetColor || 'all')}
-                                  className="text-[9px] font-black text-slate-600 dark:text-slate-300 hover:text-indigo-600 uppercase flex items-center gap-0.5"
+                                  className="text-[9px] font-black text-slate-600 dark:text-slate-300 hover:text-brand uppercase flex items-center gap-0.5"
                                   title="Reçeteyi aç veya başka renklere kopyala"
                                 >
                                   <Copy className="w-3 h-3" />
@@ -1155,7 +1236,7 @@ export default function Production() {
                                 <button
                                   type="button"
                                   onClick={() => openRecipeModalForProduct(prod.id!, rc.targetColor || 'all')}
-                                  className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase"
+                                  className="text-[9px] font-black text-brand hover:text-brand-fg uppercase"
                                 >
                                   Düzenle
                                 </button>
@@ -1187,7 +1268,7 @@ export default function Production() {
                                       </span>
                                       <span className="truncate text-slate-900 dark:text-slate-100">{matProd?.name || 'Malzeme'}</span>
                                       {ing.color && (
-                                        <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded">
+                                        <span className="text-[9px] font-black text-brand bg-brand-soft px-1.5 py-0.2 rounded">
                                           [{ing.color}]
                                         </span>
                                       )}
@@ -1197,7 +1278,7 @@ export default function Production() {
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-indigo-600 font-black flex-shrink-0 ml-2">
+                                    <span className="text-brand font-black flex-shrink-0 ml-2">
                                       {ing.quantity} {ing.unit || matProd?.unit || 'Adet'}
                                       {Number(ing.basisQty) > 1 && (
                                         <span className="text-slate-600 dark:text-slate-300 font-bold">
@@ -1219,7 +1300,7 @@ export default function Production() {
                     <button
                       type="button"
                       onClick={() => openRecipeModalForProduct(prod.id!)}
-                      className="flex-1 py-2.5 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all text-center shadow-xs"
+                      className="flex-1 py-2.5 bg-slate-900 hover:bg-brand text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all text-center shadow-xs"
                     >
                       {allProdRecipes.length > 0 ? "Reçeteleri Yönet / Ekle" : "+ İlk Reçeteyi Tanımla"}
                     </button>
@@ -1352,6 +1433,18 @@ export default function Production() {
           setPrintPoId(null);
         }}
         orderId={printPoId}
+      />
+
+      {/* MODAL 10: KALIP TAHSİSİ (iş emri ↔ kalıp) */}
+      <MoldAllocateModal
+        isOpen={isAllocateModalOpen}
+        onClose={() => {
+          setIsAllocateModalOpen(false);
+          setAllocateWorkOrder(null);
+        }}
+        workOrder={allocateWorkOrder}
+        molds={molds}
+        onDone={handleCalculateMRP}
       />
 
     </div>

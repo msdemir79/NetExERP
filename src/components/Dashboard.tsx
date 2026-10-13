@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import PageHeader from './PageHeader';
 import SegmentedFilter from './Common/SegmentedFilter';
+import KpiCard from './Common/KpiCard';
 import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useAppSummary } from '../hooks/useAppSummary';
@@ -197,135 +198,68 @@ export default function Dashboard() {
 
       {/* 1. SATIR: TEMEL FİNANSAL GÖSTERGELER (KPIs) */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* Kasa & Banka */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Landmark className="w-16 h-16 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                <Wallet className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Likit Varlıklar</h3>
-            </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
-              {formatCurrency(stats.totalLiquidAssets)}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Kasa: {formatCurrency(stats.cashBalance)} | Banka: {formatCurrency(stats.bankBalance)}
-            </p>
-          </div>
-        </div>
-
-        {/* Toplam Alacaklar */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-            <TrendingUp className="w-16 h-16 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                <ArrowDownRight className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Bekleyen Alacaklar</h3>
-            </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
-              {formatCurrency(toplamAlacak)}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Açık Faturalar & Portföydeki Çekler
-            </p>
-          </div>
-        </div>
-
-        {/* Toplam Borçlar */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-            <TrendingDown className="w-16 h-16 text-rose-600 dark:text-rose-400" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center text-rose-600 dark:text-rose-400">
-                <ArrowUpRight className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Ödenecek Borçlar</h3>
-            </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">
-              {formatCurrency(toplamBorc)}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Açık Alışlar & Verilen Çekler
-            </p>
-          </div>
-        </div>
-
-        {/* Net Durum / KDV */}
-        <div className="bg-gradient-to-br from-slate-900 to-indigo-950 rounded-2xl border border-indigo-900 p-4 shadow-sm relative overflow-hidden group text-white">
-          <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-30 transition-opacity">
-            <Activity className="w-16 h-16 text-indigo-400" />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-indigo-300">
-                <Briefcase className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-semibold text-indigo-200">Tahmini Net Durum</h3>
-            </div>
-            <div className="text-2xl font-bold text-white mb-1">
-              {formatCurrency(netDurum)}
-            </div>
-            <p className="text-xs text-indigo-300 flex items-center gap-1">
-              <span>Vergi Yükü:</span>
-              <span className={stats.netKdvDifference > 0 ? "text-rose-300" : "text-emerald-300"}>
-                {stats.netKdvDifference > 0 ? `Ödenecek KDV ${formatCurrency(stats.netKdvDifference)}` : `Devreden KDV ${formatCurrency(Math.abs(stats.netKdvDifference))}`}
-              </span>
-            </p>
-          </div>
-        </div>
+        <KpiCard
+          label="Likit Varlıklar"
+          value={formatCurrency(stats.totalLiquidAssets)}
+          sub={`Kasa: ${formatCurrency(stats.cashBalance)} · Banka: ${formatCurrency(stats.bankBalance)}`}
+          icon={Wallet}
+          tone="brand"
+        />
+        <KpiCard
+          label="Bekleyen Alacaklar"
+          value={formatCurrency(toplamAlacak)}
+          sub="Açık faturalar & portföydeki çekler"
+          icon={TrendingUp}
+          tone="success"
+        />
+        <KpiCard
+          label="Ödenecek Borçlar"
+          value={formatCurrency(toplamBorc)}
+          sub="Açık alışlar & verilen çekler"
+          icon={TrendingDown}
+          tone="danger"
+        />
+        <KpiCard
+          label="Tahmini Net Durum"
+          value={formatCurrency(netDurum)}
+          sub={stats.netKdvDifference > 0
+            ? `Ödenecek KDV ${formatCurrency(stats.netKdvDifference)}`
+            : `Devreden KDV ${formatCurrency(Math.abs(stats.netKdvDifference))}`}
+          icon={Briefcase}
+          tone="info"
+        />
       </div>
 
       {/* 2. SATIR: OPERASYONEL METRİKLER */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div onClick={() => handleNav('/orders')} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 cursor-pointer hover:border-indigo-300 transition-colors">
-          <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
-            <ShoppingCart className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{stats.salesOrdersCount}</div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Açık Sipariş</div>
-          </div>
-        </div>
-
-        <div onClick={() => handleNav('/production')} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 cursor-pointer hover:border-amber-300 transition-colors">
-          <div className="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
-            <Factory className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{stats.activeWorkOrdersCount}</div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Aktif İş Emri</div>
-          </div>
-        </div>
-
-        <div onClick={() => handleNav('/hr')} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 cursor-pointer hover:border-violet-300 transition-colors">
-          <div className="w-9 h-9 rounded-full bg-violet-50 dark:bg-violet-500/10 flex items-center justify-center text-violet-600 shrink-0">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{stats.activeEmployeesCount}</div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Aktif Personel</div>
-          </div>
-        </div>
-
-        <div onClick={() => handleNav('/invoices')} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 cursor-pointer hover:border-rose-300 transition-colors">
-          <div className="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center text-rose-600 shrink-0">
-            <Receipt className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{stats.uninvoicedWaybillsCount}</div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Faturasız İrsaliye</div>
-          </div>
-        </div>
+        <KpiCard
+          label="Açık Sipariş"
+          value={stats.salesOrdersCount}
+          icon={ShoppingCart}
+          tone="info"
+          onClick={() => handleNav('/orders')}
+        />
+        <KpiCard
+          label="Aktif İş Emri"
+          value={stats.activeWorkOrdersCount}
+          icon={Factory}
+          tone="warning"
+          onClick={() => handleNav('/production')}
+        />
+        <KpiCard
+          label="Aktif Personel"
+          value={stats.activeEmployeesCount}
+          icon={Users}
+          tone="violet"
+          onClick={() => handleNav('/hr')}
+        />
+        <KpiCard
+          label="Faturasız İrsaliye"
+          value={stats.uninvoicedWaybillsCount}
+          icon={Receipt}
+          tone="danger"
+          onClick={() => handleNav('/invoices')}
+        />
       </div>
 
       {/* 3. SATIR: GRAFİKLER */}

@@ -282,6 +282,37 @@ const POLICY: Record<string, PolicyDef> = {
     summary: (r) => String(r.id),
     plan: async () => ({ warnings: ['Bu ayar silinirse ilgili ekran varsayılan değerlerle çalışır.'] }),
   },
+  /**
+   * Kalıp ana kartı. Stok kovaları (moldStock), hareketler (moldMovements) ve
+   * hareket satırları (moldMovementItems) FK ON DELETE CASCADE ile birlikte silinir.
+   * Kullanılabilir çift kaldıysa silme BLOKE edilir (önce hurda/kayıp/sıfırlama);
+   * yalnızca hareket geçmişi kaldıysa uyarı gösterilip silinir (kalıcıdır).
+   */
+  molds: {
+    label: 'Kalıp',
+    tier: 1,
+    summary: (r) => `${r.code || `KLP-${r.id}`} — ${r.name}`,
+    plan: async (conn, row) => {
+      const aggRows = await conn.query<any[]>(
+        'SELECT COALESCE(SUM(`pairs`), 0) AS p, COUNT(*) AS c FROM `moldStock` WHERE `moldId` = ?',
+        [row.id],
+      );
+      const agg = (aggRows[0] as any[])[0] || { p: 0, c: 0 };
+      const pairs = Number(agg.p) || 0;
+      const buckets = Number(agg.c) || 0;
+      const mv = await countRows(conn, 'SELECT COUNT(*) AS `n` FROM `moldMovements` WHERE `moldId` = ?', [row.id]);
+      const cascade: CascadeItem[] = [];
+      if (buckets > 0) cascade.push({ label: 'Kalıp stok kovası', count: buckets });
+      if (mv > 0) cascade.push({ label: 'Kalıp hareketi', count: mv });
+      return {
+        cascade,
+        warnings: pairs > 0 ? [] : (mv > 0 ? ['Kalıbın tüm hareket geçmişi birlikte silinecek (kalıcıdır, geri alınamaz).'] : []),
+        blocked: pairs > 0
+          ? { code: 'MOLD_HAS_STOCK', message: `Bu kalıpta hâlâ ${pairs} çift stok var. Önce tüm çiftleri hurda/kayıp olarak ayırın veya sayım düzeltmesiyle sıfırlayın.` }
+          : null,
+      };
+    },
+  },
 
   /* ---------------- Fatura / İrsaliye: duruma göre kademe ---------------- */
   invoices: {

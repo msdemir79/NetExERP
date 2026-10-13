@@ -25,9 +25,15 @@
     "test:delete": "tsx src/tests/deletePolicyTests.ts",
     "test:rbac": "tsx src/tests/rbacTests.ts",
     "test:colors": "tsx src/tests/colorTests.ts",
+    "test:mold": "tsx src/tests/moldTests.ts",
     "test:load": "tsx src/tests/loadTest.ts"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/splash-screen": "^7.0.5",
+    "@capacitor/status-bar": "^7.0.6",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",

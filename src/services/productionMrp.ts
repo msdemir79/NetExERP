@@ -13,6 +13,7 @@ import type {
   MrpCalculationResult,
   MrpRequirementItem,
   MaterialReadinessStatus,
+  Recipe,
 } from '../types';
 
 /**
@@ -46,6 +47,22 @@ export function colorsMatch(c1?: string | null, c2?: string | null): boolean {
   return n1 === n2;
 }
 
+/**
+ * Bir iş emri için en uygun reçeteyi seçer: tam renk eşleşmesi → genel reçete → ilk reçete.
+ * MRP ve bekleyen üretim ihtiyacı hesabı aynı seçimi kullanır.
+ */
+export function pickRecipeForWorkOrder(recipes: Recipe[], productId: number, color?: string | null): Recipe | null {
+  const allProductRecipes = recipes.filter(r => r.productId === productId);
+  if (allProductRecipes.length === 0) return null;
+  if (color) {
+    const exactMatch = allProductRecipes.find(r => r.targetColor && r.targetColor.toLowerCase() === color.toLowerCase());
+    if (exactMatch) return exactMatch;
+  }
+  const genericMatch = allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel');
+  if (genericMatch) return genericMatch;
+  return allProductRecipes[0];
+}
+
 export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCalculationResult> {
   let workOrdersToAnalyze: WorkOrder[] = [];
 
@@ -76,17 +93,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
   const activePurchaseOrderItems = allOrderItems.filter(i => activePOIds.has(i.orderId));
 
   // Helper to find best recipe for a work order
-  const getRecipeForWO = (productId: number, color?: string) => {
-    const allProductRecipes = recipes.filter(r => r.productId === productId);
-    if (allProductRecipes.length === 0) return null;
-    if (color) {
-      const exactMatch = allProductRecipes.find(r => r.targetColor && r.targetColor.toLowerCase() === color.toLowerCase());
-      if (exactMatch) return exactMatch;
-    }
-    const genericMatch = allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel');
-    if (genericMatch) return genericMatch;
-    return allProductRecipes[0];
-  };
+  const getRecipeForWO = (productId: number, color?: string) => pickRecipeForWorkOrder(recipes, productId, color);
 
   // Aggregate requirements per (rawMaterialId + color)
   const rawMaterialNeeds = new Map<string, {

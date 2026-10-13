@@ -3,10 +3,12 @@ import { api } from '../../api/client';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { invoiceService } from '../../services/invoiceService';
 import { waybillService } from '../../services/waybillService';
+import { useProductionDemand, demandOptionSuffix, demandChipText } from '../../services/productionDemand';
 import type { ColorMaster, WaybillItem, WaybillType, WaybillStatus, WaybillScenario } from '../../types';
 import { Truck, Plus, CheckCircle2, X, Trash2, ShoppingBag, Package, Car } from 'lucide-react';
 import { ColorSelect } from '../Colors/ColorSelect';
 import { ContactSelect } from '../Contacts/ContactSelect';
+import { ProductSelect } from '../Common/ProductSelect';
 import { cn } from '../../lib/utils';
 import { showToast } from '../../lib/feedback';
 
@@ -67,6 +69,8 @@ export default function CreateWaybillModal({
   // Queries
   const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
   const products = useApiQuery(() => api.products.list(), [], ['products']);
+  // Üretimden bekleyen ihtiyaç: yalnızca modal açıkken hesaplanır
+  const { demand } = useProductionDemand(isOpen);
 
   // Generate initial waybill number and ETTN
   useEffect(() => {
@@ -306,7 +310,7 @@ export default function CreateWaybillModal({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-800/50/50 text-xs">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-800/50 text-xs">
           
           {/* Top Form Fields */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs">
@@ -563,21 +567,22 @@ export default function CreateWaybillModal({
                     </tr>
                   ) : (
                     items.map((item, idx) => (
-                      <tr key={`wb-item-${item.productId || 'p'}-${idx}`} className="hover:bg-slate-50 dark:bg-slate-800/50/50">
+                      <tr key={`wb-item-${item.productId || 'p'}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td className="p-2.5 text-center text-slate-400 font-bold">{idx + 1}</td>
                         <td className="p-2.5">
-                          <select
-                            value={item.productId || ''}
-                            onChange={(e) => updateItem(idx, 'productId', e.target.value)}
-                            className="w-full p-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded font-semibold text-slate-800 dark:text-slate-200"
-                          >
-                            <option value="">-- Ürün Seç --</option>
-                            {products?.map(p => (
-                              <option key={`wb-prod-opt-${p.id}`} value={p.id}>
-                                {p.code} - {p.name}
-                              </option>
-                            ))}
-                          </select>
+                          <ProductSelect
+                            compact
+                            placeholder="-- Ürün Seç --"
+                            products={products || []}
+                            value={item.productId ?? null}
+                            onChange={(productId) => updateItem(idx, 'productId', productId ?? '')}
+                            optionSuffix={(p) => demandOptionSuffix(p.id != null ? demand.get(p.id) : undefined)}
+                          />
+                          {item.productId != null && demandChipText(demand.get(item.productId), item.color) && (
+                            <div className="mt-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                              {demandChipText(demand.get(item.productId), item.color)}
+                            </div>
+                          )}
                         </td>
                         <td className="p-2.5">
                           <div className="flex gap-1">

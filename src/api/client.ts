@@ -12,6 +12,17 @@ import type {
   Product,
   Recipe,
   WorkOrder,
+  Mold,
+  MoldStock,
+  MoldMovement,
+  MoldMovementItem,
+  MoldSummary,
+  MoldMoveInput,
+  MoldMoveResult,
+  MoldCountAdjustInput,
+  MoldCountAdjustResult,
+  MoldAllocateInput,
+  MoldAllocateResult,
   InventoryLog,
   Transaction,
   AppSettings,
@@ -375,6 +386,10 @@ export const api = {
   productColors: resource<ProductColor>('productColors'),
   recipes: resource<Recipe>('recipes'),
   workOrders: resource<WorkOrder>('workOrders'),
+  molds: resource<Mold>('molds'),
+  moldStock: resource<MoldStock>('moldStock'),
+  moldMovements: resource<MoldMovement>('moldMovements'),
+  moldMovementItems: resource<MoldMovementItem>('moldMovementItems'),
   inventoryLogs: resource<InventoryLog>('inventoryLogs'),
   transactions: resource<Transaction>('transactions'),
   settings: resource<AppSettings>('settings'),
@@ -495,6 +510,36 @@ export interface DashboardSummary {
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const res = await http<{ data: DashboardSummary }>(`/ops/dashboard-summary`, { method: 'GET' });
   return res.data;
+}
+
+/* ------------------------------------------------------------------ */
+/* Kalıp (last) takip op'ları                                          */
+/* ------------------------------------------------------------------ */
+
+/** Kalıp genel bakış: konum bazında çift toplamları + kalıp başına kırılım. */
+export async function getMoldSummary(): Promise<MoldSummary> {
+  const res = await http<{ data: MoldSummary }>(`/ops/mold-summary`, { method: 'GET' });
+  return res.data;
+}
+
+/** Kalıp hareketi: bir çift kaynaktan hedefe atomik taşınır. */
+export async function moldMove(input: MoldMoveInput): Promise<MoldMoveResult> {
+  return callOp<MoldMoveResult>('mold-move', input);
+}
+
+/** Fiziki sayım düzeltmesi: seçilen konum sayılan mutlak değere ayarlanır. */
+export async function moldCountAdjust(input: MoldCountAdjustInput): Promise<MoldCountAdjustResult> {
+  return callOp<MoldCountAdjustResult>('mold-count-adjust', input);
+}
+
+/** Kalıp çiftlerini bir iş emrine tahsis eder (fabrika deposu → allocated). */
+export async function moldAllocate(input: MoldAllocateInput): Promise<MoldAllocateResult> {
+  return callOp<MoldAllocateResult>('mold-allocate', input);
+}
+
+/** İş emrine tahsisli kalıp çiftlerini fabrika deposuna geri alır. */
+export async function moldDeallocate(input: MoldAllocateInput): Promise<MoldAllocateResult> {
+  return callOp<MoldAllocateResult>('mold-deallocate', input);
 }
 
 /**

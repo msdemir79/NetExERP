@@ -31,6 +31,7 @@ const jsonColumns = {
   settings: ['company', 'stock', 'order', 'production', 'finance', 'hr'],
   journalEntries: ['lines'],
   roles: ['permissions'],
+  molds: ['assortment'],
 };
 
 const allNames = new Set(tables.flatMap((t) => t.cols.map((c) => c.name)));

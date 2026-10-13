@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { registerBackButtonHandler } from './nativeBridge';
 
 interface Props {
   title: string;
@@ -13,6 +14,12 @@ interface Props {
  * İçerik kaydırılabilir; alt güvenli-alan boşluğu korunur.
  */
 export default function MobileSheet({ title, subtitle, onClose, children }: Props) {
+  useEffect(() => {
+    return registerBackButtonHandler(() => {
+      onClose();
+      return true;
+    });
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end">
       <button

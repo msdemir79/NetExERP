@@ -523,7 +523,7 @@ export default function Orders() {
       required: true,
       extraInfo: (row: any) => {
         const chips: React.ReactNode[] = [];
-        if (row.color) chips.push(<span key="c" className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">Renk: {row.color}</span>);
+        if (row.color) chips.push(<span key="c" className="text-[10px] font-bold text-brand-fg bg-brand-soft border border-brand/20 px-1.5 py-0.5 rounded">Renk: {row.color}</span>);
         if (row.size) chips.push(<span key="s" className="text-[10px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Beden: {row.size}</span>);
         if (row.boxCount && row.pairsPerBox) chips.push(<span key="b" className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">{row.boxCount} Koli × {row.pairsPerBox}</span>);
         const breakdown = row.matrixBreakdown && Object.entries(row.matrixBreakdown).filter(([, q]) => Number(q) > 0);
@@ -575,7 +575,7 @@ export default function Orders() {
       compute: (row: any) => {
         const net = (Number(row.unitPrice) || 0) * (Number(row.quantity) || 0) * (1 - (Number(row.discountRate) || 0) / 100);
         const total = net + net * ((Number(row.taxRate) || 0) / 100);
-        return <span className="text-indigo-700 dark:text-indigo-300">{money(total)}</span>;
+        return <span className="text-brand-fg dark:text-indigo-300">{money(total)}</span>;
       },
     },
   ];
@@ -615,7 +615,7 @@ export default function Orders() {
           <div className="flex items-center gap-2.5">
             <div className={cn(
               "w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black uppercase shrink-0 border",
-              order.type === 'sales' ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+              order.type === 'sales' ? "bg-brand-soft text-brand-fg border-brand/30" : "bg-emerald-50 text-emerald-700 border-emerald-200"
             )}>
               {contact?.name?.substring(0, 2) || 'SP'}
             </div>
@@ -624,7 +624,7 @@ export default function Orders() {
                 <span className="text-xs font-black text-slate-900 dark:text-slate-100 font-mono">{order.orderNumber}</span>
                 <span className={cn(
                   "text-[9px] font-black px-1.5 py-0.2 rounded border uppercase",
-                  order.type === 'sales' ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  order.type === 'sales' ? "bg-brand-soft text-brand-fg border-brand/30" : "bg-emerald-50 text-emerald-700 border-emerald-200"
                 )}>
                   {order.type === 'sales' ? 'Satış' : 'Alış'}
                 </span>
@@ -809,11 +809,11 @@ export default function Orders() {
             "p-1.5 rounded-lg transition-all flex items-center gap-1 border border-slate-200 dark:border-slate-700 shadow-2xs text-[10px] font-black",
             hasActiveWaybill
               ? "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60"
-              : "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+              : "text-slate-600 hover:text-brand hover:bg-brand-soft cursor-pointer"
           )}
         >
-          <Truck className={cn("w-3.5 h-3.5", hasActiveWaybill ? "text-slate-400" : "text-indigo-600")} />
-          <span className={cn("hidden xl:inline", hasActiveWaybill ? "text-slate-400" : "text-indigo-700")}>
+          <Truck className={cn("w-3.5 h-3.5", hasActiveWaybill ? "text-slate-400" : "text-brand")} />
+          <span className={cn("hidden xl:inline", hasActiveWaybill ? "text-slate-400" : "text-brand-fg")}>
             {hasActiveWaybill ? 'İrsaliyeli' : 'İrsaliye'}
           </span>
         </button>
@@ -853,7 +853,7 @@ export default function Orders() {
             setIsPrintModalOpen(true);
           }}
           title={order.type === 'purchase' ? "Satınalma Siparişi & Tedarikçi Formu (Yazdır / Mail)" : "Sipariş Formu (Yazdır / PDF)"}
-          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors cursor-pointer"
+          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-brand-soft dark:hover:bg-indigo-950/50 rounded-lg transition-colors cursor-pointer"
         >
           <Printer className="w-3.5 h-3.5" />
         </button>
@@ -864,7 +864,7 @@ export default function Orders() {
             setIsDetailModalOpen(true);
           }}
           title="Detay & İlerleme Takibi"
-          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+          className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-brand-soft rounded-lg transition-colors cursor-pointer"
         >
           <Eye className="w-3.5 h-3.5" />
         </button>
@@ -959,13 +959,13 @@ export default function Orders() {
                 onClick={() => setActiveTab('sales')}
                 className={cn(
                   "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
-                  activeTab === 'sales' ? "bg-white dark:bg-slate-900 text-indigo-600 shadow-xs" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
+                  activeTab === 'sales' ? "bg-white dark:bg-slate-900 text-brand shadow-xs" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
                 )}
               >
                 <span>Satış Siparişleri</span>
                 <span className={cn(
                   "text-[10px] px-1.5 py-0.2 rounded-full font-mono font-black",
-                  activeTab === 'sales' ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-600"
+                  activeTab === 'sales' ? "bg-brand text-white" : "bg-slate-200 text-slate-600"
                 )}>
                   {orders?.filter(o => o.type === 'sales').length || 0}
                 </span>
@@ -989,9 +989,9 @@ export default function Orders() {
 
             <Link
               to="/reports?tab=orders"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-lg text-xs font-semibold text-indigo-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-soft hover:bg-brand-soft border border-brand/30 rounded-lg text-xs font-semibold text-brand-fg transition-colors"
             >
-              <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+              <BarChart3 className="w-3.5 h-3.5 text-brand" />
               <span>Sipariş Raporu</span>
             </Link>
 
@@ -1000,7 +1000,7 @@ export default function Orders() {
                 resetForm();
                 setIsAddModalOpen(true);
               }}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 bg-brand hover:bg-brand-hover text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Yeni Sipariş Ekle</span>
@@ -1014,7 +1014,7 @@ export default function Orders() {
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between text-slate-400 mb-1">
             <span className="text-[10px] font-black uppercase tracking-wider">Toplam Sipariş</span>
-            <Package className="w-4 h-4 text-indigo-600" />
+            <Package className="w-4 h-4 text-brand" />
           </div>
           <div className="text-xl font-black text-slate-900 dark:text-slate-100 font-mono">
             {tabKPIs.totalOrderedQty.toLocaleString('tr-TR')} <span className="text-xs font-bold text-slate-400">Çift/Adet</span>
@@ -1151,7 +1151,7 @@ export default function Orders() {
                     onClick={() => setFormOrderType('sales')}
                     className={cn(
                       "py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                      formOrderType === 'sales' ? "bg-indigo-600 text-white shadow-xs" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
+                      formOrderType === 'sales' ? "bg-brand text-white shadow-xs" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
                     )}
                   >
                     Satış
@@ -1228,14 +1228,14 @@ export default function Orders() {
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                    <Package className="w-4 h-4 text-indigo-600" /> Sipariş Kalemleri ({orderItems.filter(isFilledOrderItem).length})
+                    <Package className="w-4 h-4 text-brand" /> Sipariş Kalemleri ({orderItems.filter(isFilledOrderItem).length})
                   </h4>
                   <p className="text-[10px] text-slate-400">Excel gibi satır satır ürün/hizmet girin. Tab ile sonraki hücreye, son hücrede otomatik yeni satıra geçersiniz.</p>
                 </div>
                 <button 
                   type="button"
                   onClick={openProductSelector}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  className="bg-brand hover:bg-brand-hover text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Ürün & Stok Ekle
                 </button>
@@ -1253,7 +1253,7 @@ export default function Orders() {
                 maxHeight="26rem"
                 emptyHint={
                   <div className="space-y-2">
-                    <Package className="w-8 h-8 mx-auto opacity-30 text-indigo-600" />
+                    <Package className="w-8 h-8 mx-auto opacity-30 text-brand" />
                     <div className="text-xs font-bold text-slate-600">Henüz sipariş kalemi yok.</div>
                     <div className="text-[11px] text-slate-400">"Satır Ekle" ile başlayın veya "Ürün & Stok Ekle" ile renk/beden/koli seçin.</div>
                   </div>
@@ -1287,7 +1287,7 @@ export default function Orders() {
               <button
                 type="submit"
                 disabled={isProcessing}
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md cursor-pointer flex items-center gap-2"
+                className="px-6 py-2.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md cursor-pointer flex items-center gap-2"
               >
                 {isProcessing && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 <span>{editingOrderId ? "Değişiklikleri Kaydet" : "Siparişi Kaydet"}</span>

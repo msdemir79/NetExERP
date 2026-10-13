@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { registerBackButtonHandler } from '../mobile/nativeBridge';
 
 interface ModalProps {
   isOpen: boolean;
@@ -44,6 +45,14 @@ export default function Modal({
       setIsFullscreen(defaultFullscreen);
     }
   }, [isOpen, defaultFullscreen]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    return registerBackButtonHandler(() => {
+      onClose();
+      return true;
+    });
+  }, [isOpen, onClose]);
 
   React.useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
