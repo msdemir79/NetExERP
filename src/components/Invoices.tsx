@@ -9,6 +9,9 @@ import { cn } from '../lib/utils';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import KpiCard from './Common/KpiCard';
 import Button from './Common/Button';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import { InvoicePrintModal } from './Invoices/InvoicePrintModal';
 import PageHeader from './PageHeader';
 import CreateInvoiceModal from './Invoices/CreateInvoiceModal';
@@ -30,6 +33,8 @@ export default function Invoices() {
   const [isGlobalWaybillSelectorOpen, setIsGlobalWaybillSelectorOpen] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  // DMR Kinetiq: satıra tıklanınca açılan sağdan kayan okunur özet paneli.
+  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
 
   // Controlled Action / Delete / Cancel Modal State
   const [actionInvoice, setActionInvoice] = useState<Invoice | null>(null);
@@ -262,8 +267,8 @@ export default function Invoices() {
   const invoiceRowActions = (invoice: Invoice) => (
     <>
       <button
-        onClick={() => openViewModal(invoice.id!)}
-        title="Görüntüle & Yazdır"
+        onClick={() => setDetailInvoice(invoice)}
+        title="Detay Paneli"
         className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
       >
         <Eye className="w-3.5 h-3.5" />
@@ -447,6 +452,7 @@ export default function Invoices() {
         columns={invoiceColumns}
         data={filteredInvoices}
         rowKey="id"
+        onRowClick={(invoice) => setDetailInvoice(invoice)}
         loading={!invoices}
         toolbar={(
           <div className="flex items-center gap-2 flex-wrap w-full">
@@ -562,6 +568,154 @@ export default function Invoices() {
           }}
         />
       )}
+
+      {/* INVOICE DETAIL PANEL (DMR Kinetiq — sağdan kayan okunur özet) */}
+      <DetailPanel
+        isOpen={!!detailInvoice}
+        onClose={() => setDetailInvoice(null)}
+        title={detailInvoice?.invoiceNumber || 'Fatura Detayı'}
+        widthClass="max-w-[460px]"
+        badge={
+          detailInvoice ? (
+            <StatusBadge
+              tone={
+                detailInvoice.status === 'issued'
+                  ? 'success'
+                  : detailInvoice.status === 'cancelled'
+                  ? 'danger'
+                  : 'neutral'
+              }
+            >
+              {(invoiceStatusMeta[detailInvoice.status] || invoiceStatusMeta.draft).label}
+            </StatusBadge>
+          ) : undefined
+        }
+        footer={
+          detailInvoice ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Eye className="h-4 w-4" />}
+                onClick={() => {
+                  const id = detailInvoice.id!;
+                  setDetailInvoice(null);
+                  openViewModal(id);
+                }}
+              >
+                Görüntüle & Yazdır
+              </Button>
+              {detailInvoice.status === 'draft' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Check className="h-4 w-4" />}
+                  onClick={() => {
+                    const inv = detailInvoice;
+                    setDetailInvoice(null);
+                    handleApproveDraft(inv);
+                  }}
+                >
+                  Kes / Resmileştir
+                </Button>
+              )}
+              {(detailInvoice.status === 'issued' || detailInvoice.status === 'cancelled') && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={<Ban className="h-4 w-4" />}
+                  onClick={() => {
+                    const inv = detailInvoice;
+                    setDetailInvoice(null);
+                    openActionModalForInvoice(inv);
+                  }}
+                >
+                  İptal / Sil
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
+        {detailInvoice &&
+          (() => {
+            const inv = detailInvoice;
+            const money = (v: number) =>
+              `${inv.currency === 'TRY' ? '₺' : inv.currency + ' '}${(v || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const contact = contacts?.find((c) => c.id === inv.contactId);
+            const isSales = inv.type === 'sales';
+            const payLabel =
+              inv.paymentStatus === 'paid' ? 'Ödendi' : inv.paymentStatus === 'partial' ? 'Kısmi Ödendi' : 'Ödenmedi';
+            const paid = inv.paidAmount || 0;
+            const remaining = Math.max((inv.grandTotal || 0) - paid, 0);
+            const fmtDate = (d?: Date) => (d ? new Date(d).toLocaleDateString('tr-TR') : '—');
+            return (
+              <div className="space-y-5">
+                <DetailSummary
+                  label={isSales ? 'Satış Faturası Tutarı' : 'Alış Faturası Tutarı'}
+                  value={money(inv.grandTotal)}
+                  tone={inv.status === 'cancelled' ? 'neutral' : isSales ? 'success' : 'warning'}
+                  badge={<StatusBadge tone={isSales ? 'brand' : 'warning'}>{isSales ? 'Satış' : 'Alış'}</StatusBadge>}
+                >
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <div className="text-fg-muted">Matrah</div>
+                      <div className="font-bold tabular-nums text-fg-strong">{money(inv.subtotal)}</div>
+                    </div>
+                    <div>
+                      <div className="text-fg-muted">KDV</div>
+                      <div className="font-bold tabular-nums text-fg-strong">{money(inv.taxTotal)}</div>
+                    </div>
+                    <div>
+                      <div className="text-fg-muted">İskonto</div>
+                      <div className="font-bold tabular-nums text-fg-strong">{money(inv.discountTotal)}</div>
+                    </div>
+                  </div>
+                </DetailSummary>
+
+                <DetailSection
+                  title="Cari & Belge"
+                  rows={[
+                    { label: 'Cari Ünvan', value: contact?.name || '—' },
+                    { label: 'Cari Kodu', value: contact?.code || '—' },
+                    { label: 'Senaryo', value: invoiceScenarioLabel(inv.scenario) },
+                    { label: 'Fatura Tarihi', value: fmtDate(inv.date) },
+                    { label: 'Vade Tarihi', value: fmtDate(inv.dueDate) },
+                    ...(inv.ettn ? [{ label: 'ETTN', value: <span className="font-mono text-[10px]">{inv.ettn.slice(0, 12)}…</span> }] : []),
+                  ]}
+                />
+
+                <DetailSection
+                  title="Ödeme Durumu"
+                  rows={[
+                    { label: 'Durum', value: payLabel },
+                    { label: 'Ödenen', value: money(paid) },
+                    { label: 'Kalan', value: money(remaining) },
+                    ...(inv.withholdingRate ? [{ label: 'Tevkifat', value: `${inv.withholdingRate}/10 · ${money(inv.withholdingAmount || 0)}` }] : []),
+                  ]}
+                />
+
+                {(inv.orderNumber || inv.waybillNumber) && (
+                  <DetailSection
+                    title="Bağlı Belgeler"
+                    rows={[
+                      ...(inv.orderNumber ? [{ label: 'Sipariş No', value: inv.orderNumber }] : []),
+                      ...(inv.waybillNumber ? [{ label: 'İrsaliye No', value: inv.waybillNumber }] : []),
+                    ]}
+                  />
+                )}
+
+                {inv.notes && (
+                  <DetailSection title="Not">
+                    <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">
+                      {inv.notes}
+                    </p>
+                  </DetailSection>
+                )}
+              </div>
+            );
+          })()}
+      </DetailPanel>
 
       {/* VIEW & PRINT INVOICE MODAL */}
       {isViewModalOpen && selectedInvoiceId && (

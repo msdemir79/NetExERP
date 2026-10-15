@@ -1,3 +1,5 @@
+import { HR_DEFAULT_PARAMS } from '../lib/hrDefaults';
+import { calculateEmployeePayroll } from '../lib/employeePayroll';
 import { api, callOp } from '../api/client';
 import type { 
   Employee, 
@@ -13,28 +15,16 @@ import type {
 } from '../types';
 import { accountingService } from './accountingService';
 import { settingsService } from './settingsService';
+import {
+  calculateProgressiveIncomeTaxKurus,
+  toKurus,
+  fromKurus,
+  HR_CONSTANTS_2026,
+  minimumWageTaxExemptionKurus,
+} from '../lib/payrollCalculator';
 
 // Ayarlar > İK & Bordro Parametreleri ekranında tanımlanmayan alanlar için yasal varsayılanlar
-export const HR_DEFAULT_PARAMS: HRModuleSettings = {
-  weeklyWorkHours: 45,
-  dailyWorkHours: 8,
-  weekendDays: [0],
-  overtimeWeekdayMultiplier: 1.5,
-  overtimeWeekendMultiplier: 2.0,
-  annualLeaveBaseDays: 14,
-  sgkEmployeeRate: 14,
-  unemploymentEmployeeRate: 1,
-  sgkEmployerRate: 15.5,
-  unemploymentEmployerRate: 2,
-  incomeTaxRate: 15,
-  stampTaxPerMille: 7.59,
-  minWageGross: 26005,
-  minWageNet: 22104,
-  minWageIncomeTaxExemption: 3315.64,
-  minWageStampTaxExemption: 197.38,
-  sgkMonthlyHours: 225,
-  nonSgkMonthlyHours: 240
-};
+export { HR_DEFAULT_PARAMS } from '../lib/hrDefaults';
 
 async function loadHRParams(): Promise<HRModuleSettings> {
   try {
@@ -83,7 +73,7 @@ export const hrService = {
     const numMonth = Number(month);
     const numYear = Number(year);
     return (await api.periodLocks.list())
-      .filter(l => Number(l.month) === numMonth && Number(l.year) === numYear)[0];
+      .filter(l => (l.scope || 'hr') === 'hr' && Number(l.month) === numMonth && Number(l.year) === numYear)[0];
   },
 
   async isPeriodLocked(month: number, year: number): Promise<boolean> {
@@ -118,6 +108,7 @@ export const hrService = {
       };
     } else {
       const newLock: AttendancePeriodLock = {
+        scope: 'hr',
         month: numMonth,
         year: numYear,
         isLocked,
@@ -460,303 +451,11 @@ export const hrService = {
 
   // ==================== BORDRO VE ÜCRET HESAPLAMA MOTORU ====================
   // Tek bir personel için aylık bordro ve maliyet hesabı
-  calculatePayrollForEmployee(
-    employee: Employee,
-    attendanceList: AttendanceRecord[],
-    advances: AdvanceRequest[],
-    month: number,
-    year: number,
-    params: HRModuleSettings = HR_DEFAULT_PARAMS
-  ): Omit<PayrollRecord, 'id' | 'createdAt'> {
-    const daysInMonth = new Date(year, month, 0).getDate();
-    
-    // Puantaj kayıtlarını tarih bazlı haritaya al
-    const attMap = new Map<string, AttendanceRecord>();
-    attendanceList.forEach(att => {
-      if (att.date) attMap.set(att.date, att);
-    });
+  calculatePayrollForEmployee: calculateEmployeePayroll,
 
-    const weekendDays = params.weekendDays ?? [0];
-    const sgkWorkerRate = params.sgkEmployeeRate / 100;
-    const unemploymentWorkerRate = params.unemploymentEmployeeRate / 100;
-    const sgkEmployerRate = params.sgkEmployerRate / 100;
-    const unemploymentEmployerRate = params.unemploymentEmployerRate / 100;
-    const incomeTaxRate = params.incomeTaxRate / 100;
-    const stampTaxRate = params.stampTaxPerMille / 1000;
-
-    let daysWorked = 0;
-    let halfDays = 0;
-    let weeklyRestDays = 0;
-    let paidLeaveDays = 0;
-    let unpaidLeaveDays = 0;
-    let absentDays = 0;
-    let overtimeWeekdayHours = 0;
-    let overtimeWeekendHours = 0;
-
-    // Ayın 1'inden son gününe kadar her takvim gününü değerlendir
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const rec = attMap.get(dateStr);
-      const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0: Pazar
-      const isWeekend = weekendDays.includes(dayOfWeek);
-
-      // Kayıt yoksa: hafta tatili günleri hafta tatili, diğer günler fiili çalışma varsayılır
-      const status: AttendanceStatus = rec?.status || (isWeekend ? 'weekly_rest' : 'present');
-
-      if (status === 'present') {
-        daysWorked += 1;
-      } else if (status === 'half_day') {
-        halfDays += 1;
-        daysWorked += 0.5;
-      } else if (status === 'weekly_rest') {
-        weeklyRestDays += 1;
-      } else if (status === 'paid_leave' || status === 'public_holiday' || status === 'sick_leave') {
-        paidLeaveDays += 1;
-      } else if (status === 'unpaid_leave') {
-        unpaidLeaveDays += 1;
-      } else if (status === 'absent') {
-        absentDays += 1;
-      }
-
-      if (rec?.overtimeHours) {
-        if (isWeekend || status === 'public_holiday') {
-          overtimeWeekendHours += rec.overtimeHours;
-        } else {
-          overtimeWeekdayHours += rec.overtimeHours;
-        }
-      }
-    }
-
-    const overtimeHours = overtimeWeekdayHours + overtimeWeekendHours;
-
-    // Ücret kesintisine tabi toplam gün sayısı (devamsızlık + ücretsiz izin + yarım gün açığı)
-    const totalDeductedDays = absentDays + unpaidLeaveDays + (halfDays * 0.5);
-
-    // Toplam Avans Kesintisi
-    const employeeAdvances = advances.filter(a => a.employeeId === employee.id && a.status === 'paid');
-    const advanceDeduction = employeeAdvances.reduce((sum, a) => sum + a.amount, 0);
-
-    const isSgkLi = employee.sgkStatus === 'sgk_li';
-
-    // -------------------------------------------------------------
-    // SENARYO 1: SGK'LI PERSONEL (Bordrolu / Yasal Kesintili Hesaplama)
-    // -------------------------------------------------------------
-    if (isSgkLi) {
-      // Netten Brüte veya Brüt bazlı hesaplama
-      let grossSalary = 0;
-      if (employee.salaryType === 'monthly_net') {
-        const targetNet = employee.baseSalary || 30000;
-        // Asgari ücret üstü kısım için marjinal net katsayısı; işçi SGK/işsizlik,
-        // gelir vergisi ve damga vergisi kesintilerinden türetilir
-        const netFactor = 1 - sgkWorkerRate - unemploymentWorkerRate
-          - incomeTaxRate * (1 - sgkWorkerRate - unemploymentWorkerRate) - stampTaxRate;
-        grossSalary = targetNet <= params.minWageNet
-          ? params.minWageGross
-          : params.minWageGross + (targetNet - params.minWageNet) / netFactor;
-      } else {
-        grossSalary = employee.baseSalary;
-      }
-
-      // Çalışılan güne oranla temel hak ediş (30 gün standardı)
-      const standardDays = 30;
-      const effectiveDays = Math.max(0, standardDays - totalDeductedDays);
-      const basePay = (grossSalary / standardDays) * effectiveDays;
-
-      // Fazla mesai brüt ücreti (saatlik brüt * gün tipine göre çarpan)
-      const hourlyGross = grossSalary / params.sgkMonthlyHours;
-      const overtimePay =
-        hourlyGross * params.overtimeWeekdayMultiplier * overtimeWeekdayHours +
-        hourlyGross * params.overtimeWeekendMultiplier * overtimeWeekendHours;
-      const bonusPay = 0; // Yol, yemek, prim eklenebilir
-
-      const totalGrossPay = basePay + overtimePay + bonusPay;
-
-      // Yasal Kesintiler
-      const employeeSgkShare = totalGrossPay * sgkWorkerRate;
-      const employeeUnemploymentShare = totalGrossPay * unemploymentWorkerRate;
-
-      // Gelir Vergisi Matrahı
-      const incomeTaxBase = totalGrossPay - employeeSgkShare - employeeUnemploymentShare;
-      const rawIncomeTax = incomeTaxBase * incomeTaxRate;
-      // Asgari Ücret Vergi İstisnası Düşümü
-      const incomeTax = Math.max(0, rawIncomeTax - params.minWageIncomeTaxExemption);
-
-      // Damga Vergisi Matrahı & İstisnası
-      const rawStampTax = totalGrossPay * stampTaxRate;
-      const stampTax = Math.max(0, rawStampTax - params.minWageStampTaxExemption);
-
-      const totalLegalDeductions = employeeSgkShare + employeeUnemploymentShare + incomeTax + stampTax;
-
-      // Net Ödenecek
-      const netSalary = Math.max(0, totalGrossPay - totalLegalDeductions - advanceDeduction);
-
-      // İşveren Maliyeti
-      const employerSgkShare = totalGrossPay * sgkEmployerRate;
-      const employerUnemploymentShare = totalGrossPay * unemploymentEmployerRate;
-      const totalEmployerCost = totalGrossPay + employerSgkShare + employerUnemploymentShare;
-
-      return {
-        employeeId: employee.id!,
-        employeeName: employee.name,
-        employeeCode: employee.employeeCode,
-        department: employee.department,
-        month,
-        year,
-        sgkStatus: 'sgk_li',
-        salaryType: employee.salaryType,
-        daysWorked,
-        weeklyRestDays,
-        paidLeaveDays,
-        unpaidLeaveDays,
-        absentDays,
-        totalDays: effectiveDays,
-        overtimeHours,
-        baseSalary: Math.round(grossSalary),
-        basePay: Math.round(basePay),
-        overtimePay: Math.round(overtimePay),
-        bonusPay,
-        totalGrossPay: Math.round(totalGrossPay),
-        employeeSgkShare: Math.round(employeeSgkShare),
-        employeeUnemploymentShare: Math.round(employeeUnemploymentShare),
-        incomeTax: Math.round(incomeTax),
-        stampTax: Math.round(stampTax),
-        totalLegalDeductions: Math.round(totalLegalDeductions),
-        advanceDeduction: Math.round(advanceDeduction),
-        otherDeductions: 0,
-        netSalary: Math.round(netSalary),
-        employerSgkShare: Math.round(employerSgkShare),
-        employerUnemploymentShare: Math.round(employerUnemploymentShare),
-        totalEmployerCost: Math.round(totalEmployerCost),
-        paymentStatus: 'unpaid',
-        isAccounted: false,
-        notes: `SGK'lı Bordro Hesabı (${effectiveDays} gün hak ediş${absentDays > 0 ? `, ${absentDays} gün devamsız` : ''}${unpaidLeaveDays > 0 ? `, ${unpaidLeaveDays} gün ücr. izin` : ''}${overtimeHours > 0 ? `, ${overtimeHours} sa mesai` : ''})`
-      };
-    } 
-    
-    // -------------------------------------------------------------
-    // SENARYO 2: SGK'SIZ / GÜNLÜK YEVMİYELİ / HARİCİ PERSONEL
-    // (Vergi ve SGK kesintisi yok, fiili net hakediş ve yevmiye bazlı)
-    // -------------------------------------------------------------
-    else {
-      let basePay = 0;
-      let hourlyRate = 0;
-
-      if (employee.salaryType === 'daily') {
-        // Günlük Yevmiye:
-        // Fiili çalışılan gün sayısı + Ücretli izin günleri üzerinden ödenir.
-        // Devamsızlık veya ücretsiz izin günleri kesinlikle ödenmez.
-        const dailyRate = employee.baseSalary || 1500;
-        const payableDays = Math.max(0, daysWorked + paidLeaveDays);
-        basePay = dailyRate * payableDays;
-        hourlyRate = dailyRate / params.dailyWorkHours;
-      } else if (employee.salaryType === 'hourly') {
-        hourlyRate = employee.baseSalary || 200;
-        basePay = (daysWorked * params.dailyWorkHours) * hourlyRate;
-      } else {
-        // Aylık sabit net anlaşılan tutar: 30 gün standardı üzerinden devamsızlık düşülür
-        const monthlyNet = employee.baseSalary || 30000;
-        const standardDays = 30;
-        const effectiveDays = Math.max(0, standardDays - totalDeductedDays);
-        basePay = (monthlyNet / standardDays) * effectiveDays;
-        hourlyRate = monthlyNet / params.nonSgkMonthlyHours;
-      }
-
-      // Fazla Mesai (saatlik ücret * gün tipine göre çarpan)
-      const overtimePay =
-        hourlyRate * params.overtimeWeekdayMultiplier * overtimeWeekdayHours +
-        hourlyRate * params.overtimeWeekendMultiplier * overtimeWeekendHours;
-      const bonusPay = 0;
-      const totalNetEarned = basePay + overtimePay + bonusPay;
-
-      // Net Ödenecek (Avanslar Düşülür)
-      const netSalary = Math.max(0, totalNetEarned - advanceDeduction);
-
-      // SGK'sız personelde işveren maliyeti net ödenen toplam tutardır (Ek yasal prim maliyeti yoktur)
-      const totalEmployerCost = totalNetEarned;
-
-      return {
-        employeeId: employee.id!,
-        employeeName: employee.name,
-        employeeCode: employee.employeeCode,
-        department: employee.department,
-        month,
-        year,
-        sgkStatus: 'sgk_siz',
-        salaryType: employee.salaryType,
-        daysWorked,
-        weeklyRestDays,
-        paidLeaveDays,
-        unpaidLeaveDays,
-        absentDays,
-        totalDays: employee.salaryType === 'daily' ? Math.max(0, daysWorked + paidLeaveDays) : Math.max(0, 30 - totalDeductedDays),
-        overtimeHours,
-        baseSalary: employee.baseSalary,
-        basePay: Math.round(basePay),
-        overtimePay: Math.round(overtimePay),
-        bonusPay,
-        totalGrossPay: Math.round(totalNetEarned),
-        employeeSgkShare: 0,
-        employeeUnemploymentShare: 0,
-        incomeTax: 0,
-        stampTax: 0,
-        totalLegalDeductions: 0,
-        advanceDeduction: Math.round(advanceDeduction),
-        otherDeductions: 0,
-        netSalary: Math.round(netSalary),
-        employerSgkShare: 0,
-        employerUnemploymentShare: 0,
-        totalEmployerCost: Math.round(totalEmployerCost),
-        paymentStatus: 'unpaid',
-        isAccounted: false,
-        notes: `SGK'sız / Yevmiyeli Net Hak Ediş (${daysWorked} fiili gün${absentDays > 0 ? `, ${absentDays} gün devamsız` : ''}${unpaidLeaveDays > 0 ? `, ${unpaidLeaveDays} gün ücr. izin` : ''}${overtimeHours > 0 ? `, ${overtimeHours} sa mesai` : ''})`
-      };
-    }
-  },
-
-  // Tüm personeller için seçilen ayın bordrosunu hesaplayıp veritabanına kaydet/güncelle
   async generateMonthlyPayroll(month: number, year: number): Promise<PayrollRecord[]> {
-    const params = await loadHRParams();
-    const employees = await api.employees.list({ where: { status: 'active' } });
-    const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
-    const attendanceRecords = (await api.attendanceRecords.list())
-      .filter(r => (r.date && r.date.startsWith(monthPrefix)) || (Number(r.year) === Number(year) && Number(r.month) === Number(month)));
-
-    const advances = (await api.advanceRequests.list({ where: { year } }))
-      .filter(a => a.month === month && a.status === 'paid');
-
-    const generated: PayrollRecord[] = [];
-
-    for (const emp of employees) {
-      if (!emp.id) continue;
-      const empAttendance = attendanceRecords.filter(a => a.employeeId === emp.id);
-      
-      const payrollData = this.calculatePayrollForEmployee(emp, empAttendance, advances, month, year, params);
-
-      // Varolan bordro kaydı var mı
-      const existing = (await api.payrollRecords.list({ where: { employeeId: emp.id } }))
-        .filter(p => p.month === month && p.year === year)[0];
-
-      if (existing && existing.id) {
-        await api.payrollRecords.update(existing.id, {
-          ...payrollData,
-          paymentStatus: existing.paymentStatus,
-          isAccounted: existing.isAccounted,
-          journalEntryId: existing.journalEntryId
-        });
-        generated.push({ ...payrollData, id: existing.id, createdAt: existing.createdAt });
-      } else {
-        const id = await api.payrollRecords.create({
-          ...payrollData,
-          createdAt: new Date()
-        }) as number;
-        generated.push({ ...payrollData, id, createdAt: new Date() });
-      }
-    }
-
-    return generated;
+    return callOp<PayrollRecord[]>('generate-payroll', { month, year });
   },
-
-  // Bordroyu Muhasebeleştirme (Genel Muhasebe Yevmiye Fişi Oluşturma)
   async accountPayroll(payrollId: number): Promise<void> {
     const record = await api.payrollRecords.get(payrollId);
     if (!record) throw new Error('Bordro kaydı bulunamadı.');

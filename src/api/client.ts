@@ -122,6 +122,10 @@ export class ApiError extends Error {
 
 const BASE = '/api';
 
+export async function getWorkflowSummary(): Promise<import('../lib/workflowTypes').WorkflowSummary> {
+  return (await http<{ data: import('../lib/workflowTypes').WorkflowSummary }>('/ops/workflow-summary')).data;
+}
+
 /**
  * Oturum httpOnly çerezle taşınır (JavaScript belirtece erişemez); bu nedenle
  * isteklerde ayrıca başlık eklenmez, yalnızca aynı kaynak çerezi gönderilir.
@@ -147,13 +151,25 @@ function notifyUnauthorized(): void {
   }
 }
 
+const pendingReads = new Map<string, Promise<unknown>>();
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  if ((init?.method || 'GET').toUpperCase() !== 'GET') { pendingReads.clear(); return performHttp<T>(path, init); }
+  const existing = pendingReads.get(path);
+  if (existing) return existing as Promise<T>;
+  const request = performHttp<T>(path, init);
+  pendingReads.set(path, request);
+  try { return await request; } finally { if (pendingReads.get(path) === request) pendingReads.delete(path); }
+}
+
+async function performHttp<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
       ...init,
+      headers,
     });
   } catch (err: any) {
     throw new ApiError(
@@ -422,9 +438,21 @@ export type Api = typeof api;
 /* Toplu işlemler (sunucu tarafı, atomik)                              */
 /* ------------------------------------------------------------------ */
 
+const uncertainOperations = new Map<string, string>();
 export async function callOp<T = any>(op: string, payload: any = {}): Promise<T> {
-  const res = await http<{ data: T }>(`/ops/${op}`, { method: 'POST', body: JSON.stringify(payload) });
-  return res.data;
+  const body = JSON.stringify(payload);
+  const fingerprint = `${op}:${body}`;
+  const key = uncertainOperations.get(fingerprint) ?? Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+  uncertainOperations.set(fingerprint, key);
+  try {
+    const res = await http<{ data: T }>(`/ops/${op}`, { method: 'POST', headers: { 'Idempotency-Key': key }, body });
+    uncertainOperations.delete(fingerprint);
+    return res.data;
+  } catch (error) {
+    // Kesin reddedilen bir isteğin sonraki düzeltilmiş denemesi yeni işlemdir.
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500) uncertainOperations.delete(fingerprint);
+    throw error;
+  }
 }
 
 /**

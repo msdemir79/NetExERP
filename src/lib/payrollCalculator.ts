@@ -11,36 +11,36 @@ export const HR_CONSTANTS_2026 = {
   // Oranlar
   SGK_WORKER_RATE: 0.14,            // %14 SGK İşçi Payı
   UNEMPLOYMENT_WORKER_RATE: 0.01,   // %1 İşsizlik İşçi Payı
-  SGK_EMPLOYER_RATE: 0.155,         // %15.5 SGK İşveren Payı (5 puanlık Hazine teşviki ile)
+  SGK_EMPLOYER_RATE: 0.1675,        // İmalat sektörü, 5 puan indirimli 2026 profili
   UNEMPLOYMENT_EMPLOYER_RATE: 0.02, // %2 İşveren İşsizlik Payı
   STAMP_TAX_RATE: 0.00759,          // Binde 7.59 Damga Vergisi
 
   // Asgari Ücret (2026 Standartları)
-  MIN_WAGE_GROSS_TL: 26005.00,
-  MIN_WAGE_NET_TL: 22104.00,
-  MIN_WAGE_GROSS_KURUS: 2600500,
-  MIN_WAGE_NET_KURUS: 2210400,
+  MIN_WAGE_GROSS_TL: 33030.00,
+  MIN_WAGE_NET_TL: 28075.50,
+  MIN_WAGE_GROSS_KURUS: 3303000,
+  MIN_WAGE_NET_KURUS: 2807550,
 
   // Asgari Ücret Vergi ve Damga İstisnası (Aylık Maksimum)
-  MIN_WAGE_INCOME_TAX_EXEMPTION_TL: 3315.64,
-  MIN_WAGE_INCOME_TAX_EXEMPTION_KURUS: 331564,
-  MIN_WAGE_STAMP_TAX_EXEMPTION_TL: 197.38,
-  MIN_WAGE_STAMP_TAX_EXEMPTION_KURUS: 19738,
+  MIN_WAGE_INCOME_TAX_EXEMPTION_TL: 4211.33,
+  MIN_WAGE_INCOME_TAX_EXEMPTION_KURUS: 421133,
+  MIN_WAGE_STAMP_TAX_EXEMPTION_TL: 250.70,
+  MIN_WAGE_STAMP_TAX_EXEMPTION_KURUS: 25070,
 
-  // SGK Tavanı (Brüt Asgari Ücretin 7.5 Katı)
-  SGK_CEILING_TL: 195037.50,
-  SGK_CEILING_KURUS: 19503750,
+  // SGK 2026 aylık üst sınırı (asgari ücretin 9 katı).
+  SGK_CEILING_TL: 297270.00,
+  SGK_CEILING_KURUS: 29727000,
 
   // Standart Aylık Çalışma Saati
   MONTHLY_LEGAL_WORK_HOURS: 225,
 
   // 2026 Ücret Gelir Vergisi Dilimleri (Kuruş cinsinden)
   TAX_BRACKETS_2026: [
-    { limitKurus: 15800000, rate: 0.15 },    // 158.000 TL'ye kadar %15
-    { limitKurus: 33000000, rate: 0.20 },    // 330.000 TL'ye kadar %20
-    { limitKurus: 120000000, rate: 0.27 },   // 1.200.000 TL'ye kadar %27
-    { limitKurus: 430000000, rate: 0.35 },   // 4.300.000 TL'ye kadar %35
-    { limitKurus: Infinity, rate: 0.40 },    // 4.300.000 TL üzeri %40
+    { limitKurus: 19000000, rate: 0.15 },
+    { limitKurus: 40000000, rate: 0.20 },
+    { limitKurus: 150000000, rate: 0.27 },
+    { limitKurus: 530000000, rate: 0.35 },
+    { limitKurus: Infinity, rate: 0.40 },
   ]
 };
 
@@ -65,8 +65,10 @@ export function fromKurus(kurus: number): number {
  */
 export function calculateProgressiveIncomeTaxKurus(
   previousCumulativeBaseKurus: number,
-  monthlyBaseKurus: number
+  monthlyBaseKurus: number,
+  year = 2026,
 ): { taxKurus: number; effectiveRate: number; newCumulativeBaseKurus: number } {
+  if (year !== 2026) throw new Error(`${year} yılı vergi tarifesi tanımlı değil. Dönem tarifesi onaylanmadan bordro hesaplanamaz.`);
   if (monthlyBaseKurus <= 0) {
     return {
       taxKurus: 0,
@@ -107,7 +109,29 @@ export function calculateProgressiveIncomeTaxKurus(
   };
 }
 
+/** Tam ay asgari ücret istisnası, takvim ayındaki kümülatif vergi dilimine göre hesaplanır. */
+export function minimumWageTaxExemptionKurus(month: number, year = 2026): number {
+  if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error('Geçersiz bordro ayı.');
+  const base = HR_CONSTANTS_2026.MIN_WAGE_NET_KURUS;
+  return calculateProgressiveIncomeTaxKurus(base * (month - 1), base, year).taxKurus;
+}
+
+export function grossForNet2026(net: number, cumulative: number, month: number): number {
+  const target = toKurus(net);
+  if (!Number.isFinite(net) || net < 0) throw new Error('Net ücret geçersiz.');
+  let low = target, high = Math.max(HR_CONSTANTS_2026.MIN_WAGE_GROSS_KURUS, target * 4);
+  const calculate = (gross: number) => calculatePayroll2026({ grossSalaryTL: fromKurus(gross), daysWorked: 30, weeklyRestDays: 0, paidLeaveDays: 0, unpaidLeaveDays: 0, absentDays: 0, overtimeHours: 0, previousCumulativeTaxBaseTL: cumulative, month }).netSalaryKurus;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (calculate(mid) < target) low = mid + 1; else high = mid;
+  }
+  return fromKurus(low);
+}
+
 export interface PayrollCalculationInput {
+  month?: number;
+  year?: number;
+  employerSgkRate?: number;
   grossSalaryTL: number;
   salaryType?: 'monthly' | 'daily' | 'hourly';
   sgkStatus?: 'sgk_li' | 'sgk_siz';
@@ -193,10 +217,10 @@ export function calculatePayroll2026(input: PayrollCalculationInput): PayrollCal
 
     // Kümülatif Vergi Matrahı Hesabı (Artan Oranlı Dilimler)
     const { taxKurus: rawIncomeTaxKurus, effectiveRate, newCumulativeBaseKurus } = 
-      calculateProgressiveIncomeTaxKurus(prevCumulativeTaxBaseKurus, incomeTaxBaseKurus);
+      calculateProgressiveIncomeTaxKurus(prevCumulativeTaxBaseKurus, incomeTaxBaseKurus, input.year ?? 2026);
 
     // Asgari Ücret Vergi İstisnası Düşümü
-    const incomeTaxKurus = Math.max(0, rawIncomeTaxKurus - HR_CONSTANTS_2026.MIN_WAGE_INCOME_TAX_EXEMPTION_KURUS);
+    const incomeTaxKurus = Math.max(0, rawIncomeTaxKurus - minimumWageTaxExemptionKurus(input.month ?? 1, input.year ?? 2026));
 
     // Damga Vergisi & İstisna Düşümü
     const rawStampTaxKurus = Math.round(totalGrossPayKurus * HR_CONSTANTS_2026.STAMP_TAX_RATE);
@@ -209,7 +233,7 @@ export function calculatePayroll2026(input: PayrollCalculationInput): PayrollCal
     const netSalaryKurus = Math.max(0, totalGrossPayKurus - totalLegalDeductionsKurus - advanceDeductionKurus - otherDeductionsKurus);
 
     // İşveren Maliyeti (SGK İşveren %15.5 + İşsizlik %2)
-    const employerSgkShareKurus = Math.round(sgkBaseKurus * HR_CONSTANTS_2026.SGK_EMPLOYER_RATE);
+    const employerSgkShareKurus = Math.round(sgkBaseKurus * (input.employerSgkRate ?? HR_CONSTANTS_2026.SGK_EMPLOYER_RATE));
     const employerUnemploymentShareKurus = Math.round(sgkBaseKurus * HR_CONSTANTS_2026.UNEMPLOYMENT_EMPLOYER_RATE);
     const totalEmployerCostKurus = totalGrossPayKurus + employerSgkShareKurus + employerUnemploymentShareKurus;
 

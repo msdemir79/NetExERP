@@ -12,7 +12,7 @@ import {
   Scissors,
   Sliders
 } from 'lucide-react';
-import { api, commit, type Mutation } from '../../api/client';
+import { api, commit, callOp, type Mutation } from '../../api/client';
 import { orderService } from '../../services/orderService';
 import { settingsService } from '../../services/settingsService';
 import { downloadElementAsPdf } from '../../lib/pdfService';
@@ -474,8 +474,8 @@ export function PurchaseOrderPrintModal({
     if (!order?.id) return;
     setIsSavingNotes(true);
     try {
-      await api.orders.update(order.id, { notes: customInstructions });
-      setOrder((prev: any) => ({ ...prev, notes: customInstructions }));
+      await callOp('order-notes', { id: order.id, notes: customInstructions, expectedVersion: order.version });
+      setOrder((prev: any) => ({ ...prev, notes: customInstructions, version: Number(prev.version) + 1 }));
       setIsEditingInstructions(false);
     } catch (err) {
       console.error('Not kaydedilemedi:', err);

@@ -36,6 +36,7 @@ import { versionSupported } from './schema.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
 import { allocateDocumentNumber, journalPrefixFor } from './numbering.js';
 import { HttpError } from './errors.js';
+import { assertResourcePeriod } from './periods.js';
 import { storeImageFromDataUrl } from './files.js';
 import {
   applyRecipeTargetColor,
@@ -234,6 +235,11 @@ function applyResourceRules(resource: string, data: Record<string, any>): void {
   if (!Array.isArray(lines) || lines.length === 0) return;
 
   try {
+    // Denge kontrolü sıkı toleransla (JOURNAL_BALANCE_TOLERANCE = 0,005) yapılır:
+    // 2 haneli toplamlarda bu fiilen tam eşitlik demektir, dolayısıyla buradan
+    // geçen bir fiş gerçekten dengelidir ve `isBalanced` işareti doğrudur.
+    // (Tolerans eskiden 0,05 idi ve 5 kuruşa kadar dengesiz fiş "dengeli"
+    // damgalanıp Mizan'da kalıcı fark bırakıyordu.)
     const { totalDebit, totalCredit } = assertBalancedJournalEntry(lines);
     data.totalDebit = totalDebit;
     data.totalCredit = totalCredit;
@@ -243,19 +249,72 @@ function applyResourceRules(resource: string, data: Record<string, any>): void {
   }
 }
 
+/**
+ * `users.roleCode` / `users.roleName` alanları sunucu tarafında `roleId`'den
+ * türetilir. Bu alanlar `protectedColumns` ile istemciye kapatılmıştır; burada
+ * yalnızca `roleId` değiştiğinde yeniden hesaplanır ve atama, oturumun yetki
+ * çözümlemesiyle (`loadRole`) tutarlı kalır.
+ */
+async function deriveUserRole(
+  conn: PoolConnection,
+  data: Record<string, any>,
+  opts: { force?: boolean; auth?: AuthContext } = {},
+): Promise<void> {
+  const hasRoleId = Object.prototype.hasOwnProperty.call(data, 'roleId');
+  if (!hasRoleId && !opts.force) return;
+
+  const roleId = data.roleId;
+  if (roleId === null || roleId === undefined || roleId === '') {
+    // Rol atanmadıysa denormalize alanlar da temizlenir (yetki `can()` ile false döner).
+    data.roleId = null;
+    data.roleCode = null;
+    data.roleName = null;
+    return;
+  }
+
+  const role = await queryOne<{ code: string; name: string; permissions: any }>(
+    'SELECT `code`, `name`, `permissions` FROM `roles` WHERE `id` = ? LIMIT 1',
+    [roleId],
+  );
+  if (!role) {
+    // Geçersiz roleId sessizce yazılmaz: denormalize kopya ile gerçek rol ayrışırsa
+    // süper admin kapısı gibi kararlar tutarsız hale gelir.
+    throw new HttpError(400, `Atanmak istenen rol bulunamadı (id: ${roleId}).`, 'ROLE_NOT_FOUND');
+  }
+  if (opts.auth?.role?.code !== 'super_admin') {
+    if (role.code === 'super_admin') throw new HttpError(403, 'Süper Admin rolünü yalnızca Süper Admin atayabilir.', 'ROLE_ESCALATION');
+    const permissions = typeof role.permissions === 'string' ? JSON.parse(role.permissions) : role.permissions || {};
+    for (const [module, actions] of Object.entries(permissions)) {
+      for (const [action, granted] of Object.entries(actions as object)) {
+        if (granted && !can(opts.auth?.role || null, module as AppModule, action as PermissionAction)) throw new HttpError(403, 'Kendi yetkilerinizi aşan bir rol atayamazsınız.', 'ROLE_ESCALATION');
+      }
+    }
+  }
+  data.roleCode = role.code;
+  data.roleName = role.name;
+}
+
 /** Gizli kolonları (parola türevleri) istemciye göndermeden önce ayıklar. */
-function stripHidden(resource: string, row: any): any {
+function stripHidden(resource: string, row: any, auth?: AuthContext): any {
   const hidden = getMeta(resource).hidden;
-  if (!row || !hidden?.length) return row;
+  if (!row) return row;
   const copy: Record<string, any> = { ...row };
-  for (const col of hidden) delete copy[col];
+  for (const col of hidden || []) delete copy[col];
+  if (auth) {
+    const allowed = (module: AppModule) => can(auth.role, module, 'view');
+    if (resource === 'products' && !allowed('inventory')) for (const key of ['buyingPrice', 'accountingCode', 'purchaseAccountCode']) delete copy[key];
+    if (resource === 'contacts' && !allowed('contacts') && !allowed('finance') && !allowed('accounting')) for (const key of ['balance', 'creditLimit', 'bankName', 'iban', 'bankAccountName']) delete copy[key];
+    if (resource === 'settings' && !allowed('settings')) {
+      for (const [section, module] of [['hr', 'hr'], ['finance', 'finance'], ['production', 'production'], ['stock', 'inventory']] as [string, AppModule][]) if (!allowed(module)) delete copy[section];
+    }
+  }
   return copy;
 }
 
-function stripHiddenRows(resource: string, rows: any[]): any[] {
+function stripHiddenRows(resource: string, rows: any[], auth?: AuthContext): any[] {
   const hidden = getMeta(resource).hidden;
-  if (!hidden?.length) return rows;
-  return rows.map((row) => stripHidden(resource, row));
+  if (!hidden?.length && !auth) return rows;
+  return rows.map((row) => stripHidden(resource, row, auth));
 }
 
 /* ------------------------------------------------------------------ */
@@ -522,6 +581,7 @@ function parseListQuery(req: Request): ListQuery {
 function assertResourcePermission(resource: string, method: string, auth: AuthContext | undefined): void {
   const meta = getMeta(resource);
   const action = actionForMethod(method);
+  if (resource === 'roles' && action !== 'view') assertSuperAdmin(auth, 'Rol/yetki tanımlarını yalnızca Süper Admin değiştirebilir.');
   // Salt-okunur kaynaklar (ör. denetim izi) okunabilir; yazma yolları kapalıdır.
   if (meta.readOnly && action !== 'view') {
     throw new HttpError(403, 'Bu kaynak yalnızca okunabilir; doğrudan yazma kapalıdır.', 'READ_ONLY_RESOURCE');
@@ -983,6 +1043,7 @@ export function createApiRouter(): Router {
           );
         }
         const action = MUTATION_ACTIONS[m.op];
+        if (m.resource === 'roles' && !disableFkChecks) assertSuperAdmin(req.auth, 'Rol/yetki tanımlarını yalnızca Süper Admin değiştirebilir.');
         if (!action) throw new HttpError(400, `Desteklenmeyen işlem: ${(m as any).op}`);
         if (m.op === 'clear') {
           assertSuperAdmin(req.auth, `"${m.resource}" tablosunu tamamen boşaltmak yalnızca Süper Admin yetkisindedir.`);
@@ -1009,9 +1070,17 @@ export function createApiRouter(): Router {
               case 'insert': {
                 const data = pickColumns(m.resource, def, m.data || {}, { partial: false });
                 applyResourceRules(m.resource, data);
+                if (!disableFkChecks) await assertResourcePeriod(conn, m.resource, data, undefined, req.auth);
+                if (m.resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
                 const { sql, params } = insertSql(def, data);
                 const [r] = await conn.query(sql, params);
-                results.push({ op: m.op, resource: m.resource, id: (r as any)?.insertId });
+                const insertId = (r as any)?.insertId ?? null;
+                // Denetim izi generic REST yoluyla AYNI olmalı: aksi halde aynı işlem
+                // seçilen uçtan bağımsız olarak izlenir/izlenmez hale gelir.
+                if (!disableFkChecks) {
+                  await auditResourceInTx(conn, m.resource, 'create', insertId, req, data);
+                }
+                results.push({ op: m.op, resource: m.resource, id: insertId });
                 break;
               }
               case 'insertMany': {
@@ -1020,9 +1089,15 @@ export function createApiRouter(): Router {
                 for (const row of rows) {
                   const data = pickColumns(m.resource, def, row, { partial: false });
                   applyResourceRules(m.resource, data);
+                  if (!disableFkChecks) await assertResourcePeriod(conn, m.resource, data, undefined, req.auth);
+                  if (m.resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
                   const { sql, params } = insertSql(def, data);
                   const [r] = await conn.query(sql, params);
-                  ids.push((r as any)?.insertId);
+                  const newId = (r as any)?.insertId ?? null;
+                  ids.push(newId);
+                  if (!disableFkChecks) {
+                    await auditResourceInTx(conn, m.resource, 'create', newId, req, data);
+                  }
                 }
                 results.push({ op: m.op, resource: m.resource, ids });
                 break;
@@ -1031,6 +1106,10 @@ export function createApiRouter(): Router {
                 if (m.id === undefined || m.id === null) throw new HttpError(400, 'update için id gerekli.');
                 const data = pickColumns(m.resource, def, m.data || {}, { partial: true });
                 applyResourceRules(m.resource, data);
+                if (m.resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
+                // Fark (eski → yeni) için güncelleme ÖNCESİ anlık görüntü alınır.
+                const before = await snapshotForAudit(conn, def, m.resource, coerce(def, def.primaryKey, m.id));
+                if (!disableFkChecks) await assertResourcePeriod(conn, m.resource, data, m.id, req.auth);
                 const withVersion = await supportsVersion(def);
                 const expected = Number((m as any).expectedVersion);
                 const hasExpected = Number.isFinite(expected) && expected > 0;
@@ -1055,6 +1134,10 @@ export function createApiRouter(): Router {
                   await assertVersionMatch(def, coerce(def, def.primaryKey, m.id), expected);
                   throw new HttpError(404, 'Kayıt bulunamadı.');
                 }
+                // Yalnızca gerçekten satır etkileyen güncellemeler izlenir.
+                if (!disableFkChecks && (r as any)?.affectedRows) {
+                  await auditResourceInTx(conn, m.resource, 'update', m.id, req, data, before);
+                }
                 results.push({ op: m.op, resource: m.resource, changes: (r as any)?.affectedRows ?? 0 });
                 break;
               }
@@ -1063,8 +1146,36 @@ export function createApiRouter(): Router {
                 if (!where.sql) throw new HttpError(400, 'updateWhere için filtre gerekli.');
                 const data = pickColumns(m.resource, def, m.data || {}, { partial: true });
                 applyResourceRules(m.resource, data);
+                if (m.resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
+                // Filtreyle güncellenen satırlar önceden okunur: denetim farkı (eski → yeni)
+                // yalnızca anlık görüntüyle hesaplanabilir.
+                let beforeRows: any[] = [];
+                if (!disableFkChecks && AUDITED_RESOURCES[m.resource]) {
+                  const [snapshot] = await conn.query(
+                    `SELECT * FROM \`${def.table}\` ${where.sql} LIMIT 200`,
+                    where.params,
+                  );
+                  beforeRows = (snapshot as any[]) || [];
+                }
+                if (!disableFkChecks) {
+                  const [periodRows] = await conn.query<any[]>(`SELECT * FROM \`${def.table}\` ${where.sql} FOR UPDATE`, where.params);
+                  for (const periodRow of periodRows) await assertResourcePeriod(conn, m.resource, data, periodRow[def.primaryKey], req.auth);
+                }
                 const { sql, params } = updateSql(def, data, where.sql, await supportsVersion(def));
                 const [r] = await conn.query(sql, [...params, ...where.params]);
+                if (!disableFkChecks && (r as any)?.affectedRows) {
+                  for (const row of beforeRows) {
+                    await auditResourceInTx(
+                      conn,
+                      m.resource,
+                      'update',
+                      row[def.primaryKey],
+                      req,
+                      data,
+                      row,
+                    );
+                  }
+                }
                 results.push({ op: m.op, resource: m.resource, changes: (r as any)?.affectedRows ?? 0 });
                 break;
               }
@@ -1201,7 +1312,7 @@ export function createApiRouter(): Router {
         // Ürün renkleri artık productColors bağında tutulur; okuma yolunda
         // merkezi kartlardan zenginleştirilir (colors/colorRefs).
         const rows = resource === 'products' ? await attachProductColors(result as any[]) : (result as any[]);
-        res.json({ data: stripHiddenRows(resource, rows) });
+        res.json({ data: stripHiddenRows(resource, rows, req.auth) });
       }
     } catch (err) {
       next(err);
@@ -1220,7 +1331,7 @@ export function createApiRouter(): Router {
       );
       if (!row) throw new HttpError(404, 'Kayıt bulunamadı.');
       const enriched = resource === 'products' ? (await attachProductColors([row as any]))[0] : row;
-      res.json({ data: stripHidden(resource, enriched) });
+      res.json({ data: stripHidden(resource, enriched, req.auth) });
     } catch (err) {
       next(err);
     }
@@ -1251,6 +1362,7 @@ export function createApiRouter(): Router {
           if (def.timestamps.includes('createdAt') && !data.createdAt) data.createdAt = new Date();
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
           applyResourceRules(resource, data);
+          if (resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
           // Renk kodu boşsa kilitli sayaçtan üretilir; kod benzersizliği burada
           // açıkça denetlenir (UNIQUE çakışması 500'e düşmesin).
           if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
@@ -1273,6 +1385,7 @@ export function createApiRouter(): Router {
             created.push((r as any).insertId);
             continue;
           }
+          await assertResourcePeriod(conn, resource, data, undefined, req.auth);
           const { sql, params } = insertSql(def, data);
           const [r] = await conn.query(sql, params);
           const newId = data[def.primaryKey] ?? (r as any).insertId;
@@ -1325,10 +1438,13 @@ export function createApiRouter(): Router {
       }
       const affected = await withTransaction(async (conn) => {
         const before = await snapshotForAudit(conn, def, resource, pk);
+        await assertResourcePeriod(conn, resource, data, pk, req.auth);
         // Renk kodu değişiyorsa benzersizlik transaction içinde denetlenir.
         if (resource === 'colors') await prepareColorWrite(conn, data, { id: pk });
         if (resource === 'molds') await prepareMoldWrite(conn, data, { id: pk });
         if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
+        // Rol ataması `roleId` üzerinden yapılır; denormalize kopyalar sunucuda türetilir.
+        if (resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
 
         let changes = 0;
         if (Object.keys(data).length) {
@@ -1389,6 +1505,7 @@ export function createApiRouter(): Router {
         }
         const affected = await withTransaction(async (conn) => {
           const before = await snapshotForAudit(conn, def, resource, id);
+          await assertResourcePeriod(conn, resource, data, id, req.auth);
           if (resource === 'colors') await prepareColorWrite(conn, data, { id });
           if (resource === 'molds') await prepareMoldWrite(conn, data, { id });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
@@ -1430,9 +1547,11 @@ export function createApiRouter(): Router {
         applyResourceRules(resource, insertData);
         await withTransaction(async (conn) => {
           // Renk kodu transaction içinde (kilitli sayaçtan) üretilir; INSERT SQL'i bu yüzden burada kurulur.
+          await assertResourcePeriod(conn, resource, insertData, undefined, req.auth);
           if (resource === 'colors') await prepareColorWrite(conn, insertData, { id });
           if (resource === 'molds') await prepareMoldWrite(conn, insertData, { id });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, insertData);
+          if (resource === 'users') await deriveUserRole(conn, insertData, { auth: req.auth });
           const { sql, params } = insertSql(def, insertData);
           await conn.query(sql, params);
           await auditResourceInTx(conn, resource, 'create', req.params.id, req, req.body);
@@ -1472,16 +1591,19 @@ export function createApiRouter(): Router {
           if (def.timestamps.includes('updatedAt') && !data.updatedAt) data.updatedAt = new Date();
           applyResourceRules(resource, data);
 
+          if (resource === 'users') await deriveUserRole(conn, data, { auth: req.auth });
           if (body?.mode === 'upsert' && pk !== undefined && pk !== null && pk !== '') {
             // UPDATE dalında türetilmiş/bakiye kolonları (balance, stock, ...) soyulur:
             // bunlar yalnızca kontrollü op'larda satır kilidi + hareket/muhasebe kaydıyla
             // güncellenebilir. INSERT (açılış değeri) için `data` türetilmiş kolonları korur.
             const updateData = pickColumns(resource, def, row, { partial: true });
+            await assertResourcePeriod(conn, resource, updateData, pk, req.auth);
             const keys = Object.keys(updateData).filter((k) => k !== def.primaryKey);
             if (keys.length) {
               if (resource === 'colors') await prepareColorWrite(conn, updateData, { id: pk });
               if (resource === 'molds') await prepareMoldWrite(conn, updateData, { id: pk });
               if (resource === 'recipes') await applyRecipeTargetColor(conn, updateData);
+              if (resource === 'users') await deriveUserRole(conn, updateData, { auth: req.auth });
               const { sql, params } = updateSql(
                 def,
                 updateData,
@@ -1499,6 +1621,7 @@ export function createApiRouter(): Router {
           if (resource === 'colors') await prepareColorWrite(conn, data, { id: data[def.primaryKey] ?? null });
           if (resource === 'molds') await prepareMoldWrite(conn, data, { id: data[def.primaryKey] ?? null });
           if (resource === 'recipes') await applyRecipeTargetColor(conn, data);
+          await assertResourcePeriod(conn, resource, data, undefined, req.auth);
           const { sql, params } = insertSql(def, data);
           const [r] = await conn.query(sql, params);
           const newId = data[def.primaryKey] ?? (r as any).insertId;

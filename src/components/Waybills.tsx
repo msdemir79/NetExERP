@@ -9,6 +9,9 @@ import { cn } from '../lib/utils';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import KpiCard from './Common/KpiCard';
 import Button from './Common/Button';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import { WaybillPrintModal } from './Waybills/WaybillPrintModal';
 import CreateWaybillModal from './Waybills/CreateWaybillModal';
 import ActionWaybillModal from './Waybills/ActionWaybillModal';
@@ -32,6 +35,8 @@ export default function Waybills() {
   const [preselectedOrderId, setPreselectedOrderId] = useState<number | undefined>(undefined);
   const [selectedWaybillId, setSelectedWaybillId] = useState<number | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  // DMR Kinetiq: satıra tıklanınca açılan sağdan kayan okunur özet paneli.
+  const [detailWaybill, setDetailWaybill] = useState<Waybill | null>(null);
 
   // Controlled Action / Delete / Cancel Modal State
   const [actionWaybill, setActionWaybill] = useState<Waybill | null>(null);
@@ -111,7 +116,7 @@ export default function Waybills() {
               {isSales ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownLeft className="w-3.5 h-3.5" />}
             </div>
             <div>
-              <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs hover:text-indigo-600 cursor-pointer block" onClick={() => openViewModal(waybill.id!)}>
+              <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs hover:text-indigo-600 cursor-pointer block" onClick={() => setDetailWaybill(waybill)}>
                 {waybill.waybillNumber}
               </span>
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -288,8 +293,8 @@ export default function Waybills() {
         )}
 
         <button
-          onClick={() => openViewModal(waybill.id!)}
-          title="GİB e-İrsaliye Önizle & Yazdır"
+          onClick={() => setDetailWaybill(waybill)}
+          title="Detay Paneli"
           className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white dark:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
         >
           <Eye className="w-3.5 h-3.5" />
@@ -548,8 +553,134 @@ export default function Waybills() {
           </div>
         )}
         rowActions={waybillRowActions}
+        onRowClick={(waybill) => setDetailWaybill(waybill)}
         emptyMessage="Henüz kayıtlı sevk irsaliyesi bulunamadı."
       />
+
+      {/* DETAIL PANEL */}
+      {detailWaybill && (
+        <DetailPanel
+          isOpen={!!detailWaybill}
+          onClose={() => setDetailWaybill(null)}
+          title={detailWaybill.waybillNumber}
+          widthClass="max-w-[460px]"
+          badge={(
+            <StatusBadge tone={detailWaybill.status === 'issued' ? 'success' : detailWaybill.status === 'cancelled' ? 'danger' : 'neutral'}>
+              {waybillStatusMeta[detailWaybill.status]?.label ?? detailWaybill.status}
+            </StatusBadge>
+          )}
+          footer={(
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                icon={<Eye className="h-3.5 w-3.5" />}
+                onClick={() => { setDetailWaybill(null); openViewModal(detailWaybill.id); }}
+              >
+                Önizle & Yazdır
+              </Button>
+              {detailWaybill.status === 'draft' ? (
+                <Button
+                  variant="primary"
+                  icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                  onClick={() => { setDetailWaybill(null); handleApproveDraft(detailWaybill); }}
+                >
+                  Sevk Et
+                </Button>
+              ) : detailWaybill.status === 'issued' && detailWaybill.invoicedStatus !== 'invoiced' ? (
+                <Button
+                  variant="primary"
+                  icon={<Receipt className="h-3.5 w-3.5" />}
+                  onClick={() => { setDetailWaybill(null); navigate(`/invoices?waybillId=${detailWaybill.id}`); }}
+                >
+                  Faturalandır
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  icon={<Ban className="h-3.5 w-3.5" />}
+                  onClick={() => { setDetailWaybill(null); openActionModalForWaybill(detailWaybill); }}
+                >
+                  İptal / Sil
+                </Button>
+              )}
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            <DetailSummary
+              label="Belge Tutarı"
+              value={detailWaybill.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              unit={detailWaybill.currency || '₺'}
+              tone={detailWaybill.type === 'sales' ? 'brand' : 'warning'}
+              badge={detailWaybill.type === 'sales' ? 'Satış / Sevk' : 'Alış / Teslim'}
+            >
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-label font-bold uppercase text-fg-muted">Matrah</div>
+                  <div className="font-mono text-xs font-black text-fg-strong">
+                    {detailWaybill.subtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-label font-bold uppercase text-fg-muted">KDV</div>
+                  <div className="font-mono text-xs font-black text-fg-strong">
+                    {detailWaybill.taxTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-label font-bold uppercase text-fg-muted">Miktar</div>
+                  <div className="font-mono text-xs font-black text-fg-strong">
+                    {(detailWaybill.totalQuantity || 0).toLocaleString('tr-TR')}
+                  </div>
+                </div>
+              </div>
+            </DetailSummary>
+
+            <DetailSection
+              title="Cari & Belge"
+              rows={[
+                { label: 'Cari', value: detailWaybill.contactName || contacts?.find(c => c.id === detailWaybill.contactId)?.name || '—' },
+                { label: 'Belge Türü', value: detailWaybill.type === 'sales' ? 'Sevk İrsaliyesi' : 'Teslim İrsaliyesi' },
+                { label: 'Senaryo', value: detailWaybill.scenario || '—' },
+                { label: 'Belge Tarihi', value: detailWaybill.date || '—' },
+                { label: 'Sevk Tarihi', value: detailWaybill.shippingDate || detailWaybill.dispatchDate || '—' },
+                { label: 'Faturalanma', value: detailWaybill.invoicedStatus === 'invoiced' ? 'Faturalandı' : 'Faturalanmadı' },
+              ]}
+            />
+
+            {(detailWaybill.carrierTitle || detailWaybill.driverName || detailWaybill.vehiclePlate || detailWaybill.deliveryAddress) && (
+              <DetailSection
+                title="Sevkiyat / Taşıma"
+                rows={[
+                  { label: 'Taşıyıcı', value: detailWaybill.carrierTitle || '—' },
+                  { label: 'Şoför', value: detailWaybill.driverName || '—' },
+                  { label: 'Araç Plakası', value: detailWaybill.vehiclePlate || '—' },
+                  { label: 'Dorse Plakası', value: detailWaybill.trailerPlate || '—' },
+                  { label: 'Teslimat Adresi', value: detailWaybill.deliveryAddress || '—' },
+                ]}
+              />
+            )}
+
+            {(detailWaybill.orderNumber || detailWaybill.invoiceNumber) && (
+              <DetailSection
+                title="Bağlı Belgeler"
+                rows={[
+                  { label: 'Sipariş No', value: detailWaybill.orderNumber || '—' },
+                  { label: 'Fatura No', value: detailWaybill.invoiceNumber || '—' },
+                ]}
+              />
+            )}
+
+            {detailWaybill.notes && (
+              <DetailSection title="Not">
+                <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">
+                  {detailWaybill.notes}
+                </p>
+              </DetailSection>
+            )}
+          </div>
+        </DetailPanel>
+      )}
 
       {/* CREATE WAYBILL MODAL */}
       {isCreateModalOpen && (

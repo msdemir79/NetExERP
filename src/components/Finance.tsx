@@ -25,6 +25,9 @@ import { Link } from 'react-router-dom';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill, type PillTone } from './Common/DataGrid';
 import KpiCard from './Common/KpiCard';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import Button from './Common/Button';
 import EditCashBoxModal from './Finance/EditCashBoxModal';
 import EditBankAccountModal from './Finance/EditBankAccountModal';
@@ -91,6 +94,12 @@ export default function Finance() {
   // Check Action Modal
   const [selectedCheckForAction, setSelectedCheckForAction] = useState<CheckNote | null>(null);
   const [checkActionType, setCheckActionType] = useState<'collect' | 'endorse' | 'bank_collection' | 'bounce'>('collect');
+
+  // Detail panels (DMR Kinetiq)
+  const [detailReceipt, setDetailReceipt] = useState<CollectionReceipt | null>(null);
+  const [detailCashBox, setDetailCashBox] = useState<CashBox | null>(null);
+  const [detailBank, setDetailBank] = useState<BankAccount | null>(null);
+  const [detailCheck, setDetailCheck] = useState<CheckNote | null>(null);
 
   // Filters
   const [filterReceiptType, setFilterReceiptType] = useState<'all' | 'collection' | 'disbursement'>('all');
@@ -345,6 +354,7 @@ export default function Finance() {
           ]}
           data={filteredReceipts}
           rowKey="id"
+          onRowClick={(rc) => setDetailReceipt(rc)}
           toolbar={
             <div className="flex flex-wrap items-center gap-2">
               <select
@@ -411,6 +421,7 @@ export default function Finance() {
             ]}
             data={cashBoxes}
             rowKey="id"
+            onRowClick={(box) => setDetailCashBox(box)}
             rowActions={(box) => (
               <div className="flex items-center gap-1.5">
                 <button
@@ -474,6 +485,7 @@ export default function Finance() {
             ]}
             data={bankAccounts}
             rowKey="id"
+            onRowClick={(acc) => setDetailBank(acc)}
             rowActions={(acc) => (
               <div className="flex items-center gap-1.5">
                 <button
@@ -542,6 +554,7 @@ export default function Finance() {
           ]}
           data={filteredChecks}
           rowKey="id"
+          onRowClick={(chk) => setDetailCheck(chk)}
           toolbar={
             <div className="flex flex-wrap items-center gap-2">
               <select
@@ -677,6 +690,221 @@ export default function Finance() {
         isOpen={isBankAccountModalOpen}
         onClose={() => setIsBankAccountModalOpen(false)}
       />
+
+      {/* TAB: Tahsilat/Tediye Makbuzu Detay Paneli */}
+      {detailReceipt && (
+        <DetailPanel
+          isOpen={!!detailReceipt}
+          onClose={() => setDetailReceipt(null)}
+          title={detailReceipt.receiptNumber}
+          widthClass="max-w-[440px]"
+          badge={(
+            <StatusBadge tone={detailReceipt.type === 'collection' ? 'success' : 'danger'}>
+              {detailReceipt.type === 'collection' ? 'Tahsilat' : 'Tediye'}
+            </StatusBadge>
+          )}
+          footer={(
+            <button
+              type="button"
+              onClick={() => { const rc = detailReceipt; setDetailReceipt(null); setSelectedReceiptForPrint(rc); }}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Makbuzu Yazdır
+            </button>
+          )}
+        >
+          <div className="space-y-4">
+            <DetailSummary
+              label={detailReceipt.type === 'collection' ? 'Tahsil Edilen' : 'Ödenen'}
+              value={`${detailReceipt.type === 'collection' ? '+' : '-'}${detailReceipt.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+              unit="₺"
+              tone={detailReceipt.type === 'collection' ? 'success' : 'danger'}
+              badge={instrumentLabel(detailReceipt.instrument)}
+            />
+            <DetailSection
+              title="Makbuz Bilgileri"
+              rows={[
+                { label: 'Cari Hesap', value: detailReceipt.contactName || '—' },
+                { label: 'Tarih', value: new Date(detailReceipt.date).toLocaleDateString('tr-TR') },
+                { label: 'Ödeme Aracı', value: instrumentLabel(detailReceipt.instrument) },
+                { label: 'Açıklama', value: detailReceipt.description || '—' },
+                { label: 'TDHP Kaydı', value: detailReceipt.journalEntryId ? `Yevmiye #${detailReceipt.journalEntryId}` : 'Bekliyor' },
+              ]}
+            />
+          </div>
+        </DetailPanel>
+      )}
+
+      {/* TAB: Kasa Detay Paneli */}
+      {detailCashBox && (
+        <DetailPanel
+          isOpen={!!detailCashBox}
+          onClose={() => setDetailCashBox(null)}
+          title={detailCashBox.name}
+          widthClass="max-w-[440px]"
+          badge={(<StatusBadge tone="neutral">{detailCashBox.code}</StatusBadge>)}
+          footer={(
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => { const b = detailCashBox; setDetailCashBox(null); setSelectedCashBoxForStatement(b); }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Ekstre
+              </button>
+              <button
+                type="button"
+                onClick={() => { const b = detailCashBox; setDetailCashBox(null); setEditingCashBox(b); }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                Düzenle
+              </button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            <DetailSummary
+              label="Mevcut Bakiye"
+              value={detailCashBox.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              unit="₺"
+              tone={detailCashBox.balance >= 0 ? 'success' : 'danger'}
+            />
+            <DetailSection
+              title="Kasa Bilgileri"
+              rows={[
+                { label: 'Kasa Kodu', value: detailCashBox.code },
+                { label: 'Sorumlu', value: detailCashBox.responsiblePerson || 'Belirtilmedi' },
+                { label: 'TDHP Hesabı', value: detailCashBox.accountCode },
+              ]}
+            />
+            {detailCashBox.notes && (
+              <DetailSection title="Notlar">
+                <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">{detailCashBox.notes}</p>
+              </DetailSection>
+            )}
+          </div>
+        </DetailPanel>
+      )}
+
+      {/* TAB: Banka Hesabı Detay Paneli */}
+      {detailBank && (
+        <DetailPanel
+          isOpen={!!detailBank}
+          onClose={() => setDetailBank(null)}
+          title={detailBank.bankName}
+          widthClass="max-w-[440px]"
+          badge={(<StatusBadge tone="info">{detailBank.accountCode}</StatusBadge>)}
+          footer={(
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => { const a = detailBank; setDetailBank(null); setSelectedBankAccountForStatement(a); }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Ekstre
+              </button>
+              <button
+                type="button"
+                onClick={() => { const a = detailBank; setDetailBank(null); setEditingBankAccount(a); }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                Düzenle
+              </button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            <DetailSummary
+              label="Mevduat Bakiyesi"
+              value={detailBank.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              unit="₺"
+              tone={detailBank.balance >= 0 ? 'success' : 'danger'}
+            />
+            <DetailSection
+              title="Hesap Bilgileri"
+              rows={[
+                { label: 'Şube', value: detailBank.branchName || 'Merkez' },
+                { label: 'Hesap No', value: detailBank.accountNumber || '—' },
+                { label: 'IBAN', value: <span className="font-mono select-all">{detailBank.iban}</span> },
+                { label: 'TDHP Hesabı', value: detailBank.accountCode },
+              ]}
+            />
+          </div>
+        </DetailPanel>
+      )}
+
+      {/* TAB: Çek / Senet Detay Paneli */}
+      {detailCheck && (() => {
+        const toneMap: Record<string, 'success' | 'danger' | 'warning' | 'info' | 'brand' | 'neutral'> = {
+          green: 'success', red: 'danger', violet: 'brand', blue: 'info', slate: 'neutral', amber: 'warning',
+        };
+        const meta = checkStatusMeta[detailCheck.status];
+        return (
+          <DetailPanel
+            isOpen={!!detailCheck}
+            onClose={() => setDetailCheck(null)}
+            title={detailCheck.serialNumber}
+            widthClass="max-w-[440px]"
+            badge={(<StatusBadge tone={meta ? toneMap[meta.tone] : 'neutral'}>{meta?.label ?? detailCheck.status}</StatusBadge>)}
+            footer={(
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { const c = detailCheck; setDetailCheck(null); setSelectedCheckForHistory(c); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Hareketler
+                </button>
+                {(detailCheck.status === 'portfolio' || detailCheck.status === 'bank_collection') ? (
+                  <button
+                    type="button"
+                    onClick={() => { const c = detailCheck; setDetailCheck(null); setSelectedCheckForAction(c); setCheckActionType('collect'); }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5" />
+                    Durum Güncelle
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setDetailCheck(null)}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-control bg-surface-hover px-3 py-2 text-xs font-black text-fg-muted cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Tamamlandı
+                  </button>
+                )}
+              </div>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailSummary
+                label="Çek / Senet Tutarı"
+                value={detailCheck.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                unit="₺"
+                tone="brand"
+                badge={checkTypeLabel(detailCheck.type)}
+              />
+              <DetailSection
+                title="Belge Bilgileri"
+                rows={[
+                  { label: 'Portföy No', value: detailCheck.portfolioNumber },
+                  { label: 'Keşideci', value: detailCheck.drawer },
+                  { label: 'İlgili Cari', value: detailCheck.contactName || '—' },
+                  { label: 'Banka / Şube', value: detailCheck.bankName ? `${detailCheck.bankName}${detailCheck.branchName ? ` (${detailCheck.branchName})` : ''}` : '—' },
+                  { label: 'Vade Tarihi', value: new Date(detailCheck.dueDate).toLocaleDateString('tr-TR') },
+                ]}
+              />
+            </div>
+          </DetailPanel>
+        );
+      })()}
 
       {/* PRINT PREVIEW MODAL: Makbuz Yazdır */}
       <ReceiptPrintPreviewModal

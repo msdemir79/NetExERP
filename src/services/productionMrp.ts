@@ -1,3 +1,4 @@
+import { distributeAssortment, selectProductionRecipe } from '../lib/productionRules';
 import {
   api,
   callOp,
@@ -52,15 +53,7 @@ export function colorsMatch(c1?: string | null, c2?: string | null): boolean {
  * MRP ve bekleyen üretim ihtiyacı hesabı aynı seçimi kullanır.
  */
 export function pickRecipeForWorkOrder(recipes: Recipe[], productId: number, color?: string | null): Recipe | null {
-  const allProductRecipes = recipes.filter(r => r.productId === productId);
-  if (allProductRecipes.length === 0) return null;
-  if (color) {
-    const exactMatch = allProductRecipes.find(r => r.targetColor && r.targetColor.toLowerCase() === color.toLowerCase());
-    if (exactMatch) return exactMatch;
-  }
-  const genericMatch = allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel');
-  if (genericMatch) return genericMatch;
-  return allProductRecipes[0];
+  return selectProductionRecipe(recipes, productId, color);
 }
 
 export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCalculationResult> {
@@ -106,8 +99,8 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
   }>();
 
   for (const wo of workOrdersToAnalyze) {
-    const recipe = getRecipeForWO(wo.productId, wo.color);
-    if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) continue;
+    const recipe = wo.recipeSnapshot ?? getRecipeForWO(wo.productId, wo.color);
+    if (!recipe || !recipe.ingredients?.length) throw new Error('Reçetesi eksik iş emri: ' + wo.barcode + '. MRP eksik hesaplanmaması için durduruldu.');
 
     // Resolve size breakdown of this work order
     let woSizes: { size: string; quantity: number }[] = [];
@@ -117,26 +110,11 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
       woSizes = [{ size: wo.size.trim(), quantity: wo.quantity }];
     } else {
       const finishedProduct = productMap.get(wo.productId);
-      if (finishedProduct?.assortment && finishedProduct.assortment.length > 0) {
-        const totalAssort = finishedProduct.assortment.reduce((s, a) => s + (a.quantity || 0), 0);
-        const ratio = totalAssort > 0 ? (wo.quantity / totalAssort) : 1;
-        woSizes = finishedProduct.assortment.map(a => ({
-          size: a.size,
-          quantity: Math.round(a.quantity * ratio)
-        }));
-      } else if (finishedProduct?.assortmentTemplateId) {
-        const tmpl = templateMap.get(finishedProduct.assortmentTemplateId);
-        if (tmpl && tmpl.items.length > 0) {
-          const totalAssort = tmpl.items.reduce((s, a) => s + (a.quantity || 0), 0);
-          const ratio = totalAssort > 0 ? (wo.quantity / totalAssort) : 1;
-          woSizes = tmpl.items.map(a => ({
-            size: a.size,
-            quantity: Math.round(a.quantity * ratio)
-          }));
-        }
+      if (finishedProduct) {
+        const template = finishedProduct.assortmentTemplateId ? templateMap.get(finishedProduct.assortmentTemplateId) : undefined;
+        woSizes = distributeAssortment(finishedProduct, wo.quantity, undefined, template?.items);
       }
     }
-
     for (const ing of recipe.ingredients) {
       const rawProduct = productMap.get(ing.productId);
       if (!rawProduct) continue;
@@ -428,9 +406,9 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
 
   // Update material readiness on work orders
   for (const wo of workOrdersToAnalyze) {
-    const recipe = getRecipeForWO(wo.productId, wo.color);
+    const recipe = wo.recipeSnapshot ?? getRecipeForWO(wo.productId, wo.color);
     if (!recipe) {
-      await api.workOrders.update(wo.id!, { materialStatus: 'no_recipe' });
+      await callOp('update-work-order', { id: wo.id, changes: { materialStatus: 'no_recipe' } });
       continue;
     }
     
@@ -457,7 +435,7 @@ export async function calculateMRP(targetWorkOrderIds?: number[]): Promise<MrpCa
     } else {
       newStatus = 'materials_ready';
     }
-    await api.workOrders.update(wo.id!, { materialStatus: newStatus });
+    await callOp('update-work-order', { id: wo.id, changes: { materialStatus: newStatus } });
   }
 
   return {
@@ -671,13 +649,12 @@ export async function createPurchaseOrdersBySupplierFromMRP(
     };
 
     // not: kimlik zinciri nedeniyle iki adımlı yazma
-    const orderId = await api.orders.create(orderData as Order);
-    const itemsWithOrderId = orderItemsData.map(it => ({ ...it, orderId }));
-    mutations.push({ op: 'insertMany', resource: 'orderItems', rows: itemsWithOrderId as OrderItem[] });
+    const savedOrder = await callOp<{ orderId: number; orderNumber: string }>('save-order', { order: orderData, items: orderItemsData });
+    const orderId = savedOrder.orderId;
 
     ordersCreated.push({
       orderId,
-      orderNumber,
+      orderNumber: savedOrder.orderNumber,
       supplierId,
       supplierName: supplier.name,
       itemCount: orderItemsData.length,
@@ -793,9 +770,8 @@ export async function createPurchaseOrderFromMRP(
   };
 
   // not: kimlik zinciri nedeniyle iki adımlı yazma
-  const orderId = await api.orders.create(orderData as Order);
-  const itemsWithOrderId = orderItemsData.map(it => ({ ...it, orderId }));
-  await commit([{ op: 'insertMany', resource: 'orderItems', rows: itemsWithOrderId as OrderItem[] }]);
+  const savedOrder = await callOp<{ orderId: number; orderNumber: string }>('save-order', { order: orderData, items: orderItemsData });
+  const orderId = savedOrder.orderId;
 
-  return { orderId, orderNumber, grandTotal };
+  return { orderId, orderNumber: savedOrder.orderNumber, grandTotal };
 }

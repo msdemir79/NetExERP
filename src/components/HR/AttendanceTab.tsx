@@ -198,6 +198,66 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
     return true;
   });
 
+  /**
+   * PERF: Matris hücreleri daha önce her render'da personel başına
+   * `records.filter(...)` ve (personel × gün) başına `empRecords.find(...)`
+   * çalıştırıyordu → 100 personel × 31 gün ve 3.100 kayıtta render başına
+   * ~9,6 milyon karşılaştırma. Kayıtlar bir kez indekslenir ve satır özetleri
+   * (çalıştı/tatil/izin/devamsız/mesai) önceden hesaplanır; hücreler artık
+   * O(1) sözlük araması yapar.
+   */
+  const recordsByEmployee = React.useMemo(() => {
+    const byEmp = new Map<number, Map<string, AttendanceRecord>>();
+    for (const r of records) {
+      const empId = Number(r.employeeId);
+      if (!Number.isFinite(empId)) continue;
+      let byDate = byEmp.get(empId);
+      if (!byDate) {
+        byDate = new Map<string, AttendanceRecord>();
+        byEmp.set(empId, byDate);
+      }
+      if (r.date) byDate.set(r.date, r);
+    }
+    return byEmp;
+  }, [records]);
+
+  /** Gün başına önceden hesaplanmış tarih anahtarı ve hafta tatili bayrağı. */
+  const dayMeta = React.useMemo(
+    () =>
+      daysArray.map((day) => {
+        const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(selectedYear, selectedMonth - 1, day).getDay();
+        return { day, dateStr, isWeekend: weekendDays.includes(dayOfWeek) };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [daysInMonth, selectedYear, selectedMonth, weekendDays.join(',')]
+  );
+
+  /** Personel başına satır özetleri: hücre render'ı sırasında yan etki yok. */
+  const rowSummaries = React.useMemo(() => {
+    const summaries = new Map<number, {
+      worked: number; rest: number; leave: number; unpaid: number; absent: number; overtime: number;
+    }>();
+    for (const emp of filteredEmployees) {
+      if (emp.id === undefined || emp.id === null) continue;
+      const byDate = recordsByEmployee.get(Number(emp.id));
+      let worked = 0, rest = 0, leave = 0, unpaid = 0, absent = 0, overtime = 0;
+      for (const meta of dayMeta) {
+        const rec = byDate?.get(meta.dateStr);
+        const status: AttendanceStatus = rec?.status || (meta.isWeekend ? 'weekly_rest' : 'present');
+        if (status === 'present') worked += 1;
+        else if (status === 'half_day') worked += 0.5;
+        else if (status === 'weekly_rest') rest += 1;
+        else if (status === 'paid_leave' || status === 'public_holiday' || status === 'sick_leave') leave += 1;
+        else if (status === 'unpaid_leave') { unpaid += 1; leave += 1; }
+        else if (status === 'absent') absent += 1;
+        overtime += rec?.overtimeHours || 0;
+      }
+      summaries.set(Number(emp.id), { worked, rest, leave, unpaid, absent, overtime });
+    }
+    return summaries;
+  }, [filteredEmployees, recordsByEmployee, dayMeta]);
+
   // Handle month navigation
   const prevMonth = () => {
     if (selectedMonth === 1) {
@@ -829,16 +889,10 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
               </tr>
             ) : (
               filteredEmployees.map((emp) => {
-                const empRecords = records.filter(r => r.employeeId === emp.id);
+                const empId = Number(emp.id);
+                const byDate = recordsByEmployee.get(empId);
+                const summary = rowSummaries.get(empId) || { worked: 0, rest: 0, leave: 0, unpaid: 0, absent: 0, overtime: 0 };
                 const isSelected = selectedEmpIds.includes(emp.id!);
-
-                // Calculations for this employee
-                let workedCount = 0;
-                let restCount = 0;
-                let leaveCount = 0;
-                let unpaidCount = 0;
-                let absentCount = 0;
-                let totalOvertime = 0;
 
                 return (
                   <tr key={emp.id} className={`transition-colors ${isSelected ? 'bg-indigo-50/40' : 'hover:bg-slate-50 dark:bg-slate-800/50/80'}`}>
@@ -889,28 +943,13 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
                     </td>
 
                     {/* Day Cells 1-31 */}
-                    {daysArray.map((day) => {
-                      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                      const rec = empRecords.find(r => r.date === dateStr);
-                      const dayOfWeek = new Date(selectedYear, selectedMonth - 1, day).getDay();
-                      const isWeekend = weekendDays.includes(dayOfWeek);
+                    {dayMeta.map(({ day, dateStr, isWeekend }) => {
+                      const rec = byDate?.get(dateStr);
 
                       // Status fallback if no explicit record
                       const status: AttendanceStatus = rec?.status || (isWeekend ? 'weekly_rest' : 'present');
                       const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.present;
                       const overtime = rec?.overtimeHours || 0;
-
-                      // Aggregate sums
-                      if (status === 'present') workedCount++;
-                      else if (status === 'half_day') workedCount += 0.5;
-                      else if (status === 'weekly_rest') restCount++;
-                      else if (status === 'paid_leave' || status === 'public_holiday' || status === 'sick_leave') leaveCount++;
-                      else if (status === 'unpaid_leave') {
-                        unpaidCount++;
-                        leaveCount++;
-                      }
-                      else if (status === 'absent') absentCount++;
-                      totalOvertime += overtime;
 
                       return (
                         <td
@@ -941,29 +980,29 @@ export default function AttendanceTab({ employees, onAttendanceChanged }: Attend
 
                     {/* Summary Counters */}
                     <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/30 border-l border-slate-300">
-                      {workedCount}
+                      {summary.worked}
                     </td>
                     <td className="p-2 text-center font-medium text-slate-600 bg-slate-50 dark:bg-slate-800/50/50">
-                      {restCount}
+                      {summary.rest}
                     </td>
                     <td className="p-2 text-center font-medium text-sky-700 bg-sky-50/30">
-                      {leaveCount > 0 ? (
-                        unpaidCount > 0 ? (
-                          <span title={`${unpaidCount} gün ücretsiz izin`}>
-                            {leaveCount} <span className="text-[10px] text-amber-600 font-bold">({unpaidCount} Ü.İ)</span>
+                      {summary.leave > 0 ? (
+                        summary.unpaid > 0 ? (
+                          <span title={`${summary.unpaid} gün ücretsiz izin`}>
+                            {summary.leave} <span className="text-[10px] text-amber-600 font-bold">({summary.unpaid} Ü.İ)</span>
                           </span>
                         ) : (
-                          leaveCount
+                          summary.leave
                         )
                       ) : (
                         '-'
                       )}
                     </td>
                     <td className="p-2 text-center font-bold text-rose-600 bg-rose-50/30">
-                      {absentCount > 0 ? absentCount : '-'}
+                      {summary.absent > 0 ? summary.absent : '-'}
                     </td>
                     <td className="p-2 text-center font-bold text-indigo-700 bg-indigo-50/60 border-l border-indigo-200">
-                      {totalOvertime > 0 ? `${totalOvertime}s` : '-'}
+                      {summary.overtime > 0 ? `${summary.overtime}s` : '-'}
                     </td>
                   </tr>
                 );

@@ -26,11 +26,7 @@ export const invoiceService = {
   },
 
   async generateInvoiceNumber(type: 'sales' | 'purchase'): Promise<string> {
-    const year = new Date().getFullYear();
-    const prefix = type === 'sales' ? `SAT-${year}-` : `ALS-${year}-`;
-    const count = await api.invoices.count({ type });
-    const nextSeq = (count + 1).toString().padStart(6, '0');
-    return `${prefix}${nextSeq}`;
+    return ''; // Satış numarası kayıt transaction'ında sunucudan; alış numarası tedarikçiden gelir.
   },
 
   async getPendingOrdersForInvoicing(contactId?: number, orderType: 'sales' | 'purchase' = 'sales') {

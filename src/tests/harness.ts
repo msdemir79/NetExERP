@@ -7,7 +7,8 @@
  * doğrudan geçerli bir oturum mint eder; böylece gerçek HTTP + gerçek DB +
  * gerçek RBAC/op yolu üzerinden test koşabilir (parola gerekmez).
  *
- * Testler canlı veritabanına karşı koşar. Her suite sonunda `purgeTestResidue`
+ * Testler yalnız PROERP_TEST_DB=1 ile adlandırılmış izole test DB'sinde koşar.
+ * Her suite sonunda `purgeTestResidue`
  * çağrılır: `TEST-` işaretli satırlar (bu koşunun ve önceki koşuların kalıntısı)
  * server/testDataPurge.ts üzerinden tek transaction'da kaldırılır ve türetilmiş
  * alanlar geri hesaplanır. Uygulama içi silme kuralları testlerde AYNEN denenir;
@@ -19,6 +20,9 @@ import { createApiRouter } from '../../server/api.js';
 import { createSession } from '../../server/auth.js';
 import { withTransaction } from '../../server/db.js';
 import { purgeTestData } from '../../server/testDataPurge.js';
+import { assertTestDatabase } from './testDatabaseGuard.js';
+
+assertTestDatabase();
 
 export interface TestServer {
   baseUrl: string;

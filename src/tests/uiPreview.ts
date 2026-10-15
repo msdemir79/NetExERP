@@ -1,0 +1,31 @@
+/** Yalnız izole test DB'sinde, süreli ve yerel arayüz doğrulama sunucusu. */
+import { assertTestDatabase } from './testDatabaseGuard.js';
+import { execute, closePool } from '../../server/db.js';
+import express from 'express';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import { createApiRouter } from '../../server/api.js';
+import { createSession, setSessionCookie } from '../../server/auth.js';
+
+assertTestDatabase();
+process.env.COOKIE_SECURE = 'false';
+await execute("INSERT INTO contacts (name,type,currency) VALUES ('Örnek Tedarikçi','supplier','TRY'),('Örnek Müşteri','customer','TRY')");
+await execute("INSERT INTO products (code,name,unit,stock,categoryType) VALUES ('DER-001','Doğal deri','Metre',100,'raw_material'),('AYK-001','Klasik Ayakkabı','Çift',0,'finished')");
+await execute("INSERT INTO workOrders (productId,quantity,createdAt,barcode,status,currentStage) VALUES (2,50,NOW(),'WO-000001','in_progress','quality_packing')");
+await execute("INSERT INTO qualityChecks (workOrderId,inspectedQuantity,rejectedQuantity,result,status,notes,createdBy) VALUES (1,50,0,'pass','pending','Dikiş, taban yapışması ve paketleme kontrol edildi.',1)");
+await execute("INSERT INTO purchaseRequests (requestNumber,supplierId,items,totalAmount,status,notes,createdBy) VALUES ('STL-2026-000001',1,'[]',6000,'pending','Yeni sezon üretimi için deri ihtiyacı.',1)");
+const app = express();
+app.use(express.json());
+app.use('/api', createApiRouter());
+const key = crypto.randomBytes(16).toString('hex');
+app.get(`/__preview/${key}`, (_req, res) => { setSessionCookie(res, createSession({ userId: 1 }).token); res.redirect('/production/workflows'); });
+app.use(express.static(path.resolve('dist')));
+app.get('*', (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+const server = app.listen(0, '127.0.0.1');
+await new Promise<void>(resolve => server.once('listening', resolve));
+console.log(`UI_PREVIEW_URL=http://127.0.0.1:${(server.address() as AddressInfo).port}/__preview/${key}`);
+await new Promise<void>(resolve => setTimeout(resolve, 300_000));
+server.closeAllConnections();
+await new Promise<void>(resolve => server.close(() => resolve()));
+await closePool();

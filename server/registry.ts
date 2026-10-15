@@ -42,6 +42,10 @@ export interface ResourceMeta {
 }
 
 export const META: Record<string, ResourceMeta> = {
+  operationRequests: { module: 'users', searchable: [], defaultOrder: 'id DESC', readOnly: true, hidden: ['requestKey', 'payloadHash', 'result'] },
+  stockReservations: { module: 'inventory', searchable: [], defaultOrder: 'id DESC', readOnly: true },
+  qualityChecks: { module: 'production', searchable: ['notes'], defaultOrder: 'id DESC', readOnly: true },
+  purchaseRequests: { module: 'orders', searchable: ['requestNumber', 'notes'], defaultOrder: 'id DESC', readOnly: true },
   contacts: {
     module: 'contacts',
     /**
@@ -111,8 +115,9 @@ export const META: Record<string, ResourceMeta> = {
     guards: [{ table: 'workOrders', column: 'recipeId', message: 'Bu reçeteye bağlı iş emirleri var.' }],
   },
   workOrders: {
+    controlledWrites: true,
     module: 'production',
-    searchable: ['barcode', 'orderNumber', 'customerName', 'documentNo', 'moldCode', 'moldGroup', 'color'],
+    searchable: ['barcode', 'orderNumber', 'customerName', 'documentNo', 'moldCode', 'moldGroup', 'color', 'line'],
     defaultOrder: 'id DESC',
   },
   /**
@@ -158,6 +163,7 @@ export const META: Record<string, ResourceMeta> = {
    */
   documentNumbers: { module: 'settings', searchable: ['scope', 'prefix'], defaultOrder: 'scope ASC, prefix ASC, year ASC', readOnly: true },
   orders: {
+    controlledWrites: true,
     module: 'orders',
     searchable: ['orderNumber', 'notes'],
     defaultOrder: 'id DESC',
@@ -167,7 +173,7 @@ export const META: Record<string, ResourceMeta> = {
       { table: 'invoices', column: 'orderId', message: 'Bu siparişe bağlı faturalar var.' },
     ],
   },
-  orderItems: { module: 'orders', searchable: [], defaultOrder: 'id ASC' },
+  orderItems: { module: 'orders', searchable: [], defaultOrder: 'id ASC', controlledWrites: true },
   /**
    * Fatura: tutar, ödeme durumu ve cari/stok/muhasebe etkileri yalnızca
    * create/issue/cancel/delete-invoice op'larında (satır kilidi altında, tek
@@ -187,13 +193,14 @@ export const META: Record<string, ResourceMeta> = {
   /** Fatura satırları faturanın bir parçasıdır; yalnızca create-invoice op'unda yazılır, tek başına generic yazıma kapalıdır. */
   invoiceItems: { module: 'invoices', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC', controlledWrites: true },
   waybills: {
+    controlledWrites: true,
     module: 'waybills',
     searchable: ['waybillNumber', 'orderNumber', 'contactName', 'ettn', 'vehiclePlate', 'notes'],
     defaultOrder: 'id DESC',
     /** Fatura bağı yalnızca create/issue/cancel/delete-invoice op'larında (satır kilidi altında) belirlenir; istemci generic yazımda yazamaz. */
     protectedColumns: ['invoicedStatus', 'invoiceId', 'invoiceNumber'],
   },
-  waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC' },
+  waybillItems: { module: 'waybills', searchable: ['productCode', 'productName'], defaultOrder: 'id ASC', controlledWrites: true },
   accounts: { module: 'accounting', searchable: ['code', 'name', 'description'], defaultOrder: 'code ASC' },
   journalEntries: {
     module: 'accounting',
@@ -234,7 +241,7 @@ export const META: Record<string, ResourceMeta> = {
   attendanceRecords: { module: 'hr', searchable: ['status', 'notes'], defaultOrder: 'date DESC' },
   leaveRequests: { module: 'hr', searchable: ['employeeName', 'leaveType', 'reason'], defaultOrder: 'id DESC' },
   advanceRequests: { module: 'hr', searchable: ['employeeName', 'description'], defaultOrder: 'id DESC' },
-  payrollRecords: { module: 'hr', searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC', protectedColumns: ['paymentStatus', 'isAccounted', 'journalEntryId'] },
+  payrollRecords: { module: 'hr', searchable: ['employeeName', 'employeeCode', 'department'], defaultOrder: 'id DESC', protectedColumns: ['paymentStatus', 'isAccounted', 'journalEntryId', 'parameterSnapshot'], controlledWrites: true },
   periodLocks: { module: 'hr', searchable: [], defaultOrder: 'year DESC, month DESC' },
   /** Roller her oturum sahibi tarafından okunabilir; kendi rolünü çözmek için gerekir. */
   roles: { module: 'users', searchable: ['code', 'name', 'description'], defaultOrder: 'id ASC', readAuthOnly: true },
@@ -242,7 +249,14 @@ export const META: Record<string, ResourceMeta> = {
     module: 'users',
     searchable: ['username', 'fullName', 'email', 'department', 'title'],
     defaultOrder: 'id ASC',
-    protectedColumns: ['passwordHash', 'passwordSalt'],
+    /**
+     * `roleCode`/`roleName` DENORMALİZE kopyalardır ve sunucu tarafında `roleId`'den
+     * türetilir. İstemciden yazılabilseydi, `users:edit` yetkisi olan bir kullanıcı
+     * kendi `roleCode` alanını 'super_admin' yaparak yalnızca Süper Admin'e açık
+     * kapıları (tablo boşaltma, FK denetimsiz toplu yazma, reset) açabilirdi.
+     * Rol ataması `roleId` üzerinden yapılır; bu iki alan istemciye kapalıdır.
+     */
+    protectedColumns: ['passwordHash', 'passwordSalt', 'roleCode', 'roleName'],
     hidden: ['passwordHash', 'passwordSalt'],
   },
   /** Denetim izi yalnızca sunucu tarafından yazılır; istemci sadece okur. */

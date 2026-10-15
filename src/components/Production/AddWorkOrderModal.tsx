@@ -50,6 +50,7 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
     const productId = Number(formData.get('productId'));
     const quantity = Number(formData.get('quantity'));
     const size = formData.get('size') as string;
+    const line = formData.get('line') as string;
     const targetDateStr = formData.get('targetDate') as string;
     const notes = formData.get('notes') as string;
 
@@ -60,6 +61,7 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
         color: manualWoColor || undefined,
         colorId: manualWoColorId,
         size: size || undefined,
+        line: line || undefined,
         targetDate: targetDateStr ? new Date(targetDateStr) : undefined,
         notes: notes || undefined,
       });
@@ -180,6 +182,16 @@ export default function AddWorkOrderModal({ isOpen, onClose, products, onCreated
               className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-900 dark:text-slate-100 focus:outline-none"
             />
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Üretim Hattı (Opsiyonel)</label>
+          <input
+            type="text"
+            name="line"
+            placeholder="Örn: HAT-1 / Kesim Hattı A"
+            className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-900 dark:text-slate-100 focus:outline-none"
+          />
         </div>
 
         <div className="space-y-1">

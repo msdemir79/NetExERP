@@ -27,9 +27,9 @@ import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
 import DeleteConfirmModal from '../Common/DeleteConfirmModal';
 import type { AppUser, Role, UserStatus } from '../../types';
 
-export default function UsersManagement() {
+export default function UsersManagement({ tabParam = 'tab' }: { tabParam?: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'users';
+  const activeTab = searchParams.get(tabParam) || 'users';
 
   const { currentUser, switchUser, isSuperAdmin } = useAuth();
 
@@ -56,7 +56,7 @@ export default function UsersManagement() {
   const [deleteTarget, setDeleteTarget] = useState<{ resource: 'users' | 'roles'; id: number } | null>(null);
 
   const handleTabChange = (tab: string) => {
-    setSearchParams({ tab });
+    setSearchParams(prev => { const next = new URLSearchParams(prev); next.set(tabParam, tab); return next; });
   };
 
   // User counts by role
@@ -297,7 +297,7 @@ export default function UsersManagement() {
       </div>
 
       {/* Main Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-slate-200 dark:border-slate-700">
         <button
           onClick={() => handleTabChange('users')}
           className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${

@@ -6,8 +6,10 @@
  * `broadcast` yayımlayabilsin.
  */
 import type { Request, Response } from 'express';
+import { can, requestToken, resolveSession } from './auth.js';
+import { getMeta } from './registry.js';
 
-type SseClient = { id: number; res: Response };
+type SseClient = { id: number; res: Response; token: string | null };
 
 const sseClients = new Set<SseClient>();
 let sseSeq = 0;
@@ -15,11 +17,12 @@ let sseSeq = 0;
 export function broadcast(resource: string, action: 'create' | 'update' | 'delete' | 'seed' | 'refresh', ids: (number | string)[] = []) {
   const payload = `data: ${JSON.stringify({ resource, action, ids, at: Date.now() })}\n\n`;
   for (const client of sseClients) {
-    try {
+    void resolveSession(client.token).then(auth => {
+      if (!auth) { client.res.end(); sseClients.delete(client); return; }
+      const meta = getMeta(resource);
+      if (resource !== '*' && !meta.readAuthOnly && !can(auth.role, meta.module, 'view')) return;
       client.res.write(payload);
-    } catch {
-      sseClients.delete(client);
-    }
+    }).catch(() => { sseClients.delete(client); client.res.end(); });
   }
 }
 
@@ -33,11 +36,12 @@ export function sseHandler(req: Request, res: Response) {
   res.write(`retry: 3000\n\n`);
   res.write(`data: ${JSON.stringify({ resource: '*', action: 'refresh', ids: [], at: Date.now() })}\n\n`);
 
-  const client: SseClient = { id: ++sseSeq, res };
+  const client: SseClient = { id: ++sseSeq, res, token: requestToken(req) };
   sseClients.add(client);
 
-  const ping = setInterval(() => {
+  const ping = setInterval(async () => {
     try {
+      if (!await resolveSession(client.token)) { res.end(); sseClients.delete(client); clearInterval(ping); return; }
       res.write(': ping\n\n');
     } catch {
       /* kapanmış bağlantı */

@@ -483,8 +483,9 @@ export default function CreateInvoiceModal({
                 type="text"
                 value={invoiceNumber}
                 onChange={(e) => setInvoiceNumber(e.target.value)}
-                required
-                placeholder="SAT-2026-000001"
+                required={type === 'purchase'}
+                readOnly={type === 'sales'}
+                placeholder={type === 'sales' ? 'Kaydedildiğinde otomatik oluşturulur' : 'Tedarikçi fatura numarası'}
                 className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>

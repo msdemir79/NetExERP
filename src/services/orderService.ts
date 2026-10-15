@@ -1,5 +1,6 @@
 import {
   api,
+  callOp,
   commit,
   type Mutation,
 } from '../api/client';
@@ -17,23 +18,9 @@ import type {
 export const orderService = {
   // --- Order Management ---
   async createOrder(order: Omit<Order, 'id'>, items: Omit<OrderItem, 'id' | 'orderId'>[]) {
-    // not: kimlik zinciri nedeniyle iki adımlı yazma
-    const orderId = await api.orders.create(order as Order);
-    const itemsWithOrderId = items.map(item => ({ ...item, orderId }));
-    await commit([{ op: 'insertMany', resource: 'orderItems', rows: itemsWithOrderId as OrderItem[] }]);
-
-    // If it's a confirmed sales order, automatically create work orders for manufactured items
-    if (order.type === 'sales' && order.status === 'confirmed') {
-      try {
-        await productionService.createWorkOrdersFromOrder(orderId);
-      } catch (err) {
-        console.warn('Otomatik iş emri oluşturulurken uyarı:', err);
-      }
-    }
-
-    return orderId;
+    const result = await callOp<{ orderId: number }>('save-order', { order, items });
+    return result.orderId;
   },
-
   async canModifyOrDeleteOrder(id: number | string): Promise<{ canModify: boolean; reason?: string; invoices: any[]; waybills: any[] }> {
     const numId = Number(id);
     const allInvoices = await api.invoices.list();
@@ -71,34 +58,9 @@ export const orderService = {
     return { canModify: true, invoices: [], waybills: [] };
   },
 
-  async updateOrder(id: number, order: Partial<Order>, items?: Omit<OrderItem, 'id' | 'orderId'>[]) {
-    const check = await this.canModifyOrDeleteOrder(id);
-    if (!check.canModify) {
-      throw new Error(check.reason);
-    }
-
-    const mutations: Mutation[] = [];
-    mutations.push({ op: 'update', resource: 'orders', id, data: order });
-    if (items) {
-      // Remove existing work orders if items are changed to re-synchronize
-      mutations.push({ op: 'deleteWhere', resource: 'workOrders', where: { orderId: id } });
-      mutations.push({ op: 'deleteWhere', resource: 'orderItems', where: { orderId: id } });
-      const itemsWithOrderId = items.map(item => ({ ...item, orderId: id }));
-      mutations.push({ op: 'insertMany', resource: 'orderItems', rows: itemsWithOrderId as OrderItem[] });
-    }
-    await commit(mutations);
-
-    // If sales order is confirmed, recreate work orders
-    const currentOrder = await api.orders.get(id);
-    if (currentOrder && currentOrder.type === 'sales' && currentOrder.status === 'confirmed') {
-      try {
-        await productionService.createWorkOrdersFromOrder(id);
-      } catch (err) {
-        console.warn('İş emri senkronizasyon uyarısı:', err);
-      }
-    }
+  async updateOrder(id: number, order: Partial<Order>, items?: Omit<OrderItem, 'id' | 'orderId'>[], expectedVersion?: number) {
+    await callOp('save-order', { id, order, items, expectedVersion });
   },
-
   async getOrder(id: number) {
     const order = await api.orders.get(id);
     if (!order) return null;

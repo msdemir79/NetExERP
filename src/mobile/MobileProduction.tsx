@@ -7,6 +7,7 @@ import type { WorkOrder, Product } from '../types';
 import { formatNum } from './format';
 import { cn } from '../lib/utils';
 import CameraBarcodeScannerModal from '../components/Common/CameraBarcodeScannerModal';
+import MobileProductionLine from './MobileProductionLine';
 import { isNativeApp, scanBarcodeNative } from './nativeBridge';
 
 const MATERIAL_LABEL: Record<string, { text: string; cls: string }> = {
@@ -21,6 +22,7 @@ const MATERIAL_LABEL: Record<string, { text: string; cls: string }> = {
 export default function MobileProduction() {
   const [q, setQ] = useState('');
   const [stage, setStage] = useState<string>('all');
+  const [mode, setMode] = useState<'line' | 'orders'>('line');
   const [scannerOpen, setScannerOpen] = useState(false);
   const { data: workOrders, loading, refetch } = useApiQueryFull<WorkOrder[]>(() => api.workOrders.list(), [], ['workOrders']);
   const { data: products } = useApiQueryFull<Product[]>(() => api.products.list(), [], ['products']);
@@ -60,6 +62,31 @@ export default function MobileProduction() {
 
   return (
     <>
+      <div className="flex gap-1.5">
+        {([
+          { id: 'line', label: 'Üretim Hattı' },
+          { id: 'orders', label: 'İş Emirleri' },
+        ] as const).map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => setMode(m.id)}
+            className={cn(
+              'flex-1 rounded-xl border px-3 py-2 text-xs font-semibold',
+              mode === m.id
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'line' ? (
+        <MobileProductionLine workOrders={workOrders ?? []} products={products ?? []} onChanged={refetch} />
+      ) : (
+        <>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -144,6 +171,8 @@ export default function MobileProduction() {
           );
         })}
       </div>
+        </>
+      )}
 
       {scannerOpen && (
         <CameraBarcodeScannerModal

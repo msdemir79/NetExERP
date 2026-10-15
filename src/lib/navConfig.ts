@@ -36,7 +36,7 @@ export const NAV: NavEntry[] = [
     label: 'Üretim',
     icon: Hammer,
     module: 'production',
-    items: [{ name: 'Üretim Planlama', href: '/production', module: 'production' }],
+    items: [{ name: 'Üretim Planlama', href: '/production', module: 'production' }, { name: 'Kalite & Operasyonlar', href: '/production/workflows', module: 'production' }],
   },
   {
     label: 'Kalıp',
@@ -55,6 +55,7 @@ export const NAV: NavEntry[] = [
     module: 'inventory',
     items: [
       { name: 'Stok Yönetimi', href: '/inventory', module: 'inventory' },
+      { name: 'Rezervasyon & Operasyonlar', href: '/inventory/workflows', module: 'inventory' },
       { name: 'Barkod Merkezi', href: '/inventory/barcode', module: 'inventory' },
       { name: 'Toplu Stok İşlemleri', href: '/inventory/import', module: 'inventory' },
     ],
@@ -65,6 +66,7 @@ export const NAV: NavEntry[] = [
     module: 'orders',
     items: [
       { name: 'Siparişler', href: '/orders', module: 'orders' },
+      { name: 'Satın Alma Talepleri', href: '/orders/workflows', module: 'orders' },
       { name: 'İrsaliyeler', href: '/waybills', module: 'waybills' },
       { name: 'Faturalar', href: '/invoices', module: 'invoices' },
     ],
@@ -113,4 +115,22 @@ export function moduleForPath(pathname: string): AppModule {
     }
   }
   return 'dashboard';
+}
+
+/**
+ * Yolun okunabilir sayfa adı (ör. hata sınırı başlığı için).
+ * Bilinmeyen yolda `undefined` döner; çağıran genel bir başlığa düşebilir.
+ */
+export function labelForPath(pathname: string): string | undefined {
+  if (pathname === '/' || pathname === '') {
+    const dashboard = NAV.find((e) => e.href === '/');
+    return dashboard?.label;
+  }
+  const segment = pathname.split('/')[1];
+  for (const entry of NAV) {
+    for (const leaf of leavesOf(entry)) {
+      if (leaf.href.replace('/', '') === segment) return leaf.name;
+    }
+  }
+  return undefined;
 }

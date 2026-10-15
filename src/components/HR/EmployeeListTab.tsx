@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import DataGrid, { StatusPill, type GridColumn } from '../Common/DataGrid';
+import DetailPanel from '../Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from '../Common/DetailPanelContent';
+import StatusBadge from '../Common/StatusBadge';
 import type { Employee, SgkStatus } from '../../types';
 import DeleteConfirmModal from '../Common/DeleteConfirmModal';
 import EmployeeModal from './EmployeeModal';
@@ -30,6 +33,7 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deletingEmp, setDeletingEmp] = useState<Employee | null>(null);
+  const [detailEmp, setDetailEmp] = useState<Employee | null>(null);
 
   const handleEdit = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -255,6 +259,7 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
           columns={employeeColumns}
           data={filteredEmployees}
           rowKey={(emp) => emp.id ?? emp.employeeCode}
+          onRowClick={(emp) => setDetailEmp(emp)}
           emptyMessage="Arama kriterlerinize uygun personel bulunamadı."
           rowActions={(emp) => (
             <>
@@ -291,7 +296,8 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
             return (
               <div
                 key={emp.id}
-                className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 shadow-xs hover:border-slate-300 transition-all p-4 flex flex-col justify-between group"
+                onClick={() => setDetailEmp(emp)}
+                className="cursor-pointer bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 shadow-xs hover:border-slate-300 transition-all p-4 flex flex-col justify-between group"
               >
                 <div className="space-y-3">
                   {/* Top info */}
@@ -374,14 +380,14 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
 
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleEdit(emp)}
+                      onClick={(e) => { e.stopPropagation(); handleEdit(emp); }}
                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                       title="Düzenle"
                     >
                       <Edit className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDelete(emp)}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(emp); }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                       title="Sil"
                     >
@@ -395,6 +401,97 @@ export default function EmployeeListTab({ employees, onRefresh }: EmployeeListTa
         </div>
         )
       )}
+
+      {/* Employee Detail Panel */}
+      {detailEmp && (() => {
+        const salaryLabel = detailEmp.salaryType === 'daily' ? 'Günlük Yevmiye'
+          : detailEmp.salaryType === 'hourly' ? 'Saatlik Ücret'
+          : detailEmp.salaryType === 'monthly_gross' ? 'Aylık Brüt'
+          : 'Aylık Net';
+        const remainingLeave = Math.max(0, (detailEmp.entitledAnnualLeave ?? 14) - (detailEmp.usedAnnualLeave ?? 0));
+        return (
+          <DetailPanel
+            isOpen={!!detailEmp}
+            onClose={() => setDetailEmp(null)}
+            title={detailEmp.name}
+            widthClass="max-w-[440px]"
+            badge={(
+              <StatusBadge tone={detailEmp.status === 'active' ? 'success' : 'neutral'}>
+                {detailEmp.status === 'active' ? 'Aktif' : 'Pasif'}
+              </StatusBadge>
+            )}
+            footer={(
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { const e = detailEmp; setDetailEmp(null); handleEdit(e); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+                >
+                  <Edit className="h-3.5 w-3.5" />
+                  Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { const e = detailEmp; setDetailEmp(null); handleDelete(e); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-danger/30 bg-danger-soft px-3 py-2 text-xs font-black text-danger transition-colors cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Sil
+                </button>
+              </div>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailSummary
+                label={salaryLabel}
+                value={detailEmp.baseSalary.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                unit="₺"
+                tone="brand"
+                badge={detailEmp.sgkStatus === 'sgk_li' ? "SGK'lı" : 'Yevmiyeli'}
+              >
+                <div className="mt-2 text-xs font-bold text-fg-muted">
+                  {detailEmp.department} · {detailEmp.position}
+                </div>
+              </DetailSummary>
+
+              <DetailTiles
+                cols={3}
+                items={[
+                  { label: 'Kalan İzin', value: `${remainingLeave} Gün` },
+                  { label: 'Kullanılan', value: `${detailEmp.usedAnnualLeave ?? 0} Gün` },
+                  { label: 'Hak Edilen', value: `${detailEmp.entitledAnnualLeave ?? 14} Gün` },
+                ]}
+              />
+
+              <DetailSection
+                title="Personel Bilgileri"
+                rows={[
+                  { label: 'Sicil No', value: detailEmp.employeeCode },
+                  { label: 'T.C. Kimlik', value: detailEmp.tcNo || '—' },
+                  { label: 'İşe Giriş', value: new Date(detailEmp.hireDate).toLocaleDateString('tr-TR') },
+                  { label: 'Çıkış', value: detailEmp.terminationDate ? new Date(detailEmp.terminationDate).toLocaleDateString('tr-TR') : '—' },
+                ]}
+              />
+
+              <DetailSection
+                title="İletişim & Ödeme"
+                rows={[
+                  { label: 'Telefon', value: detailEmp.phone || '—' },
+                  { label: 'E-posta', value: detailEmp.email || '—' },
+                  { label: 'Ödeme', value: detailEmp.paymentMethod === 'bank' ? 'Banka' : 'Nakit' },
+                  { label: 'IBAN', value: detailEmp.iban ? <span className="font-mono select-all">{detailEmp.iban}</span> : '—' },
+                ]}
+              />
+
+              {detailEmp.address && (
+                <DetailSection title="Adres">
+                  <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">{detailEmp.address}</p>
+                </DetailSection>
+              )}
+            </div>
+          </DetailPanel>
+        );
+      })()}
 
       {/* Employee Modal */}
       <EmployeeModal

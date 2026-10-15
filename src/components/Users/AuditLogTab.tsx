@@ -8,6 +8,9 @@ import { userService } from '../../services/userService';
 import { exportToCsv } from '../../lib/exportService';
 import { showToast } from '../../lib/feedback';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
+import DetailPanel from '../Common/DetailPanel';
+import { DetailSection, DetailTiles } from '../Common/DetailPanelContent';
+import StatusBadge from '../Common/StatusBadge';
 import type { AuditLog, AuditActionType } from '../../types';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
 
@@ -218,84 +221,67 @@ export default function AuditLogTab() {
         }
       />
 
-      {/* Log Detail Modal */}
-      {selectedLogDetail && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <FileText className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-sm font-bold">Denetim Hareketi Detayı</h3>
-              </div>
+      {/* Log Detail Panel */}
+      {selectedLogDetail && (() => {
+        const actionMeta = ACTION_LABELS[selectedLogDetail.action];
+        const toneMap: Record<string, 'success' | 'danger' | 'warning' | 'info' | 'brand' | 'neutral'> = {
+          green: 'success', red: 'danger', amber: 'warning', blue: 'info', violet: 'brand', slate: 'neutral', cyan: 'info', orange: 'warning',
+        };
+        return (
+          <DetailPanel
+            isOpen={!!selectedLogDetail}
+            onClose={() => setSelectedLogDetail(null)}
+            title="Denetim Hareketi"
+            widthClass="max-w-[440px]"
+            badge={(
+              <StatusBadge tone={actionMeta ? toneMap[actionMeta.tone] : 'neutral'}>
+                {actionMeta?.label ?? selectedLogDetail.action}
+              </StatusBadge>
+            )}
+            footer={(
               <button
+                type="button"
                 onClick={() => setSelectedLogDetail(null)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-5 space-y-3.5 text-xs flex-1 min-h-0 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Tarih & Saat</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                    {new Date(selectedLogDetail.timestamp).toLocaleString('tr-TR')}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İşlem Türü</span>
-                  <span className="font-bold text-indigo-700">
-                    {ACTION_LABELS[selectedLogDetail.action]?.label || selectedLogDetail.action}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İşlemi Yapan</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {selectedLogDetail.userName}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Rolü</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-200">
-                    {selectedLogDetail.userRole}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Açıklama</span>
-                <p className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100">
-                  {selectedLogDetail.description}
-                </p>
-              </div>
-
-              {selectedLogDetail.details && (
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Ek Detaylar & Parametreler</span>
-                  <p className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-200 text-[11px] whitespace-pre-wrap">
-                    {selectedLogDetail.details}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
-                <span>Modül: <strong className="text-slate-800 dark:text-slate-200 uppercase">{selectedLogDetail.module}</strong></span>
-                <span>İstemci: <strong className="text-slate-800 dark:text-slate-200 font-mono">{selectedLogDetail.ipAddress || '-'}</strong></span>
-              </div>
-            </div>
-
-            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 text-right">
-              <button
-                onClick={() => setSelectedLogDetail(null)}
-                className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors shadow-xs"
+                className="inline-flex w-full items-center justify-center rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
               >
                 Kapat
               </button>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailTiles
+                items={[
+                  { label: 'Modül', value: selectedLogDetail.module.toUpperCase() },
+                  { label: 'İstemci IP', value: selectedLogDetail.ipAddress || '—' },
+                ]}
+              />
+
+              <DetailSection
+                title="Hareket"
+                rows={[
+                  { label: 'Tarih & Saat', value: new Date(selectedLogDetail.timestamp).toLocaleString('tr-TR') },
+                  { label: 'İşlemi Yapan', value: selectedLogDetail.userName },
+                  { label: 'Rolü', value: selectedLogDetail.userRole },
+                ]}
+              />
+
+              <DetailSection title="Açıklama">
+                <p className="rounded-card border border-line bg-surface p-3 text-xs font-medium text-fg-strong">
+                  {selectedLogDetail.description}
+                </p>
+              </DetailSection>
+
+              {selectedLogDetail.details && (
+                <DetailSection title="Ek Detaylar & Parametreler">
+                  <p className="whitespace-pre-wrap rounded-card border border-line bg-surface-hover/40 p-3 font-mono text-2xs text-fg">
+                    {selectedLogDetail.details}
+                  </p>
+                </DetailSection>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </DetailPanel>
+        );
+      })()}
     </div>
   );
 }

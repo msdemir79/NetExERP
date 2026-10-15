@@ -1,6 +1,6 @@
 import React from 'react';
-import { api } from '../api/client';
-import { useApiQuery } from '../hooks/useApiQuery';
+import { api, callOp } from '../api/client';
+import { useApiQuery, useApiQueryFull } from '../hooks/useApiQuery';
 import { showToast, confirmDialog } from '../lib/feedback';
 import {
   Play,
@@ -37,7 +37,8 @@ import {
   Factory,
   LayoutGrid,
   Table2,
-  Boxes
+  Boxes,
+  Gauge
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -53,9 +54,16 @@ import AddWorkOrderModal from './Production/AddWorkOrderModal';
 import { RecipeModal } from './Production/RecipeModal';
 import CameraBarcodeScannerModal, { type ScannerMode } from './Common/CameraBarcodeScannerModal';
 import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import { PurchaseOrderPrintModal } from './Orders/PurchaseOrderPrintModal';
 import ProductionReport from './Reports/ProductionReport';
 import BarcodeTerminalTab from './Production/BarcodeTerminalTab';
+import ProductionLineView from './Production/ProductionLineView';
+import OrderProcessTimeline from './Production/OrderProcessTimeline';
+import ColorSizeMatrixView from './Production/ColorSizeMatrixView';
+import CapacityView from './Production/CapacityView';
 import MrpTab from './Production/MrpTab';
 import MrpPurchaseOrderModal from './Production/MrpPurchaseOrderModal';
 import { getMrpKey } from './Production/mrpUtils';
@@ -75,19 +83,21 @@ import type {
   MoldStock
 } from '../types';
 
-type ProductionTab = 'pipeline' | 'orders_pool' | 'mrp' | 'barcode_terminal' | 'recipes' | 'reports';
+type ProductionTab = 'line' | 'timeline' | 'capacity' | 'matrix' | 'pipeline' | 'orders_pool' | 'mrp' | 'barcode_terminal' | 'recipes' | 'reports';
 
 export default function Production() {
-  const workOrders = useApiQuery(() => api.workOrders.list({ orderBy: 'id', orderDir: 'desc' }), [], ['workOrders']);
+  const workOrdersQuery = useApiQueryFull(() => api.workOrders.list({ orderBy: 'id', orderDir: 'desc' }), [], ['workOrders']);
+  const workOrders = workOrdersQuery.data;
   const products = useApiQuery(() => api.products.list(), [], ['products']);
   const recipes = useApiQuery(() => api.recipes.list(), [], ['recipes']);
   const orders = useApiQuery(() => api.orders.list({ where: { type: 'sales' }, orderBy: 'id', orderDir: 'desc' }), [], ['orders']);
   const orderItems = useApiQuery(() => api.orderItems.list(), [], ['orderItems']);
   const contacts = useApiQuery(() => api.contacts.list(), [], ['contacts']);
+  const colors = useApiQuery(() => api.colors.list(), [], ['colors']) || [];
   const molds = useApiQuery<Mold[]>(() => api.molds.list(), [], ['molds']) || [];
   const moldStock = useApiQuery<MoldStock[]>(() => api.moldStock.list({ limit: 5000 }), [], ['moldStock']) || [];
 
-  const [activeTab, setActiveTab] = React.useState<ProductionTab>('pipeline');
+  const [activeTab, setActiveTab] = React.useState<ProductionTab>('line');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [stageFilter, setStageFilter] = React.useState<string>('all');
   const [pipelineView, setPipelineView] = React.useState<'cards' | 'grid'>(() =>
@@ -106,6 +116,7 @@ export default function Production() {
   const [ticketWorkOrder, setTicketWorkOrder] = React.useState<WorkOrder | null>(null);
   const [isDetailedSheetModalOpen, setIsDetailedSheetModalOpen] = React.useState(false);
   const [detailedSheetWorkOrder, setDetailedSheetWorkOrder] = React.useState<WorkOrder | null>(null);
+  const [detailWo, setDetailWo] = React.useState<WorkOrder | null>(null);
   const [isStageTransitionModalOpen, setIsStageTransitionModalOpen] = React.useState(false);
   const [stageTransitionInitialStage, setStageTransitionInitialStage] = React.useState<ProductionStage>('cutting');
 
@@ -211,12 +222,18 @@ export default function Production() {
     }
   };
 
-  // Auto calculate MRP once data is loaded if null
+  // MRP yalnızca kullanıcı MRP sekmesini açtığında hesaplanır.
+  // Eskiden veriler yüklendiği anda koşulsuz çalışıyordu: tüm iş emirleri,
+  // ürünler, reçeteler ve cariler tarayıcıya indirilip istemcide hesaplanıyor,
+  // kullanıcı sekmeyi hiç açmasa bile her Production ziyaretinde bu maliyet
+  // ödeniyordu.
   React.useEffect(() => {
+    if (activeTab !== 'mrp') return;
     if (workOrders && products && recipes && !mrpResult) {
       handleCalculateMRP();
     }
-  }, [workOrders?.length, products?.length, recipes?.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, workOrders?.length, products?.length, recipes?.length, mrpResult]);
 
   // Filtered Work Orders for Pipeline
   const filteredWorkOrders = React.useMemo(() => {
@@ -412,7 +429,7 @@ export default function Production() {
   const handleSaveDetailedWorkOrder = async (updatedFields: Partial<WorkOrder>) => {
     if (!detailedSheetWorkOrder?.id) return;
     try {
-      await api.workOrders.update(detailedSheetWorkOrder.id, updatedFields);
+      await callOp('update-work-order', { id: detailedSheetWorkOrder.id, changes: updatedFields });
       setDetailedSheetWorkOrder({ ...detailedSheetWorkOrder, ...updatedFields });
     } catch (err: any) {
       console.error("İş emri güncellenirken hata:", err);
@@ -687,6 +704,58 @@ export default function Production() {
       <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <button
+            onClick={() => setActiveTab('line')}
+            className={cn(
+              "px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2",
+              activeTab === 'line'
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
+            )}
+          >
+            <Boxes className="w-4 h-4 text-cyan-400" />
+            Hat Görünümü
+          </button>
+
+          <button
+            onClick={() => setActiveTab('timeline')}
+            className={cn(
+              "px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2",
+              activeTab === 'timeline'
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
+            )}
+          >
+            <Clock className="w-4 h-4 text-cyan-400" />
+            Süreç Akışı
+          </button>
+
+          <button
+            onClick={() => setActiveTab('matrix')}
+            className={cn(
+              "px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2",
+              activeTab === 'matrix'
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
+            )}
+          >
+            <LayoutGrid className="w-4 h-4 text-cyan-400" />
+            Renk-Beden Matrisi
+          </button>
+
+          <button
+            onClick={() => setActiveTab('capacity')}
+            className={cn(
+              "px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2",
+              activeTab === 'capacity'
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 dark:bg-slate-800"
+            )}
+          >
+            <Gauge className="w-4 h-4 text-cyan-400" />
+            Kapasite
+          </button>
+
+          <button
             onClick={() => setActiveTab('pipeline')}
             className={cn(
               "px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2",
@@ -839,6 +908,27 @@ export default function Production() {
         )}
       </div>
 
+      {/* TAB 0: ÜRETİM KONTROL MERKEZİ GÖRÜNÜMLERİ (ERP sürücülü) */}
+      {activeTab === 'line' && (
+        <ProductionLineView
+          workOrders={workOrders || []}
+          products={products || []}
+          orders={orders || []}
+          colors={colors}
+          loading={workOrdersQuery.loading}
+          onRefresh={workOrdersQuery.refetch}
+        />
+      )}
+      {activeTab === 'timeline' && (
+        <OrderProcessTimeline workOrders={workOrders || []} products={products || []} />
+      )}
+      {activeTab === 'matrix' && (
+        <ColorSizeMatrixView workOrders={workOrders || []} products={products || []} />
+      )}
+      {activeTab === 'capacity' && (
+        <CapacityView workOrders={workOrders || []} />
+      )}
+
       {/* TAB 1: PRODUCTION PIPELINE & STAGES */}
       {activeTab === 'pipeline' && (
         <div className="space-y-6">
@@ -882,7 +972,7 @@ export default function Production() {
               data={filteredWorkOrders}
               rowKey="id"
               density="compact"
-              onRowClick={(wo) => openDetailedWorkOrderSheet(wo)}
+              onRowClick={(wo) => setDetailWo(wo)}
               emptyMessage="Seçili filtreye uygun aktif iş emri yok."
             />
           )}
@@ -1359,6 +1449,90 @@ export default function Production() {
         productCode={ticketWorkOrder ? productMap.get(ticketWorkOrder.productId)?.code : undefined}
         onOpenDetailedSheet={openDetailedWorkOrderSheet}
       />
+
+      {/* WORK ORDER SUMMARY DETAIL PANEL */}
+      {detailWo && (() => {
+        const product = productMap.get(detailWo.productId);
+        const stageInfo = getStageInfo(detailWo.currentStage);
+        const statusTone = detailWo.status === 'completed' ? 'success'
+          : detailWo.status === 'cancelled' ? 'danger'
+          : detailWo.status === 'in_progress' ? 'warning'
+          : 'neutral';
+        return (
+          <DetailPanel
+            isOpen={!!detailWo}
+            onClose={() => setDetailWo(null)}
+            title={detailWo.barcode}
+            widthClass="max-w-[460px]"
+            badge={(
+              <StatusBadge tone={statusTone}>
+                {detailWo.status === 'completed' ? 'Tamamlandı' : detailWo.status === 'cancelled' ? 'İptal' : detailWo.status === 'in_progress' ? 'Sürüyor' : 'Bekliyor'}
+              </StatusBadge>
+            )}
+            footer={(
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { const wo = detailWo; setDetailWo(null); openDetailedWorkOrderSheet(wo); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  İşlem Kartı
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { const wo = detailWo; setDetailWo(null); setSelectedWorkOrder(wo); setStageTransitionInitialStage(wo.currentStage); setIsStageTransitionModalOpen(true); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+                >
+                  <ArrowRight className="h-3.5 w-3.5" />
+                  Aşama İlerlet
+                </button>
+              </div>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailSummary
+                label="Sipariş Miktarı"
+                value={detailWo.quantity.toLocaleString('tr-TR')}
+                unit="Çift"
+                tone="brand"
+                badge={stageInfo.label}
+              >
+                <div className="mt-2 text-xs font-bold text-fg-muted">
+                  {product?.name || '—'} {product?.code && <span className="font-mono">· {product.code}</span>}
+                </div>
+              </DetailSummary>
+
+              <DetailTiles
+                items={[
+                  { label: 'Renk', value: detailWo.color || '—' },
+                  { label: 'Beden', value: detailWo.size || '—' },
+                  { label: 'Kalıp', value: detailWo.moldCode || '—' },
+                  { label: 'Operatör', value: detailWo.operator || '—' },
+                ]}
+              />
+
+              <DetailSection
+                title="Sipariş & Termin"
+                rows={[
+                  { label: 'Cari', value: detailWo.customerName || '—' },
+                  { label: 'Sipariş No', value: detailWo.orderNumber || '—' },
+                  { label: 'Belge No', value: detailWo.documentNo || '—' },
+                  { label: 'Termin', value: detailWo.targetDate ? new Date(detailWo.targetDate).toLocaleDateString('tr-TR') : '—' },
+                ]}
+              />
+
+              {detailWo.notes && (
+                <DetailSection title="Not">
+                  <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">
+                    {detailWo.notes}
+                  </p>
+                </DetailSection>
+              )}
+            </div>
+          </DetailPanel>
+        );
+      })()}
 
       {/* MODAL 4B: DETAILED A4 WORK ORDER & CUTTING SHEET MODAL (AYAKKABI STANDART KARTELA) */}
       <DetailedWorkOrderCardModal

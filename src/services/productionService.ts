@@ -1,3 +1,4 @@
+import { distributeAssortment, selectProductionRecipe } from '../lib/productionRules';
 import {
   api,
   callOp,
@@ -54,105 +55,7 @@ export const productionService = {
     specificSize?: string,
     templateItems?: { size: string; quantity: number }[]
   ): { size: string; quantity: number }[] {
-    if (specificSize && specificSize.trim() !== '') {
-      return [{ size: specificSize.trim(), quantity }];
-    }
-
-    // 1. Direct product assortment
-    if (product?.assortment && product.assortment.length > 0) {
-      const totalAssort = product.assortment.reduce((s: number, a: any) => s + (Number(a.quantity) || 0), 0);
-      if (totalAssort > 0) {
-        const ratio = quantity / totalAssort;
-        let sum = 0;
-        const items = product.assortment.map((a: any) => {
-          const q = Math.round((Number(a.quantity) || 0) * ratio);
-          sum += q;
-          return { size: String(a.size), quantity: q };
-        });
-        const diff = quantity - sum;
-        if (diff !== 0 && items.length > 0) {
-          items[items.length - 1].quantity += diff;
-        }
-        return items;
-      }
-    }
-
-    // 2. Assortment template items
-    if (templateItems && templateItems.length > 0) {
-      const totalAssort = templateItems.reduce((s: number, a: any) => s + (Number(a.quantity) || 0), 0);
-      if (totalAssort > 0) {
-        const ratio = quantity / totalAssort;
-        let sum = 0;
-        const items = templateItems.map((a: any) => {
-          const q = Math.round((Number(a.quantity) || 0) * ratio);
-          sum += q;
-          return { size: String(a.size), quantity: q };
-        });
-        const diff = quantity - sum;
-        if (diff !== 0 && items.length > 0) {
-          items[items.length - 1].quantity += diff;
-        }
-        return items;
-      }
-    }
-
-    // 3. Variant barcodes size set
-    if (product?.variantBarcodes && product.variantBarcodes.length > 0) {
-      const uniqueSizes: string[] = Array.from(new Set<string>(product.variantBarcodes.map((v: any) => String(v.size)).filter(Boolean)));
-      if (uniqueSizes.length > 0) {
-        uniqueSizes.sort((a: string, b: string) => {
-          const na = parseFloat(a);
-          const nb = parseFloat(b);
-          if (!isNaN(na) && !isNaN(nb)) return na - nb;
-          return a.localeCompare(b);
-        });
-
-        const count = uniqueSizes.length;
-        let weights: number[] = [];
-        if (count === 5) weights = [1, 2, 2, 2, 1];
-        else if (count === 6) weights = [1, 2, 2, 2, 2, 1];
-        else if (count === 4) weights = [1, 2, 2, 1];
-        else weights = new Array(count).fill(1);
-
-        const totalWeight = weights.reduce((s, w) => s + w, 0);
-        let allocated = 0;
-        const items: { size: string; quantity: number }[] = uniqueSizes.map((size, idx) => {
-          const q = Math.round(quantity * (weights[idx] / totalWeight));
-          allocated += q;
-          return { size, quantity: q };
-        });
-        const diff = quantity - allocated;
-        if (diff !== 0 && items.length > 0) {
-          items[Math.floor(items.length / 2)].quantity += diff;
-        }
-        return items;
-      }
-    }
-
-    // 4. Default standard 40-44 classic shoe distribution (Standard ratio: 1/8, 2/8, 2/8, 2/8, 1/8)
-    const defaultSizes = ['40', '41', '42', '43', '44'];
-    const weights = [1, 2, 2, 2, 1];
-    const totalWeight = 8;
-    let allocated = 0;
-    const items = defaultSizes.map((size, idx) => {
-      const q = Math.round(quantity * (weights[idx] / totalWeight));
-      allocated += q;
-      return { size, quantity: q };
-    });
-    const diff = quantity - allocated;
-    if (diff !== 0 && items.length > 2) {
-      items[2].quantity += diff;
-    }
-    return items;
-  },
-
-  generateDefaultStages(): WorkOrderStageLog[] {
-    return PRODUCTION_STAGES_CONFIG.map(st => ({
-      stage: st.id,
-      stageName: st.label,
-      status: st.id === 'planning' ? 'in_progress' : 'pending',
-      startedAt: st.id === 'planning' ? new Date() : undefined
-    }));
+    return distributeAssortment(product, quantity, specificSize, templateItems);
   },
 
   async createWorkOrder(data: {
@@ -174,304 +77,23 @@ export const productionService = {
     targetDate?: Date;
     notes?: string;
     operator?: string;
+    line?: string;
   }) {
-    const recipe = await api.recipes.findOne({ productId: data.productId });
-    const prod = await api.products.get(data.productId);
-    
-    // Determine initial material status
-    let materialStatus: MaterialReadinessStatus = 'no_recipe';
-    if (recipe && recipe.ingredients.length > 0) {
-      materialStatus = 'pending_mrp';
-    }
-
-    const defaultStages = this.generateDefaultStages();
-
-    // Compute assortment breakdown if not passed
-    let computedAssortment = data.assortmentBreakdown;
-    if (!computedAssortment || computedAssortment.length === 0) {
-      let templateItems: { size: string; quantity: number }[] | undefined = undefined;
-      if (prod?.assortmentTemplateId) {
-        const tmpl = await api.assortmentTemplates.get(prod.assortmentTemplateId);
-        templateItems = tmpl?.items;
-      }
-      computedAssortment = this.computeAssortmentDistribution(prod, data.quantity, data.size, templateItems);
-    }
-
-    // Preliminary add to get ID
-    // not: kimlik zinciri nedeniyle iki adımlı yazma
-    const initialId = await api.workOrders.create({
-      productId: data.productId,
-      quantity: data.quantity,
-      status: 'pending',
-      currentStage: 'planning',
-      stages: defaultStages,
-      createdAt: new Date(),
-      targetDate: data.targetDate,
-      orderId: data.orderId,
-      orderItemId: data.orderItemId,
-      orderNumber: data.orderNumber,
-      customerName: data.customerName,
-      customerCode: data.customerCode,
-      orderDate: data.orderDate || new Date(),
-      documentNo: data.documentNo || prod?.documentNo,
-      moldCode: data.moldCode || prod?.moldCode,
-      moldGroup: data.moldGroup || prod?.moldGroup,
-      color: data.color,
-      colorId: data.colorId,
-      size: data.size,
-      assortmentBreakdown: computedAssortment,
-      notes: data.notes,
-      operator: data.operator,
-      materialStatus,
-      recipeId: recipe?.id,
-      barcode: `WO-${Date.now().toString().slice(-6)}`
-    });
-
-    // Update with standardized barcode containing the work order ID
-    const formattedBarcode = `WO-${initialId.toString().padStart(6, '0')}`;
-    await api.workOrders.update(initialId, { barcode: formattedBarcode });
-
-    return initialId;
+    const result = await callOp<{ workOrderId: number }>('create-work-order', data);
+    return result.workOrderId;
   },
-
   async createWorkOrdersFromOrder(orderId: number) {
-    const order = await api.orders.get(orderId);
-    if (!order) throw new Error('Sipariş bulunamadı');
-    
-    const contact = await api.contacts.get(order.contactId);
-    const items = await api.orderItems.list({ where: { orderId } });
-    const existingWOs = await api.workOrders.list({ where: { orderId } });
-    
-    const createdIds: number[] = [];
-    const mutations: Mutation[] = [];
-
-    for (const item of items) {
-      const product = await api.products.get(item.productId);
-      if (!product || product.isRawMaterial) continue; // Only produce finished/semi-finished goods
-
-      // Check if an existing active work order exists for this item
-      const alreadyExists = existingWOs.some(w => 
-        w.productId === item.productId && 
-        w.orderItemId === item.id &&
-        w.status !== 'cancelled'
-      );
-      if (alreadyExists) continue;
-
-      const recipe = await api.recipes.findOne({ productId: item.productId });
-      const materialStatus: MaterialReadinessStatus = recipe ? 'pending_mrp' : 'no_recipe';
-
-      const defaultStages = this.generateDefaultStages();
-
-      // Calculate size distribution
-      let templateItems: { size: string; quantity: number }[] | undefined = undefined;
-      if (product.assortmentTemplateId) {
-        const tmpl = await api.assortmentTemplates.get(product.assortmentTemplateId);
-        templateItems = tmpl?.items;
-      }
-      const assortmentBreakdown = this.computeAssortmentDistribution(product, item.quantity, item.size, templateItems);
-
-      // not: kimlik zinciri nedeniyle iki adımlı yazma
-      const woId = await api.workOrders.create({
-        productId: item.productId,
-        quantity: item.quantity,
-        status: 'pending',
-        currentStage: 'planning',
-        stages: defaultStages,
-        createdAt: new Date(),
-        targetDate: order.deliveryDate,
-        orderId: order.id,
-        orderItemId: item.id,
-        orderNumber: order.orderNumber,
-        customerName: contact?.name,
-        customerCode: contact?.code,
-        orderDate: order.date,
-        documentNo: product.documentNo,
-        moldCode: product.moldCode,
-        moldGroup: product.moldGroup,
-        color: item.color,
-        colorId: item.colorId ?? null,
-        size: item.size,
-        assortmentBreakdown,
-        notes: `Sipariş: ${order.orderNumber} - ${item.color || ''} ${item.size ? 'Beden: ' + item.size : ''}`,
-        materialStatus,
-        recipeId: recipe?.id,
-        barcode: `WO-${Date.now().toString().slice(-6)}`
-      });
-
-      const formattedBarcode = `WO-${woId.toString().padStart(6, '0')}`;
-      mutations.push({ op: 'update', resource: 'workOrders', id: woId, data: { barcode: formattedBarcode } });
-      createdIds.push(woId);
-    }
-
-    await commit(mutations);
-
-    return createdIds;
+    const result = await callOp<{ ids: number[] }>('order-work-orders', { orderId });
+    return result.ids;
   },
 
   async startWorkOrder(id: number, operator?: string) {
-    const order = await api.workOrders.get(id);
-    if (!order) throw new Error('İş emri bulunamadı');
-
-    const updatedStages = (order.stages || this.generateDefaultStages()).map(st => {
-      if (st.stage === 'cutting') {
-        return { ...st, status: 'in_progress' as const, startedAt: new Date(), operator: operator || st.operator };
-      }
-      if (st.stage === 'planning') {
-        return { ...st, status: 'completed' as const, completedAt: new Date() };
-      }
-      return st;
-    });
-
-    return await api.workOrders.update(id, { 
-      status: 'in_progress',
-      currentStage: 'cutting',
-      stages: updatedStages,
-      operator: operator || order.operator
-    });
+    return this.advanceWorkOrderStage(id, 'cutting', { operator });
   },
 
-  async advanceWorkOrderStage(
-    id: number, 
-    targetStage?: ProductionStage, 
-    options?: { operator?: string; scrapQuantity?: number; notes?: string }
-  ) {
-    const order = await api.workOrders.get(id);
-    if (!order) throw new Error('İş emri bulunamadı');
-    if (order.status === 'completed') throw new Error('Bu iş emri zaten tamamlandı!');
-
-    const stageOrderList: ProductionStage[] = [
-      'planning',
-      'cutting',
-      'printing',
-      'sewing',
-      'assembly',
-      'finishing',
-      'quality_packing',
-      'completed'
-    ];
-
-    const currentIdx = stageOrderList.indexOf(order.currentStage);
-    let nextStage: ProductionStage;
-
-    if (targetStage) {
-      nextStage = targetStage;
-    } else {
-      const nextIdx = Math.min(stageOrderList.length - 1, currentIdx + 1);
-      nextStage = stageOrderList[nextIdx];
-    }
-
-    const now = new Date();
-    let stages = order.stages && order.stages.length > 0 ? [...order.stages] : this.generateDefaultStages();
-
-    // Mark current stage completed
-    stages = stages.map(s => {
-      if (s.stage === order.currentStage) {
-        return {
-          ...s,
-          status: 'completed' as const,
-          completedAt: now,
-          operator: options?.operator || s.operator || order.operator,
-          scrapQuantity: options?.scrapQuantity !== undefined ? options.scrapQuantity : s.scrapQuantity,
-          notes: options?.notes || s.notes
-        };
-      }
-      if (s.stage === nextStage) {
-        const newStatus: 'completed' | 'in_progress' = nextStage === 'completed' ? 'completed' : 'in_progress';
-        return {
-          ...s,
-          status: newStatus,
-          startedAt: s.startedAt || now,
-          completedAt: nextStage === 'completed' ? now : undefined,
-          operator: options?.operator || s.operator || order.operator
-        };
-      }
-      return s;
-    });
-
-    const mutations: Mutation[] = [];
-    // Stok etkileri (hammadde sarfı + mamul girişi) sunucuda, ürün satırları
-    // kilitlenerek ve varyant/asorti dağılımı sunucuda yapılarak uygulanır.
-    const movements: {
-      productId: number;
-      signedQuantity: number;
-      color?: string | null;
-      size?: string | null;
-      type: string;
-      description: string;
-      date: Date;
-    }[] = [];
-
-    // If moving past planning for the first time, consume materials if not already consumed
-    if (order.currentStage === 'planning' && nextStage !== 'planning' && order.materialStatus !== 'materials_consumed') {
-      const allProductRecipes = await api.recipes.list({ where: { productId: order.productId } });
-      const recipe = allProductRecipes.find(r => order.color && r.targetColor === order.color) ||
-                     allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel') ||
-                     allProductRecipes[0];
-
-      if (recipe && recipe.ingredients.length > 0) {
-        for (const ing of recipe.ingredients) {
-          const totalNeeded = requiredIngredientQuantity(ing, order.quantity, ing.unit);
-          if (!ing.productId || !(totalNeeded > 0)) continue;
-          movements.push({
-            productId: ing.productId,
-            signedQuantity: -totalNeeded,
-            color: ing.color || order.color || null,
-            size: order.size || null,
-            type: 'production_out',
-            description: `#${order.barcode} Üretim başlangıcı için harcandı`,
-            date: now,
-          });
-        }
-      }
-    }
-
-    // If next stage is COMPLETED, finish goods are added to stock
-    if (nextStage === 'completed') {
-      movements.push({
-        productId: order.productId,
-        signedQuantity: order.quantity,
-        color: order.color || null,
-        size: order.size || null,
-        type: 'production_in',
-        description: `#${order.barcode} Üretimi tamamlandı ve depoya alındı`,
-        date: now,
-      });
-
-      mutations.push({
-        op: 'update',
-        resource: 'workOrders',
-        id,
-        data: {
-          status: 'completed',
-          currentStage: 'completed',
-          completedAt: now,
-          stages,
-          materialStatus: 'materials_consumed'
-        }
-      });
-    } else {
-      mutations.push({
-        op: 'update',
-        resource: 'workOrders',
-        id,
-        data: {
-          status: 'in_progress',
-          currentStage: nextStage,
-          stages,
-          operator: options?.operator || order.operator
-        }
-      });
-    }
-
-    await commit(mutations);
-
-    if (movements.length) {
-      await callOp('production-stock', { movements, workOrderId: id });
-    }
-
-    return { nextStage, order };
+  async advanceWorkOrderStage(id: number, targetStage?: ProductionStage, options?: { operator?: string; scrapQuantity?: number; notes?: string }) {
+    return callOp<{ nextStage: ProductionStage; order: WorkOrder }>('transition-production', { workOrderId: id, targetStage, ...options });
   },
-
   async scanWorkOrderBarcode(scannedCode: string, operatorName?: string) {
     const cleanCode = scannedCode.trim().toUpperCase();
     if (!cleanCode) throw new Error('Lütfen geçerli bir barkod okutun.');
@@ -583,9 +205,7 @@ export const productionService = {
   }) {
     const { productId, quantity, color, size } = params;
     const allProductRecipes = await api.recipes.list({ where: { productId } });
-    const recipe = allProductRecipes.find(r => color && r.targetColor === color) ||
-                   allProductRecipes.find(r => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel') ||
-                   allProductRecipes[0];
+    const recipe = selectProductionRecipe(allProductRecipes, productId, color);
 
     if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) {
       return {

@@ -72,8 +72,9 @@ export const accountingService = {
     // 1. Servis Katmanı Yetki Kontrolü
     await assertServicePermission('accounting', 'create', true);
 
-    // 2. Dengesiz yevmiye kaydını kesin olarak engelle (TDHP Denge Kuralı)
-    const { totalDebit, totalCredit } = assertBalancedJournalEntry(entry.lines, 0.05);
+    // 2. Dengesiz yevmiye kaydını kesin olarak engelle (TDHP Denge Kuralı).
+    //    Tolerans `JOURNAL_BALANCE_TOLERANCE` (0,005) → 2 haneli toplamlarda tam eşitlik.
+    const { totalDebit, totalCredit } = assertBalancedJournalEntry(entry.lines);
 
     // entryNumber sunucuda kilitli sayaçtan üretilir (item 8); istemci göndermez.
     const id = await api.journalEntries.create({
@@ -99,7 +100,7 @@ export const accountingService = {
 
     if (entry.lines && entry.lines.length > 0) {
       // Satırlar güncelleniyorsa denge şarttır
-      const verified = assertBalancedJournalEntry(entry.lines, 0.05);
+      const verified = assertBalancedJournalEntry(entry.lines);
       totalDebit = verified.totalDebit;
       totalCredit = verified.totalCredit;
       isBalanced = true;

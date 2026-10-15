@@ -1,3 +1,4 @@
+import { assertResourcePeriod } from './periods.js';
 /**
  * Silme politikası motoru.
  *
@@ -840,6 +841,8 @@ export async function executeDelete(
   ctx: DeleteContext,
 ): Promise<DeleteResult> {
   const { plan, row } = await planDelete(conn, effects, resource, table, primaryKey, id);
+  await assertResourcePeriod(conn, resource, {}, id);
+  if (resource === 'periodLocks') throw new HttpError(409, 'Dönem kilitleri silinemez; yetkili kullanıcı kilidi açmalıdır.', 'PERIOD_LOCK_DELETE_FORBIDDEN');
   if (plan.blocked) throw new HttpError(409, plan.blocked.message, plan.blocked.code);
   if (plan.tier === 2) {
     await authorizeTier2(conn, ctx, { resource, label: plan.label, summary: plan.summary, id });

@@ -19,7 +19,9 @@ import {
   SlidersHorizontal,
   ChevronDown,
   MoreHorizontal,
-  PackageCheck
+  PackageCheck,
+  Grid,
+  Wallet
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -30,6 +32,10 @@ import PageHeader from './PageHeader';
 import DataGrid, { GridColumn, StatusPill } from './Common/DataGrid';
 import Button, { buttonClass } from './Common/Button';
 import ActionMenu from './Common/ActionMenu';
+import KpiCard from './Common/KpiCard';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import SegmentedFilter, { SegmentOption } from './Common/SegmentedFilter';
 import { controlClass } from './Common/Field';
 import CameraBarcodeScannerModal, { type ScannerMode } from './Common/CameraBarcodeScannerModal';
@@ -69,6 +75,8 @@ export default function Inventory() {
   const [stockCardEditProduct, setStockCardEditProduct] = useState<Product | null>(null);
   const [stockCardInitialCategory, setStockCardInitialCategory] = useState<StockCategoryType>('finished');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // DMR Kinetiq: satıra tıklanınca açılan sağdan kayan okunur özet paneli.
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
 
   // Live Camera Barcode / QR Scanner State
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
@@ -149,6 +157,23 @@ export default function Inventory() {
   ], [categoryCounts]);
 
   const activeFilterCount = (filterLowStock ? 1 : 0) + (filterVariantOnly ? 1 : 0);
+
+  // KPI özeti: aktif kategori sekmesine göre kapsamlandırılır (arama/kritik/matris
+  // filtrelerinden bağımsız), böylece kartlar seçili kategorinin gerçek durumunu yansıtır.
+  const kpi = useMemo(() => {
+    const scoped = (products || []).filter(
+      (p) => selectedCategoryTab === 'all' || getProductCategoryType(p) === selectedCategoryTab
+    );
+    let critical = 0;
+    let matrix = 0;
+    let value = 0;
+    for (const p of scoped) {
+      if ((p.stock ?? 0) <= (p.minStock || 0)) critical += 1;
+      if (p.hasSizeVariants || p.isFootwear || (p.variantBarcodes?.length ?? 0) > 0) matrix += 1;
+      value += (p.stock ?? 0) * (p.buyingPrice || 0);
+    }
+    return { total: scoped.length, critical, matrix, value };
+  }, [products, selectedCategoryTab]);
 
   const productColumns = useMemo<GridColumn<Product>[]>(() => [
     {
@@ -411,6 +436,41 @@ export default function Inventory() {
         }
       />
 
+      {/* KPI Özet Kartları (DMR Kinetiq) */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label="Stok Kartı"
+          value={kpi.total}
+          sub={selectedCategoryTab === 'all' ? 'Tüm kategoriler' : CATEGORY_CONFIGS[selectedCategoryTab].badge}
+          icon={Package}
+          tone="brand"
+          onClick={() => setSelectedCategoryTab('all')}
+        />
+        <KpiCard
+          label="Kritik Stok"
+          value={kpi.critical}
+          sub="Min. seviyenin altında"
+          icon={AlertTriangle}
+          tone={kpi.critical > 0 ? 'danger' : 'success'}
+          onClick={() => { setFilterLowStock(true); setShowAdvancedFilters(true); }}
+        />
+        <KpiCard
+          label="Bedenli / Matris"
+          value={kpi.matrix}
+          sub="Renk-numara varyantlı"
+          icon={Grid}
+          tone="info"
+          onClick={() => { setFilterVariantOnly(true); setShowAdvancedFilters(true); }}
+        />
+        <KpiCard
+          label="Stok Değeri"
+          value={`₺${kpi.value.toLocaleString('tr-TR', { maximumFractionDigits: 0 })}`}
+          sub="Alış maliyetine göre"
+          icon={Wallet}
+          tone="violet"
+        />
+      </div>
+
       {/* Category Filter */}
       <SegmentedFilter
         ariaLabel="Stok kategorisi"
@@ -425,6 +485,7 @@ export default function Inventory() {
         columns={productColumns}
         data={filteredProducts}
         rowKey="id"
+        onRowClick={(product) => setDetailProduct(product)}
         defaultSort={{ key: 'code', dir: 'asc' }}
         loading={productsQuery.loading}
         emptyMessage="Arama kriterlerinize uygun stok kartı bulunamadı veya henüz stok kartı eklenmedi."
@@ -507,7 +568,7 @@ export default function Inventory() {
                 key: 'view',
                 label: 'Görüntüle',
                 icon: <Eye />,
-                onSelect: () => { setSelectedProduct(product); setIsDetailModalOpen(true); }
+                onSelect: () => setDetailProduct(product)
               },
               {
                 key: 'edit',
@@ -537,6 +598,188 @@ export default function Inventory() {
           />
         )}
       />
+
+      {/* ========================================================================= */}
+      {/* STOCK DETAIL PANEL (DMR Kinetiq — sağdan kayan okunur özet)                */}
+      {/* ========================================================================= */}
+      <DetailPanel
+        isOpen={!!detailProduct}
+        onClose={() => setDetailProduct(null)}
+        title={detailProduct?.name || 'Stok Detayı'}
+        widthClass="max-w-[460px]"
+        badge={
+          detailProduct ? (
+            <StatusBadge tone="brand">{CATEGORY_CONFIGS[getProductCategoryType(detailProduct)].badge}</StatusBadge>
+          ) : undefined
+        }
+        footer={
+          detailProduct ? (
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Grid className="h-4 w-4" />}
+                onClick={() => {
+                  const p = detailProduct;
+                  setDetailProduct(null);
+                  setSelectedProduct(p);
+                  setIsDetailModalOpen(true);
+                }}
+              >
+                Analiz
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<FileText className="h-4 w-4" />}
+                onClick={() => {
+                  const p = detailProduct;
+                  setDetailProduct(null);
+                  setSelectedProduct(p);
+                  setIsStatementModalOpen(true);
+                }}
+              >
+                Ekstre
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Edit2 className="h-4 w-4" />}
+                onClick={() => {
+                  const p = detailProduct;
+                  setDetailProduct(null);
+                  handleOpenEditModal(p);
+                }}
+              >
+                Düzenle
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {detailProduct &&
+          (() => {
+            const p = detailProduct;
+            const money = (v: number) =>
+              `₺${(v || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const isLow = (p.stock ?? 0) <= (p.minStock || 0);
+            const cartonSize = getCartonSize(p, templates);
+            const colors = p.colors || [];
+            const acct = (code?: string | null, fallback = '—') => {
+              const c = code || fallback;
+              const name = tdhpAccounts?.find((a: any) => a.code === c)?.name;
+              return name ? `${c} · ${name}` : c;
+            };
+            return (
+              <div className="space-y-5">
+                {/* Ürün profili */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-card border border-line bg-surface">
+                    {p.image ? (
+                      <img src={p.image} alt={p.name} className="h-full w-full object-contain" />
+                    ) : (
+                      <Package className="h-8 w-8 text-fg-muted" />
+                    )}
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="rounded-md bg-surface-hover px-2 py-0.5 font-mono text-[11px] font-black text-fg-strong">
+                        {p.code || '—'}
+                      </span>
+                      {p.brand && (
+                        <span className="text-label font-black uppercase text-fg-muted">{p.brand}</span>
+                      )}
+                    </div>
+                    {p.subType && <div className="text-xs font-bold uppercase text-fg-muted">{p.subType}</div>}
+                    <div className="text-xs font-semibold text-fg-muted">
+                      Birim: <span className="font-bold text-fg-strong">{p.unit}</span>
+                      {p.secondaryUnit ? ` / ${p.secondaryUnit}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <DetailSummary
+                  label="Mevcut Stok"
+                  value={formatQuantity(p.stock)}
+                  unit={p.unit}
+                  tone={isLow ? 'danger' : 'brand'}
+                  badge={
+                    isLow ? (
+                      <StatusBadge tone="danger">
+                        <AlertTriangle className="h-3 w-3" /> Kritik
+                      </StatusBadge>
+                    ) : (
+                      <StatusBadge tone="success">Yeterli</StatusBadge>
+                    )
+                  }
+                >
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-fg-muted">Kritik Limit</div>
+                      <div className="font-bold tabular-nums text-fg-strong">
+                        {formatQuantity(p.minStock || 0)} {p.unit}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-fg-muted">Koli İçi</div>
+                      <div className="font-bold tabular-nums text-fg-strong">
+                        {cartonSize > 1 ? `${formatQuantity(cartonSize)} ${p.unit}` : '—'}
+                      </div>
+                    </div>
+                  </div>
+                </DetailSummary>
+
+                <DetailTiles
+                  items={[
+                    { label: 'Alış Fiyatı', value: money(p.buyingPrice) },
+                    { label: 'Satış Fiyatı', value: money(p.sellingPrice), valueClass: 'text-brand' },
+                    { label: 'Depo Raf', value: p.shelf || 'Tanımsız' },
+                    { label: 'KDV', value: `%${p.vatRate ?? 20}` },
+                  ]}
+                />
+
+                <DetailSection
+                  title="Genel Bilgiler"
+                  rows={[
+                    { label: 'Stok Kodu', value: p.code || '—' },
+                    { label: 'Kategori', value: CATEGORY_CONFIGS[getProductCategoryType(p)].badge },
+                    { label: 'Marka', value: p.brand || '—' },
+                    { label: 'Beden Varyantı', value: (p.variantBarcodes?.length ?? 0) > 0 ? `${p.variantBarcodes!.length} varyant` : 'Tekil stok' },
+                  ]}
+                />
+
+                {colors.length > 0 && (
+                  <DetailSection title={`Tanımlı Renkler (${colors.length})`}>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {colors.map((c) => (
+                        <span
+                          key={c}
+                          className="inline-flex items-center gap-1.5 rounded-pill border border-line bg-surface px-2.5 py-1 text-label font-black uppercase text-fg"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="h-2.5 w-2.5 shrink-0 rounded-pill border border-line"
+                            style={{ backgroundColor: hexFromColorRefs(p.colorRefs, c) || getColorSwatch(c).bg }}
+                          />
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </DetailSection>
+                )}
+
+                <DetailSection
+                  title="Muhasebe (TDHP)"
+                  rows={[
+                    { label: 'Stok Hesabı', value: acct(p.accountingCode, '157.01') },
+                    { label: 'Satış Geliri', value: acct(p.salesAccountCode, '600.01') },
+                    { label: 'Alış / Maliyet', value: acct(p.purchaseAccountCode, '620.01') },
+                  ]}
+                />
+              </div>
+            );
+          })()}
+      </DetailPanel>
 
       {/* ========================================================================= */}
       {/* ADD / EDIT STOCK CARD MODAL                                              */}

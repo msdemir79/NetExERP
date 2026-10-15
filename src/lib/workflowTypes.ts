@@ -1,0 +1,4 @@
+export interface ReservationRow { id: number; productId: number; productName: string; orderNumber?: string; workOrderBarcode?: string; color?: string; size?: string; quantity: number; remainingQuantity: number; status: 'active' | 'released' | 'consumed'; }
+export interface QualityRow { id: number; workOrderId: number; barcode: string; productName: string; inspectedQuantity: number; rejectedQuantity: number; result: 'pass' | 'fail'; status: 'pending' | 'approved' | 'rejected'; notes: string; }
+export interface PurchaseRequestRow { id: number; requestNumber: string; supplierName: string; totalAmount: number; status: 'pending' | 'approved' | 'rejected'; notes: string; orderId?: number; items: { productId: number; productName: string; quantity: number; unit: string; unitPrice: number; taxRate: number; total: number }[]; }
+export interface WorkflowSummary { reservations: ReservationRow[]; qualityChecks: QualityRow[]; purchaseRequests: PurchaseRequestRow[]; }
