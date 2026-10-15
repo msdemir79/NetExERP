@@ -1,5 +1,6 @@
 import {
   api,
+  callOp,
 } from '../api/client';
 import type {
   Product,
@@ -82,14 +83,14 @@ export const settingsService = {
         annualLeaveBaseDays: 14,
         sgkEmployeeRate: 14,
         unemploymentEmployeeRate: 1,
-        sgkEmployerRate: 15.5,
+        sgkEmployerRate: 16.75,
         unemploymentEmployerRate: 2,
         incomeTaxRate: 15,
         stampTaxPerMille: 7.59,
-        minWageGross: 26005,
-        minWageNet: 22104,
-        minWageIncomeTaxExemption: 3315.64,
-        minWageStampTaxExemption: 197.38,
+        minWageGross: 33030,
+        minWageNet: 28075.50,
+        minWageIncomeTaxExemption: 4211.33,
+        minWageStampTaxExemption: 250.70,
         sgkMonthlyHours: 225,
         nonSgkMonthlyHours: 240
       }
@@ -120,14 +121,7 @@ export const settingsService = {
       barcodePrefix: settings.stock?.barcodePrefix || settings.barcodePrefix || '869',
       nextBarcodeSequence: settings.stock?.nextBarcodeSequence || settings.nextBarcodeSequence || 1000000
     };
-    await api.settings.save(updated);
-    await api.settings.save({
-      id: 'global_barcode',
-      barcodeType: updated.barcodeType,
-      barcodePrefix: updated.barcodePrefix,
-      nextBarcodeSequence: updated.nextBarcodeSequence
-    });
-    return updated;
+    return callOp<AppSettings>('save-settings', { settings: updated, expectedVersion: settings.version });
   },
 
   async getBarcodeSettings(): Promise<AppSettings> {

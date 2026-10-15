@@ -1,11 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeResources } from '../api/live';
+import { showToast } from '../lib/feedback';
 
 export interface ApiQueryResult<T> {
   data: T | undefined;
   loading: boolean;
   error: Error | null;
   refetch: () => void;
+}
+
+/**
+ * Okuma (sorgu) hataları eskiden hiçbir yerde gösterilmiyordu: 500/403/ağ hatası
+ * ekranda "kayıt bulunamadı" boş durumu gibi görünüyor, kullanıcı verinin boş mu
+ * yoksa yüklenemediği mi olduğunu ayırt edemiyordu. Artık hata bir toast ile
+ * bildirilir.
+ *
+ * Tek bir sunucu kesintisinde onlarca bileşen aynı anda hata verir; aynı mesajı
+ * 8 saniye içinde tekrar göstermemek için modül seviyesinde tekilleştirilir.
+ */
+const ERROR_TOAST_WINDOW_MS = 8000;
+const lastErrorToastAt = new Map<string, number>();
+
+function notifyQueryError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const now = Date.now();
+  const last = lastErrorToastAt.get(message);
+  if (last !== undefined && now - last < ERROR_TOAST_WINDOW_MS) return;
+  lastErrorToastAt.set(message, now);
+  // Sözlük sınırsız büyümesin: eski kayıtları ara sıra temizle.
+  if (lastErrorToastAt.size > 50) {
+    for (const [key, at] of lastErrorToastAt) {
+      if (now - at > ERROR_TOAST_WINDOW_MS) lastErrorToastAt.delete(key);
+    }
+  }
+  showToast(message, 'error');
 }
 
 /**
@@ -47,6 +75,7 @@ export function useApiQueryFull<T>(
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(err instanceof Error ? err : new Error(String(err)));
+        notifyQueryError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

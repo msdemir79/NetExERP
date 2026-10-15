@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { Landmark, BookOpen, Save, Check, ShieldCheck, BellRing } from 'lucide-react';
+import { Landmark, BookOpen, Save, Check } from 'lucide-react';
 import { showToast } from '../../lib/feedback';
+import SettingsSection from './SettingsSection';
+import { Field, Input, Select } from '../Common/Field';
+import Button from '../Common/Button';
 import type { AppSettings } from '../../types';
 
 interface FinanceSettingsProps {
@@ -53,164 +56,72 @@ export default function FinanceSettings({ settings, onSave }: FinanceSettingsPro
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {saveSuccess && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-emerald-600" />
-            <span className="text-xs font-bold uppercase tracking-wider">Finans ve Muhasebe modülü ayarları başarıyla kaydedildi.</span>
-          </div>
+        <div className="flex items-center gap-2 rounded-card border border-success/30 bg-success-soft px-3.5 py-2.5 text-xs font-bold text-success">
+          <Check className="h-4 w-4" />
+          Finans ve Muhasebe modülü ayarları başarıyla kaydedildi.
         </div>
       )}
 
-      {/* SECTION 1: FİNANSAL ALARMLAR VE PARA BİRİMİ */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-md">
-              <Landmark className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold uppercase tracking-wider">Finans & Tahsilat Parametreleri</h3>
-              <p className="text-slate-400 text-xs font-medium">Kasa/banka varsayılanları ve çek/senet risk hatırlatıcıları</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Temel Para Birimi</label>
-            <select
-              value={currency}
-              onChange={e => setCurrency(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            >
+      <SettingsSection
+        title="Finans & Tahsilat Parametreleri"
+        description="Kasa/banka varsayılanları ve çek/senet risk hatırlatıcıları"
+        icon={<Landmark />}
+        keywords="para birimi çek senet vade alarm gün kasa banka"
+      >
+        <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
+          <Field label="Temel Para Birimi">
+            <Select value={currency} onChange={(e) => setCurrency(e.target.value)}>
               <option value="TRY">Türk Lirası (₺ - TRY)</option>
               <option value="USD">Amerikan Doları ($ - USD)</option>
               <option value="EUR">Euro (€ - EUR)</option>
               <option value="GBP">İngiliz Sterlini (£ - GBP)</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Çek / Senet Vade Alarm Eşiği (Gün Önce)</label>
-            <input
-              type="number"
-              min="1"
-              max="60"
-              value={alertDays}
-              onChange={e => setAlertDays(Number(e.target.value))}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Vadesine bu kadar gün kalan portföydeki çekler sarı/kırmızı uyarı listesine alınır.</span>
-          </div>
+            </Select>
+          </Field>
+          <Field label="Çek / Senet Vade Alarm Eşiği (Gün Önce)" hint="Vadesine bu kadar gün kalan portföydeki çekler sarı/kırmızı uyarı listesine alınır.">
+            <Input type="number" min="1" max="60" value={alertDays} onChange={(e) => setAlertDays(Number(e.target.value))} />
+          </Field>
         </div>
-      </div>
+      </SettingsSection>
 
-      {/* SECTION 2: TDHP MUHASEBE HESAP KODU EŞLEŞTİRMELERİ */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold uppercase tracking-wider">Tek Düzen Hesap Planı (TDHP) Entegrasyonu</h3>
-              <p className="text-slate-400 text-xs font-medium">Otomatik yevmiye fişi üretiminde kullanılan standart hesap kökleri</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Müşteri Cari Hesabı (Alıcılar)</label>
-            <input
-              type="text"
-              value={custCode}
-              onChange={e => setCustCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 120 Grubu</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Tedarikçi Cari Hesabı (Satıcılar)</label>
-            <input
-              type="text"
-              value={suppCode}
-              onChange={e => setSuppCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 320 Grubu</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Mamul Stok Hesabı</label>
-            <input
-              type="text"
-              value={finishedStockCode}
-              onChange={e => setFinishedStockCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 157 veya 152 Grubu</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Hammadde Stok Hesabı</label>
-            <input
-              type="text"
-              value={rawStockCode}
-              onChange={e => setRawStockCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 150 İlk Madde ve Malzeme</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Satış Gelirleri Hesabı</label>
-            <input
-              type="text"
-              value={salesRevenueCode}
-              onChange={e => setSalesRevenueCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 600 Yurtiçi Satışlar</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Hesaplanan KDV (Satış)</label>
-            <input
-              type="text"
-              value={vatCalcCode}
-              onChange={e => setVatCalcCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 391 Grubu</span>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">İndirilecek KDV (Alış)</label>
-            <input
-              type="text"
-              value={vatDedCode}
-              onChange={e => setVatDedCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <span className="text-[10px] text-slate-400">Standart TDHP 191 Grubu</span>
-          </div>
+      <SettingsSection
+        title="TDHP Hesap Kodu Eşleştirmeleri"
+        description="Otomatik yevmiye fişi üretiminde kullanılan Tek Düzen Hesap Planı kökleri"
+        icon={<BookOpen />}
+        count="7 Hesap"
+        keywords="tdhp hesap planı müşteri tedarikçi mamul hammadde satış gelir hesaplanan kdv indirilecek kdv"
+      >
+        <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Müşteri Cari Hesabı (Alıcılar)" hint="Standart TDHP 120 Grubu">
+            <Input type="text" className="font-mono" value={custCode} onChange={(e) => setCustCode(e.target.value)} />
+          </Field>
+          <Field label="Tedarikçi Cari Hesabı (Satıcılar)" hint="Standart TDHP 320 Grubu">
+            <Input type="text" className="font-mono" value={suppCode} onChange={(e) => setSuppCode(e.target.value)} />
+          </Field>
+          <Field label="Mamul Stok Hesabı" hint="Standart TDHP 157 veya 152 Grubu">
+            <Input type="text" className="font-mono" value={finishedStockCode} onChange={(e) => setFinishedStockCode(e.target.value)} />
+          </Field>
+          <Field label="Hammadde Stok Hesabı" hint="Standart TDHP 150 İlk Madde ve Malzeme">
+            <Input type="text" className="font-mono" value={rawStockCode} onChange={(e) => setRawStockCode(e.target.value)} />
+          </Field>
+          <Field label="Satış Gelirleri Hesabı" hint="Standart TDHP 600 Yurtiçi Satışlar">
+            <Input type="text" className="font-mono" value={salesRevenueCode} onChange={(e) => setSalesRevenueCode(e.target.value)} />
+          </Field>
+          <Field label="Hesaplanan KDV (Satış)" hint="Standart TDHP 391 Grubu">
+            <Input type="text" className="font-mono" value={vatCalcCode} onChange={(e) => setVatCalcCode(e.target.value)} />
+          </Field>
+          <Field label="İndirilecek KDV (Alış)" hint="Standart TDHP 191 Grubu">
+            <Input type="text" className="font-mono" value={vatDedCode} onChange={(e) => setVatDedCode(e.target.value)} />
+          </Field>
         </div>
 
-        <div className="p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-2 cursor-pointer"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? 'Kaydediliyor...' : 'Finans & Muhasebe Ayarlarını Kaydet'}
-          </button>
+      </SettingsSection>
+        <div className="flex justify-end rounded-card border border-line bg-surface p-4 shadow-card">
+          <Button type="submit" variant="primary" icon={<Save className="h-4 w-4" />} loading={isSaving}>
+            Finans &amp; Muhasebe Ayarlarını Kaydet
+          </Button>
         </div>
-      </div>
     </form>
   );
 }

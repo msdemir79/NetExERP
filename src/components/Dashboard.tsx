@@ -12,6 +12,7 @@ import {
 import PageHeader from './PageHeader';
 import SegmentedFilter from './Common/SegmentedFilter';
 import KpiCard from './Common/KpiCard';
+import ActivityTimeline, { type TimelineEvent } from './Common/ActivityTimeline';
 import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { useAppSummary } from '../hooks/useAppSummary';
@@ -162,17 +163,17 @@ export default function Dashboard() {
   }, [checks, invoices]);
 
   const stockDonutData = useMemo(() => [
-    { name: 'Mamul', value: Math.max(1, stats.categoryStats?.finished || 45), color: '#4f46e5' },
-    { name: 'Yarı Mamul', value: Math.max(1, stats.categoryStats?.semi_finished || 25), color: '#0284c7' },
-    { name: 'Hammadde', value: Math.max(1, stats.categoryStats?.raw_material || 150), color: '#d97706' },
-    { name: 'Aksesuar', value: Math.max(1, stats.categoryStats?.accessory || 300), color: '#10b981' }
+    { name: 'Mamul', value: stats.categoryStats?.finished ?? 0, color: '#428cf0' },
+    { name: 'Yarı Mamul', value: stats.categoryStats?.semi_finished ?? 0, color: '#8875e8' },
+    { name: 'Hammadde', value: stats.categoryStats?.raw_material ?? 0, color: '#edb354' },
+    { name: 'Aksesuar', value: stats.categoryStats?.accessory ?? 0, color: '#36b8b0' }
   ], [stats.categoryStats]);
 
   return (
-    <div className="space-y-4 pb-6">
+    <div className="erp-dashboard space-y-5 pb-6">
       <PageHeader
-        title="Yönetici Özeti (Patron Ekranı)"
-        subtitle="Şirketin genel finansal, operasyonel ve üretim durumuna 360 derece genel bakış."
+        title="İşletmenize genel bakış"
+        subtitle="Finans, üretim ve günlük operasyonlarınız tek bir yerde."
         icon={LayoutDashboard}
         iconColor="indigo"
       />
@@ -411,6 +412,21 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <ActivityTimeline
+        events={([
+          ...recentOrders.map(order => ({
+            id: `order-${order.id}`, title: 'Satış siparişi', description: order.orderNumber,
+            date: order.date, amount: formatCurrency(order.grandTotal || 0), kind: 'order', target: '/orders',
+          })),
+          ...recentTransactions.map(trx => ({
+            id: `trx-${trx.id}`, title: trx.type === 'income' ? 'Tahsilat' : 'Ödeme', description: trx.description,
+            date: trx.date, amount: formatCurrency(trx.amount), kind: trx.type === 'income' ? 'income' : 'expense', target: '/finance',
+          })),
+        ] as TimelineEvent[]).filter(event => Number.isFinite(new Date(event.date).getTime()))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5)}
+        onNavigate={handleNav}
+      />
 
       {/* 4. SATIR: AKSIYON / LİSTELER */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

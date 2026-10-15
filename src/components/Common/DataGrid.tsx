@@ -127,11 +127,20 @@ export default function DataGrid<T>({
   const getKey = (row: T): string | number =>
     typeof rowKey === 'function' ? rowKey(row) : (row[rowKey] as string | number);
 
-  const getSortValue = (row: T, key: string): unknown => {
-    const col = columns.find((c) => c.key === key);
-    if (col?.sortValue) return col.sortValue(row);
-    return col?.filterValue ? col.filterValue(row) : (row as Record<string, unknown>)[key];
-  };
+  /**
+   * Kolon aramaları bir sözlüğe alınır: eskiden her satır/hücre için
+   * `columns.find(...)` çalışıyordu (satır × sıralama + filtre başına doğrusal
+   * arama). Ayrıca `filtered` memo'sunun bağımlılıkları arasından `columns`
+   * çıkarılır; çağıran ekranlar `columns` dizisini gövdede kurduğu için her
+   * render'da kimliği değişiyor ve memo sürekli geçersiz oluyordu — yani her
+   * tuş vuruşunda tüm veri seti yeniden filtrelenip sıralanıyordu.
+   * Sözlük içeriği değişmediği sürece memo artık korunur.
+   */
+  const columnMap = useMemo(() => {
+    const map = new Map<string, GridColumn<T>>();
+    for (const col of columns) map.set(col.key, col);
+    return map;
+  }, [columns]);
 
   const filtered = useMemo(() => {
     const active = Object.keys(filters)
@@ -141,7 +150,7 @@ export default function DataGrid<T>({
     if (active.length) {
       rows = rows.filter((row) =>
         active.every(([key, text]) => {
-          const col = columns.find((c) => c.key === key);
+          const col = columnMap.get(key);
           const raw = col?.filterValue ? col.filterValue(row) : (row as Record<string, unknown>)[key];
           if (raw == null) return false;
           return String(raw).toLocaleLowerCase('tr').includes(text.trim().toLocaleLowerCase('tr'));
@@ -151,10 +160,15 @@ export default function DataGrid<T>({
     if (sort.key) {
       const key = sort.key;
       const dir = sort.dir === 'desc' ? -1 : 1;
-      rows = [...rows].sort((a, b) => defaultCompare(getSortValue(a, key), getSortValue(b, key)) * dir);
+      const col = columnMap.get(key);
+      const valueOf = (row: T): unknown => {
+        if (col?.sortValue) return col.sortValue(row);
+        return col?.filterValue ? col.filterValue(row) : (row as Record<string, unknown>)[key];
+      };
+      rows = [...rows].sort((a, b) => defaultCompare(valueOf(a), valueOf(b)) * dir);
     }
     return rows;
-  }, [data, filters, sort, columns]);
+  }, [data, filters, sort, columnMap]);
 
   const selectedSet = useMemo(() => new Set(selectedIds || []), [selectedIds]);
 

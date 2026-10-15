@@ -222,6 +222,7 @@ export interface HRModuleSettings {
 }
 
 export interface AppSettings {
+  version?: number;
   id?: string; // 'global'
   barcodeType: 'EAN-13' | 'CODE-128' | 'CODE-39';
   barcodePrefix?: string;
@@ -240,6 +241,7 @@ export type StockCategoryType = 'finished' | 'semi_finished' | 'raw_material' | 
 export type ProductCategoryType = StockCategoryType;
 
 export interface Product {
+  version?: number;
   id?: number;
   code: string;
   name: string;
@@ -361,6 +363,8 @@ export type MaterialReadinessStatus =
   | 'materials_consumed';  // Malzemeler Üretimde Harcandı
 
 export interface WorkOrder {
+  version?: number;
+  recipeSnapshot?: Recipe;
   id?: number;
   productId: number;
   quantity: number;
@@ -392,6 +396,7 @@ export interface WorkOrder {
   
   // MRP & Materials
   materialStatus?: MaterialReadinessStatus;
+  line?: string;              // Üretim hattı (örn: HAT-1)
   recipeId?: number;
   
   // Barcode & Tracking
@@ -698,6 +703,7 @@ export type OrderStatus = 'draft' | 'confirmed' | 'partially_shipped' | 'complet
 export type InvoicingStatus = 'not_invoiced' | 'partially_invoiced' | 'fully_invoiced';
 
 export interface Order {
+  version?: number;
   id?: number;
   type: OrderType;
   orderNumber: string;
@@ -1182,6 +1188,7 @@ export interface PayrollRecord {
 
 export interface AttendancePeriodLock {
   id?: number;
+  scope?: 'hr' | 'accounting';
   month: number;                     // 1-12
   year: number;                      // e.g. 2026
   isLocked: boolean;

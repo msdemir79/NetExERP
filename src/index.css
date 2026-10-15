@@ -44,7 +44,7 @@
   --radius-card: 1rem; /* rounded-2xl */
   --radius-pill: 9999px;
 
-  --shadow-card: 0 1px 2px -1px rgb(15 23 42 / 0.06), 0 1px 3px 0 rgb(15 23 42 / 0.04);
+  --shadow-card: 0 8px 24px -12px rgb(45 75 115 / 0.18), 0 2px 4px rgb(45 75 115 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.35);
   --shadow-raised: 0 12px 32px -8px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08);
 
   --text-label: 10px;
@@ -53,7 +53,7 @@
 
 @layer base {
   :root {
-    --surface-canvas: #f8fafc; /* slate-50 */
+    --surface-canvas: #eef4f9;
     --surface-card: #ffffff;
     --surface-raised: #f8fafc; /* slate-50 */
     --surface-hover: #f1f5f9; /* slate-100 */
@@ -67,10 +67,10 @@
     --fg-muted: #64748b; /* slate-500 */
     --fg-inverted: #ffffff;
 
-    --brand: #4f46e5; /* indigo-600 */
-    --brand-hover: #4338ca; /* indigo-700 */
-    --brand-fg: #4f46e5; /* indigo-600 */
-    --brand-soft: #eef2ff; /* indigo-50 */
+    --brand: #2878e8;
+    --brand-hover: #1963c9;
+    --brand-fg: #2269ca;
+    --brand-soft: #e9f2ff;
     --on-brand: #ffffff;
     --ring: rgb(99 102 241 / 0.35); /* indigo-500 */
 
@@ -85,10 +85,10 @@
   }
 
   .dark {
-    --surface-canvas: #020617; /* slate-950 */
-    --surface-card: #0f172a; /* slate-900 */
-    --surface-raised: #1e293b; /* slate-800 */
-    --surface-hover: #1e293b; /* slate-800 */
+    --surface-canvas: #171e2a;
+    --surface-card: #242e3d;
+    --surface-raised: #2b3748;
+    --surface-hover: #303e51;
     --surface-active: #f8fafc; /* slate-50 */
 
     --line: #334155; /* slate-700 */
@@ -99,10 +99,10 @@
     --fg-muted: #94a3b8; /* slate-400 */
     --fg-inverted: #0f172a; /* slate-900 */
 
-    --brand: #6366f1; /* indigo-500 */
-    --brand-hover: #4f46e5; /* indigo-600 */
-    --brand-fg: #818cf8; /* indigo-400 */
-    --brand-soft: rgb(99 102 241 / 0.15);
+    --brand: #4394f5;
+    --brand-hover: #2878e8;
+    --brand-fg: #86bfff;
+    --brand-soft: rgb(67 148 245 / 0.15);
     --on-brand: #ffffff;
 
     --success: #34d399; /* emerald-400 */
@@ -247,4 +247,101 @@
 @keyframes feedbackPopIn {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* Reference-inspired workspace: soft surfaces, blue accents and a readable activity rail. */
+.erp-shell {
+  background-image: radial-gradient(ellipse at 5% 0%, rgb(129 214 245 / .18), transparent 45%);
+}
+.erp-shell > div > header {
+  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
+  backdrop-filter: blur(18px);
+  height: 4.5rem;
+}
+.erp-shell .erp-sidebar {
+  background: var(--surface-card);
+  border-color: var(--line);
+  box-shadow: 5px 0 24px rgb(35 63 97 / .035);
+}
+.erp-sidebar .text-white { color: var(--fg-strong); }
+.erp-sidebar .text-slate-400 { color: var(--fg-muted); }
+.erp-sidebar [class*="border-slate-"] { border-color: var(--line); }
+.erp-sidebar [class*="bg-indigo-600"] {
+  background: var(--brand-soft);
+  color: var(--brand-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 15%, transparent);
+}
+.erp-sidebar [class*="bg-slate-900/"] { background: var(--surface-hover); }
+.erp-sidebar nav a:hover, .erp-sidebar nav button:hover { background: var(--surface-hover); color: var(--brand-fg); }
+.erp-sidebar nav a, .erp-sidebar nav button { min-height: 2.65rem; }
+.erp-sidebar [class*="bg-white/80"] { background: var(--brand); }
+.erp-sidebar .group > div { background: var(--surface-raised); color: var(--fg); }
+.erp-dashboard { max-width: 1600px; margin-inline: auto; }
+.erp-dashboard > .grid > [class*="rounded-"] {
+  background: var(--surface-card);
+  border-color: var(--line);
+  box-shadow: var(--shadow-card);
+  border-radius: 18px;
+}
+.erp-dashboard .recharts-default-tooltip {
+  background: var(--surface-card) !important;
+  color: var(--fg) !important;
+  border: 1px solid var(--line) !important;
+}
+.activity-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(250px, 1fr);
+  gap: 2rem;
+  padding: 1.75rem;
+  background: color-mix(in srgb, var(--surface-card) 55%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+.activity-timeline { position: relative; display: grid; gap: 1rem; }
+.activity-timeline::before {
+  content: ''; position: absolute; top: 24px; bottom: 24px; left: 89px;
+  width: 1px; background: var(--line-strong);
+}
+.timeline-row { position: relative; display: grid; grid-template-columns: 60px 42px minmax(0, 1fr); align-items: start; gap: 14px; }
+.timeline-icon {
+  z-index: 1; display: grid; place-items: center; height: 42px; margin-top: 7px;
+  border: 1px solid var(--line); border-radius: 13px;
+  background: var(--surface-card); box-shadow: var(--shadow-card);
+}
+.timeline-order { color: var(--brand-fg); }
+.timeline-income { color: var(--success); }
+.timeline-expense { color: var(--warning); }
+.timeline-card {
+  padding: 15px 18px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--surface-card); box-shadow: var(--shadow-card);
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+.timeline-card:hover { border-color: var(--brand); }
+.timeline-row[data-active="true"] .timeline-card {
+  border-color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface-card));
+  box-shadow: 0 5px 18px rgb(40 120 232 / .12), inset 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+.activity-detail {
+  align-self: start; background: var(--surface-card); padding: 24px;
+  border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-card);
+}
+.activity-detail-icon {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 16px;
+  background: linear-gradient(145deg, #81b7ff, #3479dc); color: white;
+  box-shadow: 0 5px 12px rgb(40 120 232 / .22), inset 0 1px 1px rgb(255 255 255 / .5);
+}
+.timeline-card:focus-visible, .activity-detail button:focus-visible {
+  outline: 3px solid var(--ring); outline-offset: 3px;
+}
+@media (max-width: 900px) {
+  .activity-workspace { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding: 1rem; }
+}
+@media (max-width: 480px) {
+  .timeline-row { grid-template-columns: 39px 32px minmax(0, 1fr); gap: 8px; }
+  .timeline-icon { height: 32px; border-radius: 10px; }
+  .activity-timeline::before { left: 63px; }
+  .timeline-card { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .erp-shell *, .erp-shell *::before, .erp-shell *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
 }

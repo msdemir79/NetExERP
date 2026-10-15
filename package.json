@@ -21,6 +21,8 @@
     "user:password": "tsx scripts/set-password.ts",
     "lint": "tsc --noEmit",
     "test": "tsx src/tests/unitTests.ts",
+    "test:isolated": "node scripts/test-db.mjs",
+    "test:local-db": "node scripts/test-local-db.mjs",
     "test:integration": "tsx src/tests/integrationTests.ts",
     "test:delete": "tsx src/tests/deletePolicyTests.ts",
     "test:rbac": "tsx src/tests/rbacTests.ts",

@@ -29,6 +29,11 @@ export default function BarcodeSettingsModal({ isOpen, onClose }: BarcodeSetting
           barcodePrefix: s.barcodePrefix || '869',
           nextBarcodeSequence: s.nextBarcodeSequence || 1000000,
         });
+      }).catch((err: unknown) => {
+        // Ayarlar okunamazsa modal sessizce varsayılan değerlerle açılırdı;
+        // kullanıcı kaydettiğinde mevcut ayarları yanlışlıkla ezebilirdi.
+        console.error('Barkod ayarları okunamadı:', err);
+        showToast(err instanceof Error ? err.message : 'Barkod ayarları okunamadı.', 'error');
       });
     }
   }, [isOpen]);

@@ -1,10 +1,29 @@
 import React, { useState } from 'react';
-import { Building2, Save, Check, Database, Download, Upload, AlertTriangle, RefreshCw, FileText, Image as ImageIcon, Trash2, UploadCloud, RotateCcw, CheckCircle2, X } from 'lucide-react';
+import {
+  Building2,
+  Save,
+  Check,
+  Database,
+  Download,
+  Upload,
+  AlertTriangle,
+  RefreshCw,
+  ImageIcon,
+  Trash2,
+  UploadCloud,
+  RotateCcw,
+  CheckCircle2,
+  X,
+} from 'lucide-react';
 import { api, commit, reseedDatabase, uploadImage, type Mutation } from '../../api/client';
 import { invoiceService } from '../../services/invoiceService';
 import { useAuth } from '../../context/AuthContext';
 import Modal from '../Modal';
 import { showToast, confirmDialog } from '../../lib/feedback';
+import SettingsSection from './SettingsSection';
+import { Field, Input, Textarea } from '../Common/Field';
+import Button from '../Common/Button';
+import { cn } from '../../lib/utils';
 import type { AppSettings, CompanySettings as CompanySettingsType } from '../../types';
 
 interface CompanySettingsProps {
@@ -257,25 +276,28 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-3">
       {/* Feedback Notice Banner */}
       {feedbackNotice && (
-        <div className={`p-4 rounded-xl border flex items-start justify-between shadow-xs ${
-          feedbackNotice.type === 'success'
-            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-            : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200'
-        }`}>
+        <div
+          className={cn(
+            'flex items-start justify-between gap-3 rounded-card border p-4',
+            feedbackNotice.type === 'success'
+              ? 'border-success/30 bg-success-soft text-success'
+              : 'border-danger/30 bg-danger-soft text-danger',
+          )}
+        >
           <div className="flex items-start gap-3">
             {feedbackNotice.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             ) : (
-              <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
             )}
             <div>
               <h4 className="text-xs font-black uppercase tracking-wider">{feedbackNotice.title}</h4>
-              <p className="text-xs mt-0.5 opacity-90">{feedbackNotice.message}</p>
+              <p className="mt-0.5 text-xs font-semibold opacity-90">{feedbackNotice.message}</p>
               {feedbackNotice.details && (
-                <ul className="mt-2 space-y-1 text-[11px] list-disc list-inside opacity-85">
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-2xs font-semibold opacity-85">
                   {feedbackNotice.details.map((d, i) => (
                     <li key={i}>{d}</li>
                   ))}
@@ -283,351 +305,205 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setFeedbackNotice(null)}
-            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-          >
-            <X className="w-4 h-4" />
+          <button type="button" onClick={() => setFeedbackNotice(null)} className="cursor-pointer rounded p-1 opacity-70 hover:opacity-100">
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
       {saveSuccess && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-emerald-600" />
-            <span className="text-xs font-bold uppercase tracking-wider">Firma künye ve antet bilgileri başarıyla kaydedildi.</span>
-          </div>
+        <div className="flex items-center gap-2 rounded-card border border-success/30 bg-success-soft px-3.5 py-2.5 text-xs font-bold text-success">
+          <Check className="h-4 w-4" />
+          Firma künye ve antet bilgileri başarıyla kaydedildi.
         </div>
       )}
 
       {/* SECTION 1: FİRMA KİMLİK VE ANTET BİLGİLERİ */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold uppercase tracking-wider">Firma Künyesi & İrsaliye/Fatura Anteti</h3>
-              <p className="text-slate-400 text-xs font-medium">Resmi fatura, sevk irsaliyesi ve sipariş çıktılarında basılacak bilgiler</p>
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <SettingsSection
+        title="Firma Künyesi & Antet"
+        description="Resmi fatura, sevk irsaliyesi ve sipariş çıktılarında basılacak bilgiler"
+        icon={<Building2 />}
+        keywords="firma ünvan vergi dairesi vkno ticaret sicil adres telefon email banka iban logo antet"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4 p-4">
           {/* LOGO YÜKLEME ALANI */}
-          <div className="bg-slate-50 dark:bg-slate-800/50/80 p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 dark:border-slate-800/80 space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="space-y-3 rounded-card border border-line bg-surface-hover/40 p-3.5">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <label className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <ImageIcon className="w-4 h-4 text-indigo-600" />
+                <span className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-fg-strong">
+                  <ImageIcon className="h-4 w-4 text-brand" />
                   Firma Logosu
-                </label>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">
-                  Eklenen logo yan menüde (panelde) ve tüm sayfa başlıklarında gösterilir. (PNG, JPG, SVG - max 2MB)
-                </p>
+                </span>
+                <p className="mt-0.5 text-2xs font-semibold text-fg-muted">Logo yan menüde ve tüm sayfa başlıklarında gösterilir. (PNG, JPG, SVG - max 2MB)</p>
               </div>
               {comp.logo && (
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
+                <Button type="button" variant="danger" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={handleRemoveLogo}>
                   Logoyu Kaldır
-                </button>
+                </Button>
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
+            <div className="flex flex-col items-center gap-4 sm:flex-row">
               {comp.logo ? (
-                <div className="relative group shrink-0">
-                  <div className="w-24 h-24 rounded-2xl bg-white dark:bg-slate-900 border-2 border-indigo-200 p-2 shadow-xs flex items-center justify-center overflow-hidden">
-                    <img src={comp.logo} alt="Firma Logosu" className="max-w-full max-h-full object-contain" />
-                  </div>
-                  <div className="mt-1 text-center">
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      Aktif Logo
-                    </span>
+                <div className="shrink-0 text-center">
+                  <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-card border-2 border-brand/30 bg-white p-2">
+                    <img src={comp.logo} alt="Firma Logosu" className="max-h-full max-w-full object-contain" />
                   </div>
                 </div>
               ) : (
-                <div className="w-24 h-24 rounded-2xl bg-slate-100 dark:bg-slate-800 border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 shrink-0">
-                  <ImageIcon className="w-8 h-8 stroke-1" />
-                  <span className="text-[10px] font-medium mt-1">Logo Yok</span>
+                <div className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-card border-2 border-dashed border-line text-fg-muted">
+                  <ImageIcon className="h-8 w-8" />
+                  <span className="mt-1 text-2xs font-semibold">Logo Yok</span>
                 </div>
               )}
 
-              <div className="flex-1 space-y-2 w-full">
-                <label className="flex flex-col items-center justify-center px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition-all shadow-2xs group text-center">
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-indigo-600">
-                    <UploadCloud className="w-4 h-4 text-indigo-600" />
-                    <span>{comp.logo ? 'Logoyu Değiştir' : 'Yeni Logo Görseli Yükle'}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-400 mt-0.5">Görsel dosyası seçmek için tıklayın</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoChange}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              <label className="group flex w-full flex-1 cursor-pointer flex-col items-center justify-center rounded-control border border-line bg-surface px-4 py-3 text-center shadow-card transition-colors hover:border-brand hover:bg-brand-soft">
+                <span className="flex items-center gap-2 text-xs font-bold text-fg-strong group-hover:text-brand">
+                  <UploadCloud className="h-4 w-4 text-brand" />
+                  {comp.logo ? 'Logoyu Değiştir' : 'Yeni Logo Görseli Yükle'}
+                </span>
+                <span className="mt-0.5 text-2xs font-semibold text-fg-muted">Görsel dosyası seçmek için tıklayın</span>
+                <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+              </label>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Firma Kısa Adı (Ticari Marka)</label>
-              <input
-                type="text"
-                required
-                value={comp.companyName || ''}
-                onChange={e => setComp({ ...comp, companyName: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Firma Kısa Adı (Ticari Marka)" required>
+              <Input type="text" required value={comp.companyName || ''} onChange={(e) => setComp({ ...comp, companyName: e.target.value })} />
+            </Field>
+            <Field label="Resmi Ticari Ünvan" required>
+              <Input type="text" required value={comp.companyTitle || ''} onChange={(e) => setComp({ ...comp, companyTitle: e.target.value })} />
+            </Field>
+            <Field label="Vergi Dairesi">
+              <Input type="text" value={comp.taxOffice || ''} onChange={(e) => setComp({ ...comp, taxOffice: e.target.value })} />
+            </Field>
+            <Field label="Vergi Kimlik Numarası (VKN)">
+              <Input type="text" className="font-mono" value={comp.taxNumber || ''} onChange={(e) => setComp({ ...comp, taxNumber: e.target.value })} />
+            </Field>
+            <Field label="Telefon">
+              <Input type="text" value={comp.phone || ''} onChange={(e) => setComp({ ...comp, phone: e.target.value })} />
+            </Field>
+            <Field label="E-Posta">
+              <Input type="email" value={comp.email || ''} onChange={(e) => setComp({ ...comp, email: e.target.value })} />
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="Firma Adresi">
+                <Textarea rows={2} value={comp.address || ''} onChange={(e) => setComp({ ...comp, address: e.target.value })} />
+              </Field>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Resmi Ticari Ünvan</label>
-              <input
-                type="text"
-                required
-                value={comp.companyTitle || ''}
-                onChange={e => setComp({ ...comp, companyTitle: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Vergi Dairesi</label>
-              <input
-                type="text"
-                value={comp.taxOffice || ''}
-                onChange={e => setComp({ ...comp, taxOffice: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Vergi Kimlik Numarası (VKN)</label>
-              <input
-                type="text"
-                value={comp.taxNumber || ''}
-                onChange={e => setComp({ ...comp, taxNumber: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Telefon</label>
-              <input
-                type="text"
-                value={comp.phone || ''}
-                onChange={e => setComp({ ...comp, phone: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">E-Posta</label>
-              <input
-                type="email"
-                value={comp.email || ''}
-                onChange={e => setComp({ ...comp, email: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="md:col-span-2 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Firma Adresi</label>
-              <textarea
-                rows={2}
-                value={comp.address || ''}
-                onChange={e => setComp({ ...comp, address: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Banka & Şube</label>
-              <input
-                type="text"
-                value={comp.bankName || ''}
-                onChange={e => setComp({ ...comp, bankName: e.target.value })}
-                placeholder="Örn: Garanti BBVA Merter"
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">IBAN Numarası</label>
-              <input
-                type="text"
-                value={comp.iban || ''}
-                onChange={e => setComp({ ...comp, iban: e.target.value })}
-                placeholder="TRXX 0000 0000 0000 0000 00"
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
+            <Field label="Banka & Şube">
+              <Input type="text" placeholder="Örn: Garanti BBVA Merter" value={comp.bankName || ''} onChange={(e) => setComp({ ...comp, bankName: e.target.value })} />
+            </Field>
+            <Field label="IBAN Numarası">
+              <Input type="text" className="font-mono" placeholder="TRXX 0000 0000 0000 0000 00" value={comp.iban || ''} onChange={(e) => setComp({ ...comp, iban: e.target.value })} />
+            </Field>
           </div>
 
-          <div className="pt-2 flex justify-end">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-2 cursor-pointer"
-            >
-              <Save className="w-4 h-4" />
-              {isSaving ? 'Kaydediliyor...' : 'Firma Bilgilerini Kaydet'}
-            </button>
+          <div className="flex justify-end border-t border-line pt-1">
+            <Button type="submit" variant="primary" icon={<Save className="h-4 w-4" />} loading={isSaving}>
+              Firma Bilgilerini Kaydet
+            </Button>
           </div>
         </form>
-      </div>
+      </SettingsSection>
 
       {/* SECTION 2: VERİTABANI YÖNETİMİ, YEDEKLEME VE SIFIRLAMA */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-700 rounded-xl flex items-center justify-center text-white shadow-md">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold uppercase tracking-wider">Veritabanı Yedekleme & Sistem Araçları</h3>
-              <p className="text-slate-400 text-xs font-medium">JSON veri dışa/içe aktarma, hareket ve demo sıfırlama. Tam sistem yedeği (SQL + görseller) sunucu tarafında <code className="text-slate-300">npm run db:backup</code> ile alınır.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <SettingsSection
+        title="Veritabanı Yedekleme & Sistem Araçları"
+        description="JSON veri dışa/içe aktarma, hareket ve demo sıfırlama araçları"
+        icon={<Database />}
+        keywords="yedek json dışa içe aktar sıfırla hareket demo veritabanı db:backup db:restore"
+      >
+        <p className="border-b border-line bg-surface-hover/40 px-4 py-2.5 text-2xs font-semibold text-fg-muted">
+          Tam sistem yedeği (SQL + görseller) sunucu tarafında <code className="font-mono text-fg-strong">npm run db:backup</code> ile alınır. Buradaki araçlar kısmi JSON dışa/içe aktarımdır.
+        </p>
+        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Reset Movements Except Today's Orders */}
-          <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 flex items-center justify-center">
-                <RotateCcw className="w-4 h-4" />
+          <div className="flex flex-col justify-between gap-3 rounded-card border border-warning/30 bg-warning-soft/40 p-3.5">
+            <div className="space-y-1.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-control bg-warning/15 text-warning">
+                <RotateCcw className="h-4 w-4" />
               </div>
-              <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider">Hareketleri Sıfırla</h4>
-              <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Bugün girilen siparişler hariç; stok, cari, finans, TDHP ve üretim hareketlerini temizler. Kartlar korunur.</p>
-              {!isSuperAdmin && (
-                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
-              )}
+              <h4 className="text-xs font-black uppercase tracking-wider text-fg-strong">Hareketleri Sıfırla</h4>
+              <p className="text-2xs font-semibold text-fg-muted">Bugün girilen siparişler hariç; stok, cari, finans, TDHP ve üretim hareketlerini temizler. Kartlar korunur.</p>
+              {!isSuperAdmin && <p className="text-2xs font-bold text-danger">Yalnızca Süper Admin yetkisindedir.</p>}
             </div>
-
-            <button
-              type="button"
-              onClick={() => setIsResetConfirmOpen(true)}
-              disabled={!isSuperAdmin || isClearingMovements}
-              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <RotateCcw className={`w-4 h-4 ${isClearingMovements ? 'animate-spin' : ''}`} />
+            <Button type="button" variant="primary" block disabled={!isSuperAdmin || isClearingMovements} title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'} onClick={() => setIsResetConfirmOpen(true)}>
+              <RotateCcw className={cn('h-4 w-4', isClearingMovements && 'animate-spin')} />
               {isClearingMovements ? 'Temizleniyor...' : 'Hareketleri Sıfırla'}
-            </button>
+            </Button>
           </div>
 
           {/* Backup */}
-          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                <Download className="w-4 h-4" />
+          <div className="flex flex-col justify-between gap-3 rounded-card border border-line bg-surface p-3.5">
+            <div className="space-y-1.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-control bg-success/15 text-success">
+                <Download className="h-4 w-4" />
               </div>
-              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Veri Dışa Aktarma (JSON)</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Stoklar, siparişler, irsaliyeler, cariler ve ayarları tek bir JSON dosyasında indirir. <strong className="text-slate-600 dark:text-slate-300">Tam yedek DEĞİLDİR:</strong> görselleri (uploads), sayaçları ve denetim izini içermez. Taşınabilir tam yedek için sunucuda <code>npm run db:backup</code>.</p>
-              {!isSuperAdmin && (
-                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Tüm modülleri okuma yetkisi gerektirir (Süper Admin).</p>
-              )}
+              <h4 className="text-xs font-black uppercase tracking-wider text-fg-strong">Veri Dışa Aktarma (JSON)</h4>
+              <p className="text-2xs font-semibold text-fg-muted">Stok, sipariş, irsaliye, cari ve ayarları tek JSON'da indirir. <strong className="text-fg-strong">Tam yedek DEĞİLDİR:</strong> görseller/sayaçlar/denetim izi içermez.</p>
+              {!isSuperAdmin && <p className="text-2xs font-bold text-danger">Tüm modülleri okuma yetkisi gerektirir (Süper Admin).</p>}
             </div>
-
-            <button
-              type="button"
-              onClick={handleExportBackup}
-              disabled={!isSuperAdmin || isBackingUp}
-              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Download className="w-4 h-4" />
-              {isBackingUp ? 'İndiriliyor...' : 'Verileri Dışa Aktar (JSON)'}
-            </button>
+            <Button type="button" variant="secondary" block disabled={!isSuperAdmin || isBackingUp} title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'} onClick={handleExportBackup}>
+              <Download className="h-4 w-4" />
+              {isBackingUp ? 'İndiriliyor...' : 'Verileri Dışa Aktar'}
+            </Button>
           </div>
 
           {/* Restore */}
-          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
-                <Upload className="w-4 h-4" />
+          <div className="flex flex-col justify-between gap-3 rounded-card border border-line bg-surface p-3.5">
+            <div className="space-y-1.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-control bg-info/15 text-info">
+                <Upload className="h-4 w-4" />
               </div>
-              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">JSON Verileri İçe Aktar</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Daha önce dışa aktardığınız bir JSON dosyasını yükleyerek kayıtları yeniler. <strong className="text-slate-600 dark:text-slate-300">Tam sistem geri yükleme DEĞİLDİR</strong> (görseller/sayaçlar/denetim izi dönmez); tam yedekten dönüş için sunucuda <code>npm run db:restore</code>.</p>
-              {!isSuperAdmin && (
-                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
-              )}
+              <h4 className="text-xs font-black uppercase tracking-wider text-fg-strong">JSON Verileri İçe Aktar</h4>
+              <p className="text-2xs font-semibold text-fg-muted">Dışa aktarılan JSON'u yükleyerek kayıtları yeniler. <strong className="text-fg-strong">Tam geri yükleme DEĞİLDİR</strong> (görsel/sayaç/denetim izi dönmez).</p>
+              {!isSuperAdmin && <p className="text-2xs font-bold text-danger">Yalnızca Süper Admin yetkisindedir.</p>}
             </div>
-
-            <label className={`w-full text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-xs ${isSuperAdmin ? 'bg-sky-600 hover:bg-sky-700 cursor-pointer' : 'bg-slate-400 cursor-not-allowed'}`}>
-              <Upload className="w-4 h-4" />
+            <label className={cn('flex w-full items-center justify-center gap-1.5 rounded-control px-3 py-2 text-xs font-black uppercase tracking-wider text-white shadow-card', isSuperAdmin ? 'cursor-pointer bg-info hover:bg-info/90' : 'cursor-not-allowed bg-fg-muted/40')}>
+              <Upload className="h-4 w-4" />
               JSON Dosyası Seç
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImportBackup}
-                disabled={!isSuperAdmin}
-                className="hidden"
-              />
+              <input type="file" accept=".json" onChange={handleImportBackup} disabled={!isSuperAdmin} className="hidden" />
             </label>
           </div>
 
           {/* Reset Demo */}
-          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center">
-                <RefreshCw className="w-4 h-4" />
+          <div className="flex flex-col justify-between gap-3 rounded-card border border-danger/30 bg-danger-soft/40 p-3.5">
+            <div className="space-y-1.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-control bg-danger/15 text-danger">
+                <RefreshCw className="h-4 w-4" />
               </div>
-              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Fabrika / Demo Verisi</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Tüm tabloları sıfırlar ve zengin ayakkabı imalat demo verilerini (ürünler, reçeteler, cariler) tekrar yükler.</p>
-              {!isSuperAdmin && (
-                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">Bu işlem yalnızca Süper Admin yetkisindedir.</p>
-              )}
+              <h4 className="text-xs font-black uppercase tracking-wider text-fg-strong">Fabrika / Demo Verisi</h4>
+              <p className="text-2xs font-semibold text-fg-muted">Tüm tabloları sıfırlar ve zengin ayakkabı imalat demo verilerini tekrar yükler.</p>
+              {!isSuperAdmin && <p className="text-2xs font-bold text-danger">Yalnızca Süper Admin yetkisindedir.</p>}
             </div>
-
-            <button
-              type="button"
-              onClick={() => setIsDemoConfirmOpen(true)}
-              disabled={!isSuperAdmin || isResetting}
-              title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'}
-              className="w-full bg-slate-900 hover:bg-rose-600 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <RefreshCw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+            <Button type="button" variant="danger" block disabled={!isSuperAdmin || isResetting} title={isSuperAdmin ? undefined : 'Bu işlem yalnızca Süper Admin yetkisindedir'} onClick={() => setIsDemoConfirmOpen(true)}>
+              <RefreshCw className={cn('h-4 w-4', isResetting && 'animate-spin')} />
               {isResetting ? 'Yükleniyor...' : 'Demo Verilerini Yükle'}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </SettingsSection>
 
       {/* Confirmation Modal: Reset Movements */}
-      <Modal
-        isOpen={isResetConfirmOpen}
-        onClose={() => setIsResetConfirmOpen(false)}
-        title="Hareketleri Sıfırla (Kartlar Dursun)"
-        size="lg"
-      >
-        <div className="p-6 space-y-5">
-          <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 text-amber-900 dark:text-amber-200">
-            <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1">
-              <p className="font-bold text-sm">Bu işlem geri alınamaz!</p>
+      <Modal isOpen={isResetConfirmOpen} onClose={() => setIsResetConfirmOpen(false)} title="Hareketleri Sıfırla (Kartlar Dursun)" size="lg">
+        <div className="space-y-4 p-5">
+          <div className="flex items-start gap-3 rounded-card border border-warning/30 bg-warning-soft/50 p-4 text-fg-strong">
+            <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-warning" />
+            <div className="space-y-1 text-xs">
+              <p className="text-sm font-bold">Bu işlem geri alınamaz!</p>
               <p>Bugün girilen siparişler haricindeki tüm geçmiş işlem ve hareket kayıtları temizlenecektir.</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className="bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl p-3.5 space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-emerald-300">
-                <Check className="w-4 h-4 text-emerald-600" />
+          <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-2">
+            <div className="space-y-2 rounded-card border border-success/30 bg-success-soft/50 p-3.5">
+              <div className="flex items-center gap-1.5 font-bold text-success">
+                <Check className="h-4 w-4" />
                 <span>KORUNACAK KARTLAR</span>
               </div>
-              <ul className="space-y-1 text-slate-700 dark:text-slate-300 list-disc list-inside text-[11px]">
+              <ul className="list-disc space-y-1 pl-4 text-2xs font-semibold text-fg">
                 <li>Stok & Hammadde Kartları (Bakiye sıfırlanır)</li>
                 <li>Cari Hesap Kartları (Müşteri & Tedarikçi)</li>
                 <li>TDHP Hesap Planı Kartları</li>
@@ -637,12 +513,12 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
               </ul>
             </div>
 
-            <div className="bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/50 rounded-xl p-3.5 space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-300">
-                <Trash2 className="w-4 h-4 text-rose-600" />
+            <div className="space-y-2 rounded-card border border-danger/30 bg-danger-soft/50 p-3.5">
+              <div className="flex items-center gap-1.5 font-bold text-danger">
+                <Trash2 className="h-4 w-4" />
                 <span>TEMİZLENECEK HAREKETLER</span>
               </div>
-              <ul className="space-y-1 text-slate-700 dark:text-slate-300 list-disc list-inside text-[11px]">
+              <ul className="list-disc space-y-1 pl-4 text-2xs font-semibold text-fg">
                 <li>Eski siparişler ve geçmiş sipariş kayıtları</li>
                 <li>Stok giriş / çıkış / transfer hareket logları</li>
                 <li>Üretim iş emirleri (sıfırdan başlama)</li>
@@ -653,60 +529,33 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-            <button
-              type="button"
-              onClick={() => setIsResetConfirmOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
-            >
-              Vazgeç
-            </button>
-            <button
-              type="button"
-              onClick={executeResetExceptToday}
-              disabled={isClearingMovements}
-              className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <RotateCcw className={`w-4 h-4 ${isClearingMovements ? 'animate-spin' : ''}`} />
+          <div className="flex items-center justify-end gap-3 border-t border-line pt-3">
+            <Button type="button" variant="secondary" onClick={() => setIsResetConfirmOpen(false)}>Vazgeç</Button>
+            <Button type="button" variant="primary" disabled={isClearingMovements} onClick={executeResetExceptToday}>
+              <RotateCcw className={cn('h-4 w-4', isClearingMovements && 'animate-spin')} />
               {isClearingMovements ? 'Sıfırlanıyor...' : 'Evet, Hareketleri Sıfırla'}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>
 
       {/* Confirmation Modal: Demo Data Reset */}
-      <Modal
-        isOpen={isDemoConfirmOpen}
-        onClose={() => setIsDemoConfirmOpen(false)}
-        title="Fabrika / Demo Verilerine Sıfırla"
-        size="md"
-      >
-        <div className="p-6 space-y-4">
-          <div className="flex items-start gap-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 rounded-xl p-4 text-rose-900 dark:text-rose-200">
-            <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1">
-              <p className="font-bold text-sm">Tüm Veriler Silinecektir!</p>
+      <Modal isOpen={isDemoConfirmOpen} onClose={() => setIsDemoConfirmOpen(false)} title="Fabrika / Demo Verilerine Sıfırla" size="md">
+        <div className="space-y-4 p-5">
+          <div className="flex items-start gap-3 rounded-card border border-danger/30 bg-danger-soft/50 p-4 text-fg-strong">
+            <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-danger" />
+            <div className="space-y-1 text-xs">
+              <p className="text-sm font-bold">Tüm Veriler Silinecektir!</p>
               <p>Mevcut tüm tablolar sıfırlanacak ve hazır ayakkabı imalat demo verileri yüklenecektir. Bu işlem geri alınamaz.</p>
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-            <button
-              type="button"
-              onClick={() => setIsDemoConfirmOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer"
-            >
-              Vazgeç
-            </button>
-            <button
-              type="button"
-              onClick={executeResetToDemo}
-              disabled={isResetting}
-              className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <RefreshCw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+          <div className="flex items-center justify-end gap-3 border-t border-line pt-3">
+            <Button type="button" variant="secondary" onClick={() => setIsDemoConfirmOpen(false)}>Vazgeç</Button>
+            <Button type="button" variant="danger" disabled={isResetting} onClick={executeResetToDemo}>
+              <RefreshCw className={cn('h-4 w-4', isResetting && 'animate-spin')} />
               {isResetting ? 'Yükleniyor...' : 'Evet, Demo Verisi Yükle'}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

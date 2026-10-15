@@ -1,0 +1,10 @@
+SET @exists_snapshot := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payrollRecords' AND COLUMN_NAME='parameterSnapshot');
+SET @snapshot_sql := IF(@exists_snapshot=0, 'ALTER TABLE `payrollRecords` ADD COLUMN `parameterSnapshot` JSON NULL', 'DO 0');
+PREPARE snapshot_stmt FROM @snapshot_sql;
+EXECUTE snapshot_stmt;
+DEALLOCATE PREPARE snapshot_stmt;
+SET @exists_recipe_snapshot := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='workOrders' AND COLUMN_NAME='recipeSnapshot');
+SET @recipe_snapshot_sql := IF(@exists_recipe_snapshot=0, 'ALTER TABLE `workOrders` ADD COLUMN `recipeSnapshot` JSON NULL', 'DO 0');
+PREPARE recipe_snapshot_stmt FROM @recipe_snapshot_sql;
+EXECUTE recipe_snapshot_stmt;
+DEALLOCATE PREPARE recipe_snapshot_stmt;

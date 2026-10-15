@@ -12,12 +12,15 @@ import {
   Undo2,
   KeyRound,
   ShieldAlert,
+  Sun,
+  Moon,
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
-import { NAV, leavesOf, moduleForPath, type NavEntry, type NavLeaf } from '../lib/navConfig';
+import { NAV, leavesOf, moduleForPath, labelForPath, type NavEntry, type NavLeaf } from '../lib/navConfig';
 import UserSwitcherModal from './Users/UserSwitcherModal';
 import AccessDenied from './Common/AccessDenied';
 import ChangePasswordModal from './Common/ChangePasswordModal';
@@ -27,6 +30,7 @@ import NotificationBell from './Common/NotificationBell';
 import UserMenu from './Common/UserMenu';
 
 export default function Layout() {
+  const { actualTheme, setTheme } = useTheme();
   const location = useLocation();
   const pathname = location.pathname;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -57,6 +61,13 @@ export default function Layout() {
 
   const currentModule = moduleForPath(pathname);
   const isCurrentModuleAllowed = hasPermission(currentModule, 'view');
+  const pageTitle = labelForPath(pathname);
+
+  // Sekme başlığı aktif sayfayı yansıtsın: çok sekmeli kullanımda ve tarayıcı
+  // geçmişinde hangi ekranın açık olduğu okunabilir olur.
+  useEffect(() => {
+    document.title = pageTitle ? `${pageTitle} · ${companyName}` : companyName;
+  }, [pageTitle, companyName]);
 
   const isLeafActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
@@ -265,11 +276,11 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex h-screen pt-[env(safe-area-inset-top)] bg-canvas overflow-hidden font-sans transition-colors duration-200">
+    <div className="erp-shell flex h-screen pt-[env(safe-area-inset-top)] bg-canvas overflow-hidden font-sans transition-colors duration-200">
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          'hidden md:flex md:flex-col bg-slate-950 border-r border-slate-800/80 shrink-0 transition-all duration-300 ease-in-out relative z-20 shadow-2xl',
+          'erp-sidebar hidden md:flex md:flex-col bg-slate-950 border-r border-slate-800/80 shrink-0 transition-all duration-300 ease-in-out relative z-20 shadow-2xl',
           isCollapsed ? 'w-[68px]' : 'w-60'
         )}
       >
@@ -354,6 +365,15 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setTheme(actualTheme === 'dark' ? 'light' : 'dark')}
+              aria-label={actualTheme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+              title={actualTheme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+              className="p-2 rounded-xl border border-line bg-surface-raised text-brand hover:bg-brand-soft transition-colors cursor-pointer"
+            >
+              {actualTheme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+            </button>
             <button
               onClick={() => setIsGlobalScannerOpen(true)}
               title="Kamera ile Canlı Barkod/Karekod Okut"

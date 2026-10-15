@@ -14,3 +14,11 @@ coverage/
 # Veritabanı yedekleri (#54) — `npm run db:backup` çıktısı; hassas veri
 # içerir, sürüm kontrolüne girmez.
 /backups/
+
+# Windows dosya izni onarım kayıtları (DSH kum havuzu aracı) — makineye özel
+# kurtarma betiği ve ACL raporu; sürüm kontrolüne girmez.
+/.dsh-acl-recovery/
+
+# Geçici/ara dosyalar (kum havuzu yazma probu vb.) — sürüm kontrolüne girmez.
+*.tmp
+.npm-cache/

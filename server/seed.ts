@@ -1,4 +1,4 @@
-import { getPool, query, queryOne, withTransaction } from './db.js';
+import { getPool, withTransaction } from './db.js';
 import { RESOURCES } from './columns.js';
 import { hashPassword } from './auth.js';
 import { INITIAL_TDHP_ACCOUNTS, INITIAL_CASH_BOXES, INITIAL_BANK_ACCOUNTS } from '../src/data/tdhpAccounts.js';
@@ -31,16 +31,39 @@ const seededCredentials: { username: string; password: string }[] = [];
 
 const columnCache = new Map<string, Set<string>>();
 
-async function tableColumns(table: string): Promise<Set<string>> {
+async function tableColumns(table: string, conn: PoolConnection | null = null): Promise<Set<string>> {
   const cached = columnCache.get(table);
   if (cached) return cached;
-  const rows = await query<{ COLUMN_NAME: string }>(
+  const rows = await runQuery(
+    conn,
     `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
     [table]
   );
-  const set = new Set(rows.map((r) => r.COLUMN_NAME));
+  const set = new Set(rows.map((r: any) => String(r.COLUMN_NAME)));
   columnCache.set(table, set);
   return set;
+}
+
+/**
+ * Sorguları verilen bağlantı üzerinden (transaction içi) ya da havuzdan çalıştırır.
+ * `doSeed` hem normal başlangıçta (havuz) hem de "demo verilerine sıfırla"
+ * işleminde (tek transaction) kullanıldığı için bağlantı dışarıdan geçirilir.
+ */
+function runQuery(
+  conn: PoolConnection | null,
+  sql: string,
+  params: any[] = []
+): Promise<any[]> {
+  const runner: any = conn ?? getPool();
+  return runner.query(sql, params).then(([rows]: [any[], any]) => rows as any[]);
+}
+
+function runQueryOne(
+  conn: PoolConnection | null,
+  sql: string,
+  params: any[] = []
+): Promise<any | null> {
+  return runQuery(conn, sql, params).then((rows) => (rows.length ? rows[0] : null));
 }
 
 const JSON_COLUMNS: Record<string, string[]> = {
@@ -60,7 +83,7 @@ async function insertRow(
   table: string,
   row: Record<string, any>
 ): Promise<number> {
-  const cols = await tableColumns(table);
+  const cols = await tableColumns(table, conn);
   const jsonCols = JSON_COLUMNS[table] || [];
   const keys = Object.keys(row).filter((k) => cols.has(k));
   if (!keys.length) throw new Error(`${table} için eklenecek geçerli kolon yok.`);
@@ -78,13 +101,13 @@ async function insertRow(
     .map(() => '?')
     .join(', ')})`;
 
-  const runner = conn ?? getPool();
-  const [result] = await (runner as any).query(sql, values);
+  const runner: any = conn ?? getPool();
+  const [result] = await runner.query(sql, values);
   return (result as any).insertId;
 }
 
-async function tableCount(table: string): Promise<number> {
-  const row = await queryOne<{ n: number }>(`SELECT COUNT(*) AS n FROM \`${table}\``);
+async function tableCount(table: string, conn: PoolConnection | null = null): Promise<number> {
+  const row = await runQueryOne(conn, `SELECT COUNT(*) AS n FROM \`${table}\``);
   return Number((row as any)?.n || 0);
 }
 
@@ -95,37 +118,52 @@ async function tableCount(table: string): Promise<number> {
 let seedPromise: Promise<{ created: boolean }> | null = null;
 
 export function runSeed(): Promise<{ created: boolean }> {
-  if (!seedPromise) seedPromise = doSeed();
+  if (!seedPromise) {
+    seedPromise = doSeed(null).catch((err) => {
+      // Reddedilen promise önbellekte kalırsa geçici bir DB hatası seed'i
+      // süreç ömrü boyunca kalıcı olarak devre dışı bırakırdı.
+      seedPromise = null;
+      throw err;
+    });
+  }
   return seedPromise;
 }
 
 /**
- * "Demo verilerine sıfırla" işlemi: tüm tabloları boşaltıp demo veriyi
- * baştan yükler. Yabancı anahtar sırası gözetilemeyeceği için silme ve
- * ekleme tek bir transaction içinde FK denetimi kapalıyken yapılır.
+ * "Demo verilerine sıfırla" işlemi: tüm tabloları boşaltıp demo veriyi baştan
+ * yükler.
+ *
+ * Silme ve yeniden yükleme TEK transaction içinde, FK denetimi kapalıyken
+ * yapılır. Ayrı transaction'larda çalıştırıldığında seed yarıda kalırsa (ör.
+ * geçici bir hata) veritabanı boş ve kullanıcısız kalıyordu; bu durumda
+ * `/ops/reseed`'i çağıracak bir Süper Admin bile kalmadığı için kurtarma
+ * yalnızca `npm run db:restore` ile mümkündü. Artık hata hâlinde transaction
+ * geri alınır ve mevcut veri olduğu gibi korunur.
  */
 export async function reseed(): Promise<{ created: boolean }> {
   const tables = Object.values(RESOURCES).map((def) => def.table);
 
-  await withTransaction(async (conn) => {
+  const result = await withTransaction(async (conn) => {
     await conn.query('SET FOREIGN_KEY_CHECKS = 0');
     try {
       for (const table of tables) await conn.query(`DELETE FROM \`${table}\``);
+      return await doSeed(conn);
     } finally {
       await conn.query('SET FOREIGN_KEY_CHECKS = 1');
     }
   });
 
-  seedPromise = null;
-  return runSeed();
+  // Sıfırlama sonrası önbelleklenmiş promise tazelenir.
+  seedPromise = Promise.resolve(result);
+  return result;
 }
 
-async function doSeed(): Promise<{ created: boolean }> {
+async function doSeed(conn: PoolConnection | null): Promise<{ created: boolean }> {
   let createdAnything = false;
 
   // 1. Ayarlar
-  if ((await tableCount('settings')) === 0) {
-    await insertRow(null, 'settings', {
+  if ((await tableCount('settings', conn)) === 0) {
+    await insertRow(conn, 'settings', {
       id: 'global_barcode',
       barcodeType: 'CODE-128',
       barcodePrefix: '869',
@@ -135,8 +173,8 @@ async function doSeed(): Promise<{ created: boolean }> {
   }
 
   // Arayüz her açılışta bu tekil kaydı okur; yoksa 404 üretmemesi için garanti altına alınır.
-  if (!(await queryOne('SELECT id FROM settings WHERE id = ? LIMIT 1', ['global_settings']))) {
-    await insertRow(null, 'settings', {
+  if (!(await runQueryOne(conn, 'SELECT id FROM settings WHERE id = ? LIMIT 1', ['global_settings']))) {
+    await insertRow(conn, 'settings', {
       id: 'global_settings',
       barcodeType: 'CODE-128',
       barcodePrefix: '869',
@@ -146,25 +184,25 @@ async function doSeed(): Promise<{ created: boolean }> {
   }
 
   // 2. TDHP hesap planı
-  if ((await tableCount('accounts')) === 0) {
+  if ((await tableCount('accounts', conn)) === 0) {
     for (const acc of INITIAL_TDHP_ACCOUNTS) {
-      await insertRow(null, 'accounts', acc as any);
+      await insertRow(conn, 'accounts', acc as any);
     }
     createdAnything = true;
   }
 
   // 3. Kasa ve banka hesapları
-  if ((await tableCount('cashBoxes')) === 0) {
-    for (const box of INITIAL_CASH_BOXES) await insertRow(null, 'cashBoxes', box as any);
+  if ((await tableCount('cashBoxes', conn)) === 0) {
+    for (const box of INITIAL_CASH_BOXES) await insertRow(conn, 'cashBoxes', box as any);
     createdAnything = true;
   }
-  if ((await tableCount('bankAccounts')) === 0) {
-    for (const bank of INITIAL_BANK_ACCOUNTS) await insertRow(null, 'bankAccounts', bank as any);
+  if ((await tableCount('bankAccounts', conn)) === 0) {
+    for (const bank of INITIAL_BANK_ACCOUNTS) await insertRow(conn, 'bankAccounts', bank as any);
     createdAnything = true;
   }
 
   // 4. Asorti şablonları
-  if ((await tableCount('assortmentTemplates')) === 0) {
+  if ((await tableCount('assortmentTemplates', conn)) === 0) {
     const templates = [
       {
         name: "Erkek Standart 40-45 (12'li Koli)",
@@ -196,18 +234,18 @@ async function doSeed(): Promise<{ created: boolean }> {
         items: ['26', '27', '28', '29', '30', '31', '32', '33', '34', '35'].map((size) => ({ size, quantity: 1 })),
       },
     ];
-    for (const t of templates) await insertRow(null, 'assortmentTemplates', t);
+    for (const t of templates) await insertRow(conn, 'assortmentTemplates', t);
     createdAnything = true;
   }
 
   // 5. Barkod / etiket şablonları
-  if ((await tableCount('barcodeTemplates')) === 0) {
-    for (const t of INITIAL_BARCODE_TEMPLATES) await insertRow(null, 'barcodeTemplates', t as any);
+  if ((await tableCount('barcodeTemplates', conn)) === 0) {
+    for (const t of INITIAL_BARCODE_TEMPLATES) await insertRow(conn, 'barcodeTemplates', t as any);
     createdAnything = true;
   }
 
   // 6. Personel + izin talepleri
-  if ((await tableCount('employees')) === 0) {
+  if ((await tableCount('employees', conn)) === 0) {
     const employees = [
       {
         employeeCode: 'PER-001',
@@ -324,9 +362,9 @@ async function doSeed(): Promise<{ created: boolean }> {
     ];
 
     const ids: number[] = [];
-    for (const e of employees) ids.push(await insertRow(null, 'employees', e));
+    for (const e of employees) ids.push(await insertRow(conn, 'employees', e));
 
-    await insertRow(null, 'leaveRequests', {
+    await insertRow(conn, 'leaveRequests', {
       employeeId: ids[1],
       employeeName: 'Fatma Yılmaz',
       leaveType: 'annual',
@@ -338,7 +376,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       approvedBy: 'Yönetim',
       createdAt: new Date(),
     });
-    await insertRow(null, 'leaveRequests', {
+    await insertRow(conn, 'leaveRequests', {
       employeeId: ids[0],
       employeeName: 'Mehmet Demir',
       leaveType: 'excuse',
@@ -353,19 +391,19 @@ async function doSeed(): Promise<{ created: boolean }> {
   }
 
   // 7. Roller ve kullanıcılar
-  if ((await tableCount('roles')) === 0) {
-    for (const role of INITIAL_ROLES) await insertRow(null, 'roles', role as any);
+  if ((await tableCount('roles', conn)) === 0) {
+    for (const role of INITIAL_ROLES) await insertRow(conn, 'roles', role as any);
     createdAnything = true;
   }
 
-  if ((await tableCount('users')) === 0) {
-    const roleRows = await query<{ id: number; code: string }>('SELECT id, code FROM roles');
+  if ((await tableCount('users', conn)) === 0) {
+    const roleRows = await runQuery(conn, 'SELECT id, code FROM roles');
     const roleMap = new Map(roleRows.map((r) => [r.code, r.id]));
 
     for (const u of INITIAL_USERS) {
       const password = initialPasswordFor();
       const { hash, salt } = await hashPassword(password);
-      await insertRow(null, 'users', {
+      await insertRow(conn, 'users', {
         ...u,
         roleId: roleMap.get(u.roleCode),
         passwordSalt: salt,
@@ -386,8 +424,8 @@ async function doSeed(): Promise<{ created: boolean }> {
   }
 
   // 8. Denetim kaydı
-  if ((await tableCount('auditLogs')) === 0) {
-    const admin = await queryOne<{ id: number }>('SELECT id FROM users WHERE username = ? LIMIT 1', ['mdemir']);
+  if ((await tableCount('auditLogs', conn)) === 0) {
+    const admin = await runQueryOne(conn, 'SELECT id FROM users WHERE username = ? LIMIT 1', ['mdemir']);
     const adminId = admin?.id || 1;
     const logs = [
       {
@@ -422,12 +460,12 @@ async function doSeed(): Promise<{ created: boolean }> {
         timestamp: new Date(),
       },
     ];
-    for (const l of logs) await insertRow(null, 'auditLogs', l);
+    for (const l of logs) await insertRow(conn, 'auditLogs', l);
     createdAnything = true;
   }
 
   // 9. Merkezi renk kartları (color master)
-  if ((await tableCount('colors')) === 0) {
+  if ((await tableCount('colors', conn)) === 0) {
     // HEX değerleri src/lib/colorSwatches.ts paletiyle birebir aynıdır (uydurma değer yok).
     const colorRows = [
       { code: 'R-0001', name: 'SİYAH', groupName: 'Temel', hexCode: '#0F172A', rgbCode: '15, 23, 42' },
@@ -437,16 +475,16 @@ async function doSeed(): Promise<{ created: boolean }> {
       { code: 'R-0005', name: 'NATUREL', groupName: 'Astar', hexCode: '#F5F5F4', rgbCode: '245, 245, 244' },
     ];
     for (const c of colorRows) {
-      await insertRow(null, 'colors', { ...c, isActive: 1, createdAt: new Date(), updatedAt: new Date() });
+      await insertRow(conn, 'colors', { ...c, isActive: 1, createdAt: new Date(), updatedAt: new Date() });
     }
     createdAnything = true;
   }
-  const siyahColor = await queryOne<{ id: number }>('SELECT `id` FROM `colors` WHERE `name` = ? LIMIT 1', ['SİYAH']);
+  const siyahColor = await runQueryOne(conn, 'SELECT `id` FROM `colors` WHERE `name` = ? LIMIT 1', ['SİYAH']);
   const siyahColorId = Number((siyahColor as any)?.id || 0);
 
   // 10. Örnek ürünler, reçete ve iş emri
-  if ((await tableCount('products')) === 0) {
-    const deriId = await insertRow(null, 'products', {
+  if ((await tableCount('products', conn)) === 0) {
+    const deriId = await insertRow(conn, 'products', {
       code: 'HAM-DERI-01',
       name: 'Siyah Hakiki Dana Derisi (Vidala)',
       categoryType: 'raw_material',
@@ -463,7 +501,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       accountingCode: '150.01',
     });
 
-    const tabanId = await insertRow(null, 'products', {
+    const tabanId = await insertRow(conn, 'products', {
       code: 'YAR-TAB-01',
       name: 'TermoPatik Klasik Taban (Siyah)',
       categoryType: 'semi_finished',
@@ -491,7 +529,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       ],
     });
 
-    const astarId = await insertRow(null, 'products', {
+    const astarId = await insertRow(conn, 'products', {
       code: 'HAM-AST-01',
       name: 'Meşin Dana Astarı',
       categoryType: 'raw_material',
@@ -508,7 +546,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       accountingCode: '150.01',
     });
 
-    const bagcikId = await insertRow(null, 'products', {
+    const bagcikId = await insertRow(conn, 'products', {
       code: 'AKS-BAG-01',
       name: 'Mumsu Yuvarlak Bağcık 90 cm (Siyah)',
       categoryType: 'accessory',
@@ -525,7 +563,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       accountingCode: '150.02',
     });
 
-    const kutuId = await insertRow(null, 'products', {
+    const kutuId = await insertRow(conn, 'products', {
       code: 'AKS-KUT-01',
       name: 'Kapaklı Karton Ayakkabı Kutusu (Standart)',
       categoryType: 'accessory',
@@ -542,7 +580,7 @@ async function doSeed(): Promise<{ created: boolean }> {
       accountingCode: '150.02',
     });
 
-    const shoe1Id = await insertRow(null, 'products', {
+    const shoe1Id = await insertRow(conn, 'products', {
       code: 'MAM-AYK-01',
       name: 'Oxford Klasik Hakiki Deri Erkek Ayakkabı',
       categoryType: 'finished',
@@ -570,10 +608,10 @@ async function doSeed(): Promise<{ created: boolean }> {
     });
 
     if (siyahColorId) {
-      await insertRow(null, 'productColors', { productId: shoe1Id, colorId: siyahColorId, sortOrder: 0, createdAt: new Date() });
+      await insertRow(conn, 'productColors', { productId: shoe1Id, colorId: siyahColorId, sortOrder: 0, createdAt: new Date() });
     }
 
-    await insertRow(null, 'recipes', {
+    await insertRow(conn, 'recipes', {
       productId: shoe1Id,
       targetColor: 'Siyah',
       name: 'Oxford Klasik Deri Ayakkabı Standart BOM Reçetesi',
@@ -591,7 +629,7 @@ async function doSeed(): Promise<{ created: boolean }> {
     });
 
     const now = new Date();
-    await insertRow(null, 'workOrders', {
+    await insertRow(conn, 'workOrders', {
       productId: shoe1Id,
       quantity: 120,
       status: 'in_progress',

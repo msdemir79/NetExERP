@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS recipes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 CREATE TABLE IF NOT EXISTS workOrders (
+  `recipeSnapshot` JSON NULL,
   `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `productId`           BIGINT UNSIGNED NOT NULL,
   `quantity`            DECIMAL(15,4)   NOT NULL DEFAULT 0,
@@ -239,6 +240,7 @@ CREATE TABLE IF NOT EXISTS workOrders (
   `currentStage`        VARCHAR(30)     NOT NULL DEFAULT 'planning',
   `stages`              JSON            NULL,
   `materialStatus`      VARCHAR(30)     NULL,
+  `line`                VARCHAR(50)     NULL,
   `recipeId`            BIGINT UNSIGNED NULL,
   `barcode`             VARCHAR(80)     NOT NULL,
   `notes`               TEXT            NULL,
@@ -917,6 +919,7 @@ CREATE TABLE IF NOT EXISTS advanceRequests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
 CREATE TABLE IF NOT EXISTS payrollRecords (
+  `parameterSnapshot` JSON NULL,
   `id`                                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `employeeId`                        BIGINT UNSIGNED NOT NULL,
   `employeeName`                      VARCHAR(255)    NULL,
@@ -1279,3 +1282,75 @@ UPDATE `auditLogs` c SET c.`userId` = NULL WHERE c.`userId` IS NOT NULL AND NOT 
 SET @fk := (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='auditLogs' AND CONSTRAINT_NAME='fk_auditLogs_user' AND CONSTRAINT_TYPE='FOREIGN KEY');
 SET @sql := IF(@fk=0, 'ALTER TABLE `auditLogs` ADD CONSTRAINT `fk_auditLogs_user` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE', 'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+CREATE TABLE IF NOT EXISTS operationRequests (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `userId` BIGINT UNSIGNED NOT NULL,
+  `scope` VARCHAR(100) NOT NULL,
+  `requestKey` VARCHAR(100) NOT NULL,
+  `payloadHash` CHAR(64) NOT NULL,
+  `result` JSON NULL,
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completedAt` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_operation_request` (`userId`, `scope`, `requestKey`),
+  KEY `idx_operation_completed` (`completedAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+CREATE TABLE IF NOT EXISTS stockReservations (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `productId` BIGINT UNSIGNED NOT NULL,
+  `orderId` BIGINT UNSIGNED NULL,
+  `workOrderId` BIGINT UNSIGNED NULL,
+  `color` VARCHAR(80) NULL,
+  `size` VARCHAR(50) NULL,
+  `quantity` DECIMAL(15,4) NOT NULL,
+  `remainingQuantity` DECIMAL(15,4) NOT NULL,
+  `status` ENUM('active','consumed','released') NOT NULL DEFAULT 'active',
+  `createdBy` BIGINT UNSIGNED NOT NULL,
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `releasedAt` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_reservations_product_status` (`productId`,`status`),
+  KEY `idx_reservations_order` (`orderId`),
+  KEY `idx_reservations_workOrder` (`workOrderId`),
+  CONSTRAINT `fk_reservation_product` FOREIGN KEY (`productId`) REFERENCES products (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_reservation_order` FOREIGN KEY (`orderId`) REFERENCES orders (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_reservation_workOrder` FOREIGN KEY (`workOrderId`) REFERENCES workOrders (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+CREATE TABLE IF NOT EXISTS qualityChecks (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `workOrderId` BIGINT UNSIGNED NOT NULL,
+  `inspectedQuantity` DECIMAL(15,4) NOT NULL,
+  `rejectedQuantity` DECIMAL(15,4) NOT NULL DEFAULT 0,
+  `result` ENUM('pass','fail') NOT NULL,
+  `status` ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `notes` TEXT NOT NULL,
+  `createdBy` BIGINT UNSIGNED NOT NULL,
+  `approvedBy` BIGINT UNSIGNED NULL,
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `approvedAt` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_quality_workOrder_status` (`workOrderId`,`status`),
+  CONSTRAINT `fk_quality_workOrder` FOREIGN KEY (`workOrderId`) REFERENCES workOrders (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+
+CREATE TABLE IF NOT EXISTS purchaseRequests (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `requestNumber` VARCHAR(50) NOT NULL,
+  `supplierId` BIGINT UNSIGNED NOT NULL,
+  `items` JSON NOT NULL,
+  `totalAmount` DECIMAL(15,2) NOT NULL,
+  `status` ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `notes` TEXT NOT NULL,
+  `decisionReason` TEXT NULL,
+  `createdBy` BIGINT UNSIGNED NOT NULL,
+  `approvedBy` BIGINT UNSIGNED NULL,
+  `orderId` BIGINT UNSIGNED NULL,
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `decidedAt` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_purchase_request_number` (`requestNumber`),
+  KEY `idx_purchase_requests_status` (`status`),
+  CONSTRAINT `fk_purchase_request_supplier` FOREIGN KEY (`supplierId`) REFERENCES contacts (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_purchase_request_order` FOREIGN KEY (`orderId`) REFERENCES orders (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;

@@ -137,7 +137,7 @@ export default function ProductionReport() {
         wo.color || '-',
         STAGE_LABELS[wo.currentStage] || wo.currentStage,
         `%${STAGE_PROGRESS[wo.currentStage] || 0}`,
-        (wo as any).targetCompletionDate || (wo as any).dueDate ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR') : '-',
+        wo.targetDate ? new Date(wo.targetDate).toLocaleDateString('tr-TR') : '-',
         wo.operator || '-'
       ];
     });
@@ -187,7 +187,7 @@ export default function ProductionReport() {
         wo.color || '',
         STAGE_LABELS[wo.currentStage] || wo.currentStage,
         STAGE_PROGRESS[wo.currentStage] || 0,
-        (wo as any).targetCompletionDate || (wo as any).dueDate ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR') : '',
+        wo.targetDate ? new Date(wo.targetDate).toLocaleDateString('tr-TR') : '',
         wo.operator || '',
         wo.notes || ''
       ];
@@ -294,13 +294,11 @@ export default function ProductionReport() {
       align: 'right',
       render: (wo) => (
         <span className="text-slate-600 font-medium text-[11px]">
-          {(wo as any).targetCompletionDate || (wo as any).dueDate ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR') : '-'}
+          {wo.targetDate ? new Date(wo.targetDate).toLocaleDateString('tr-TR') : '-'}
         </span>
       ),
       filterValue: (wo) =>
-        (wo as any).targetCompletionDate || (wo as any).dueDate
-          ? new Date((wo as any).targetCompletionDate || (wo as any).dueDate).toLocaleDateString('tr-TR')
-          : '',
+        wo.targetDate ? new Date(wo.targetDate).toLocaleDateString('tr-TR') : '',
     },
   ];
 

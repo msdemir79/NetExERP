@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Trash2, Download, ShieldAlert, Info } from 'lucide-react';
+import { Trash2, Download, Info } from 'lucide-react';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { userService } from '../../services/userService';
 import { exportToCsv } from '../../lib/exportService';
 import { showToast } from '../../lib/feedback';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from '../Common/DataGrid';
+import DetailPanel from '../Common/DetailPanel';
+import { DetailSection, DetailTiles } from '../Common/DetailPanelContent';
+import StatusBadge from '../Common/StatusBadge';
 import type { AuditLog } from '../../types';
 import { ALL_APP_MODULES } from '../../data/initialRoles';
 
@@ -218,97 +221,77 @@ export default function DeletedRecordsTab() {
         }
       />
 
-      {selected && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
-            <div className={`px-5 py-4 flex items-center justify-between shrink-0 text-white ${selected.action === 'delete_denied' ? 'bg-amber-600' : 'bg-rose-700'}`}>
-              <div className="flex items-center gap-2.5">
-                <ShieldAlert className="w-5 h-5" />
-                <h3 className="text-sm font-bold">
-                  {selected.action === 'delete_denied' ? 'Reddedilen Silme Denemesi' : 'Silme Hareketi Detayı'}
-                </h3>
-              </div>
-              <button onClick={() => setSelected(null)} className="text-white/80 hover:text-white p-1">✕</button>
-            </div>
-
-            <div className="p-5 space-y-3.5 text-xs flex-1 min-h-0 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Tarih & Saat</span>
-                  <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{formatTimestamp(selected.timestamp)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Sonuç</span>
-                  <span className="font-bold text-slate-900 dark:text-slate-100">
-                    {selected.action === 'delete_denied' ? 'Reddedildi' : 'Kalıcı olarak silindi'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İşlemi Yapan</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">{selected.userName}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Rolü</span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200">{selected.userRole}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">Modül</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">{moduleLabel(selected.module)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block">İstemci IP</span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200">{selected.ipAddress || '—'}</span>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Silinen Kayıt</span>
-                <p className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-slate-100">
-                  {recordLabel(selected)}
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Açıklama</span>
-                <p className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
-                  {selected.description}
-                </p>
-              </div>
-
-              {selected.details && (
-                <div>
-                  <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Birlikte Silinenler</span>
-                  <p className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
-                    {selected.details}
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase block mb-1">Gerekçe</span>
-                <p className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                  {selected.reason?.trim() || (selected.action === 'delete_denied' ? 'Parola doğrulanamadı; kayıt silinmedi.' : 'Gerekçe girilmedi (bu kademe için zorunlu değil).')}
-                </p>
-              </div>
-
-              {selected.entityId != null && (
-                <div className="pt-3 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400">
-                  Kayıt kimliği: <strong className="font-mono text-slate-900 dark:text-slate-100">{String(selected.entityId)}</strong>
-                </div>
-              )}
-            </div>
-
-            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 text-right">
+      {/* Silme Hareketi Detay Paneli */}
+      {selected && (() => {
+        const isDenied = selected.action === 'delete_denied';
+        return (
+          <DetailPanel
+            isOpen={!!selected}
+            onClose={() => setSelected(null)}
+            title={isDenied ? 'Reddedilen Silme Denemesi' : 'Silme Hareketi Detayı'}
+            widthClass="max-w-[440px]"
+            badge={(
+              <StatusBadge tone={isDenied ? 'warning' : 'danger'}>
+                {isDenied ? 'Reddedildi' : 'Kalıcı olarak silindi'}
+              </StatusBadge>
+            )}
+            footer={(
               <button
+                type="button"
                 onClick={() => setSelected(null)}
-                className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors shadow-xs"
+                className="inline-flex w-full items-center justify-center rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
               >
                 Kapat
               </button>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailTiles
+                items={[
+                  { label: 'Tarih & Saat', value: formatTimestamp(selected.timestamp) },
+                  { label: 'Modül', value: moduleLabel(selected.module) },
+                  { label: 'İşlemi Yapan', value: selected.userName },
+                  { label: 'İstemci IP', value: selected.ipAddress || '—' },
+                ]}
+              />
+
+              <DetailSection
+                title="Hareket"
+                rows={[
+                  { label: 'Rolü', value: selected.userRole },
+                  { label: 'Kayıt', value: recordLabel(selected) },
+                ]}
+              />
+
+              <DetailSection title="Açıklama">
+                <p className="rounded-card border border-line bg-surface p-3 text-xs font-medium text-fg-strong">
+                  {selected.description}
+                </p>
+              </DetailSection>
+
+              {selected.details && (
+                <DetailSection title="Birlikte Silinenler">
+                  <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs text-fg">
+                    {selected.details}
+                  </p>
+                </DetailSection>
+              )}
+
+              <DetailSection title="Gerekçe">
+                <p className="whitespace-pre-wrap rounded-card border border-line bg-surface p-3 text-xs text-fg">
+                  {selected.reason?.trim() || (isDenied ? 'Parola doğrulanamadı; kayıt silinmedi.' : 'Gerekçe girilmedi (bu kademe için zorunlu değil).')}
+                </p>
+              </DetailSection>
+
+              {selected.entityId != null && (
+                <p className="border-t border-line pt-3 text-2xs text-fg-muted">
+                  Kayıt kimliği: <strong className="font-mono text-fg-strong">{String(selected.entityId)}</strong>
+                </p>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </DetailPanel>
+        );
+      })()}
     </div>
   );
 }

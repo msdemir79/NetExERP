@@ -18,13 +18,17 @@ import {
   assertBalancedJournalEntry, 
   UnbalancedJournalEntryError 
 } from '../lib/accountingValidator';
-import { 
-  calculateNewStock, 
-  isStockCritical, 
-  calculateWeightedAverageCost, 
-  calculateAvailableLotQuantity 
+import {
+  calculateNewStock,
+  isStockCritical,
+  calculateWeightedAverageCost,
+  calculateAvailableLotQuantity,
+  distributeWithLargestRemainder
 } from '../lib/inventoryCalculator';
 import { buildMizanRows, compareAccountCodes, type MizanAccount, type MizanRow } from '../lib/accountCodes';
+import { distributeAssortment, selectProductionRecipe } from '../lib/productionRules';
+import { assertReceiptInput, assertInvoicePayment } from '../lib/financeRules';
+import { minimumWageTaxExemptionKurus, grossForNet2026 } from '../lib/payrollCalculator';
 
 let passedTests = 0;
 let failedTests = 0;
@@ -109,7 +113,7 @@ test('Kümülatif vergi matrahı arttığında vergi dilimi %15\'ten %20\'ye ge�
   // 2. Durum: Önceki kümülatif 150.000 TL, yeni matrah 20.000 TL -> 158.000 TL sınırını aşar
   // 8.000 TL'si %15'ten (1.200 TL = 120.000 Kuruş), kalan 12.000 TL'si %20'den (2.400 TL = 240.000 Kuruş)
   // Toplam: 360.000 Kuruş
-  const tax2 = calculateProgressiveIncomeTaxKurus(15000000, 2000000);
+  const tax2 = calculateProgressiveIncomeTaxKurus(18200000, 2000000);
   expect(tax2.taxKurus).toBe(360000);
   expect(tax2.effectiveRate).toBe(18); // 360.000 / 2.000.000 = %18 efektif oran
 });
@@ -386,10 +390,172 @@ test('Mizan onlyWithBalance ve levelFilter filtreleri eski davranışla eşleşm
   expect(classActual.length).toBe(2);
 });
 
+console.log('\n📌 4. ÜRETİM BORDRO YOLU — ARTAN ORANLI VERGİ');
+
+/**
+ * Regresyon: üretim bordro yolu (hrService.calculatePayrollForEmployee) bir dönem
+ * düz oranlı `matrah * incomeTaxRate` kullanıyordu. Bu, yıl içinde kümülatif matrah
+ * dilim sınırını aştığında vergiyi EKSİK hesaplar. Aşağıdaki test, artan oranlı
+ * motorun düz orandan ayrıştığı ilk ayı kanıtlar; ayrışma yoksa motor devre dışı
+ * kalmış demektir ve test kırmızıya döner.
+ */
+test('Artan oranlı vergi, yıl içinde düz orandan AYRIŞMALI (dilim geçişi)', () => {
+  const SGK_WORKER = 0.14;
+  const UNEMP_WORKER = 0.01;
+  const FLAT_RATE = 0.15;
+  const GROSS = 100000;
+  const EXEMPTION = HR_CONSTANTS_2026.MIN_WAGE_INCOME_TAX_EXEMPTION_TL;
+
+  // Aylık gelir vergisi matrahı (brüt − SGK işçi − işsizlik işçi)
+  const monthlyBase = GROSS - GROSS * SGK_WORKER - GROSS * UNEMP_WORKER;
+  // Düz oranlı (hatalı) hesap her ay aynı vergiyi verir
+  const flatTax = Math.max(0, monthlyBase * FLAT_RATE - EXEMPTION);
+
+  let cumulative = 0;
+  let flatTotal = 0;
+  let progressiveTotal = 0;
+  let firstDivergenceMonth = 0;
+
+  for (let month = 1; month <= 12; month++) {
+    const { taxKurus, newCumulativeBaseKurus } = calculateProgressiveIncomeTaxKurus(
+      toKurus(cumulative),
+      toKurus(monthlyBase)
+    );
+    const progressiveTax = Math.max(0, fromKurus(taxKurus) - EXEMPTION);
+
+    if (!firstDivergenceMonth && Math.abs(progressiveTax - flatTax) > 0.5) {
+      firstDivergenceMonth = month;
+    }
+
+    flatTotal += flatTax;
+    progressiveTotal += progressiveTax;
+    cumulative = fromKurus(newCumulativeBaseKurus);
+  }
+
+  // Ayrışma mutlaka bir noktada başlamalı (aksi halde artan oranlılık çalışmıyor)
+  expect(firstDivergenceMonth).toBeGreaterThan(0);
+  // Düz oran vergiyi olduğundan DÜŞÜK gösterir → yıl toplamı daha küçüktür
+  expect(progressiveTotal).toBeGreaterThan(flatTotal);
+  // Yıl sonunda kümülatif matrah 12 aylık matrahı aşmamalı (sınır kontrolü)
+  expect(cumulative).toBeCloseTo(monthlyBase * 12, 1);
+});
+
+test('Kümülatif matrah arttıkça efektif vergi oranı monoton artmalı', () => {
+  const bases = [0, 50_000_000, 100_000_000, 200_000_000, 400_000_000]; // kuruş
+  let previousRate = -1;
+  for (const prev of bases) {
+    const { effectiveRate, taxKurus } = calculateProgressiveIncomeTaxKurus(prev, 8_500_000);
+    if (effectiveRate < previousRate) throw new Error('Efektif oran azalmamalı');
+    previousRate = effectiveRate;
+    expect(taxKurus).toBeGreaterThan(0);
+  }
+});
+
+// -----------------------------------------------------------------
+// 5. BEDEN/ASORTİ DAĞITIMI — TOPLAM KORUNMASI (REGRESYON)
+// -----------------------------------------------------------------
+console.log('\n📌 5. BEDEN/ASORTİ DAĞITIMI — TOPLAM KORUNMASI');
+
+/**
+ * Regresyon: dağıtım satır başına `Math.round(toplam / adet)` kullanıyordu ve
+ * toplamı AŞABİLİYORDU (5 çift / 8 beden → 7 çift). Bu, ürün stoğu ile beden
+ * kırılımını sessizce ayrıştırıyordu.
+ */
+test('5 miktar 8 bedene dağıtıldığında toplam TAM 5 kalmalı (taşma olmamalı)', () => {
+  const shares = distributeWithLargestRemainder(5, new Array(8).fill(1));
+  const sum = shares.reduce((a, b) => a + b, 0);
+  expect(sum).toBe(5);
+  // Eski hatalı yöntem 7 üretiyordu; her pay 0 veya 1 olmalı
+  shares.forEach((s) => {
+    if (s !== 0 && s !== 1) throw new Error(`Beklenen 0 veya 1, alınan ${s}`);
+  });
+});
+
+test('Dağıtım toplamı her koşulda korunmalı (kapsamlı tarama)', () => {
+  const cases: Array<{ total: number; n: number }> = [
+    { total: 5, n: 8 }, { total: 1, n: 3 }, { total: 7, n: 3 },
+    { total: 100, n: 7 }, { total: 0, n: 4 }, { total: 3, n: 1 },
+    { total: 12, n: 5 }, { total: 1000, n: 33 }, { total: 0.5, n: 4 },
+  ];
+  for (const c of cases) {
+    const shares = distributeWithLargestRemainder(c.total, new Array(c.n).fill(1));
+    const sum = shares.reduce((a, b) => a + b, 0);
+    if (Math.abs(sum - c.total) > 1e-9) {
+      throw new Error(`total=${c.total} n=${c.n} → dağıtım toplamı ${sum}`);
+    }
+  }
+});
+
+test('Asorti ağırlıklı dağıtım oranı korumalı ve toplamı aşmamalı', () => {
+  // 12'li koli asortisi: 40:1, 41:2, 42:3, 43:3, 44:2, 45:1 → 5 koli = 60 çift
+  const weights = [1, 2, 3, 3, 2, 1];
+  const shares = distributeWithLargestRemainder(60, weights);
+  const sum = shares.reduce((a, b) => a + b, 0);
+  expect(sum).toBe(60);
+  // Oran korunmalı: 42 ve 43 en yüksek payı almalı, 40 ve 45 en düşüğü
+  if (!(shares[2] > shares[0] && shares[3] > shares[5])) {
+    throw new Error(`Asorti oranı korunmadı: ${JSON.stringify(shares)}`);
+  }
+  // Tam oransal beklenti: 5,10,15,15,10,5
+  const expected = [5, 10, 15, 15, 10, 5];
+  shares.forEach((s, i) => {
+    if (Math.abs(s - expected[i]) > 1e-9) {
+      throw new Error(`Beklenen ${expected[i]}, alınan ${s} (index ${i})`);
+    }
+  });
+});
+
+test('Negatif dağıtımda (çıkış) işaret ve toplam korunmalı', () => {
+  const shares = distributeWithLargestRemainder(-5, new Array(8).fill(1));
+  const sum = shares.reduce((a, b) => a + b, 0);
+  expect(sum).toBe(-5);
+  shares.forEach((s) => {
+    if (s > 0) throw new Error(`Negatif dağıtımda pozitif pay: ${s}`);
+  });
+});
+
 console.log('\n======================================================');
+test('Üretim beden dağıtımı negatif ve kesirli çift oluşturmaz', () => {
+  const assortment = Array.from({ length: 8 }, (_, index) => ({ size: String(index + 36), quantity: 1 }));
+  for (let total = 1; total < 100; total++) {
+    const distribution = distributeAssortment({ unit: 'Çift', assortment }, total);
+    expect(distribution.reduce((sum, item) => sum + item.quantity, 0)).toBe(total);
+    if (distribution.some(item => item.quantity < 0 || !Number.isInteger(item.quantity))) throw new Error('Geçersiz beden miktarı');
+  }
+});
+test('Ölçülebilen malzemeler açık hassasiyetle kesirli paylaştırılır', () => {
+  expect(JSON.stringify(distributeWithLargestRemainder(5, Array(8).fill(1), 4))).toBe(JSON.stringify(Array(8).fill(0.625)));
+});
+test('Başka renk reçetesi sessizce seçilmez', () => {
+  expect(selectProductionRecipe([{ productId: 1, targetColor: 'Kırmızı' }], 1, 'Mavi')).toBe(null);
+});
+test('Kasa seçilmemiş tahsilat reddedilir', () => {
+  let rejected = false;
+  try { assertReceiptInput({ type: 'collection', instrument: 'cash', amount: 10 }); } catch { rejected = true; }
+  expect(rejected).toBe(true);
+});
+test('Fatura ve ödeme carisi uyuşmalıdır', () => {
+  let rejected = false;
+  try { assertInvoicePayment({ contactId: 1, type: 'sales', status: 'issued', grandTotal: 100, paidAmount: 0 }, { contactId: 2, type: 'collection', amount: 10 }); } catch { rejected = true; }
+  expect(rejected).toBe(true);
+});
+test('2026 resmî asgari ücret ve işveren maliyeti bağımsız tutarla uyuşur', () => {
+  const result = calculatePayroll2026({ grossSalaryTL: 33030, daysWorked: 26, weeklyRestDays: 4, paidLeaveDays: 0, unpaidLeaveDays: 0, absentDays: 0, overtimeHours: 0 });
+  expect(result.netSalary).toBe(28075.50);
+  expect(result.totalEmployerCost).toBe(39223.13);
+  expect(HR_CONSTANTS_2026.SGK_CEILING_TL).toBe(297270);
+});
+test('Asgari ücret vergi istisnası yılın ilerleyen ayında dilime göre artar', () => {
+  expect(minimumWageTaxExemptionKurus(1)).toBe(421133);
+  expect(minimumWageTaxExemptionKurus(12)).toBe(561510);
+});
+test('Netten brüte hesap kümülatif dilimde net tutarı korur', () => {
+  const gross = grossForNet2026(50000, 1_000_000, 9);
+  const result = calculatePayroll2026({ grossSalaryTL: gross, daysWorked: 30, weeklyRestDays: 0, paidLeaveDays: 0, unpaidLeaveDays: 0, absentDays: 0, overtimeHours: 0, previousCumulativeTaxBaseTL: 1_000_000, month: 9 });
+  expect(result.netSalary).toBeCloseTo(50000, 0.01);
+});
 console.log(` TEST RAPORU: ${passedTests} BAŞARILI, ${failedTests} HATALI`);
 console.log('======================================================\n');
-
 if (failedTests > 0) {
   process.exit(1);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { LogOut, ScanBarcode } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -9,6 +9,8 @@ import MobileInventory from './MobileInventory';
 import MobileOrders from './MobileOrders';
 import MobileProduction from './MobileProduction';
 import CameraBarcodeScannerModal from '../components/Common/CameraBarcodeScannerModal';
+import Button from '../components/Common/Button';
+const OperationsHub = lazy(() => import('../components/OperationsHub'));
 import {
   initNativeBridge,
   updateNativeStatusBar,
@@ -30,12 +32,14 @@ const TITLES: Record<MobileTab, string> = {
  * Masaüstü Layout/Router'dan tamamen ayrıdır; AuthGate oturum yoksa giriş ekranını gösterir.
  */
 export default function MobileApp() {
-  const [tab, setTab] = useState<MobileTab>('summary');
+  const [tab, setTab] = useState<MobileTab>(() => window.location.pathname.startsWith('/production/workflows') ? 'production' : window.location.pathname.startsWith('/orders/workflows') ? 'orders' : window.location.pathname.startsWith('/inventory/workflows') ? 'inventory' : 'summary');
+  const [operationsOpen, setOperationsOpen] = useState(window.location.pathname.endsWith('/workflows'));
   const [scannerOpen, setScannerOpen] = useState(false);
-  const { logout } = useAuth();
+  const { logout, hasPermission } = useAuth();
   const { actualTheme } = useTheme();
 
   const handleHeaderScan = async () => {
+    setOperationsOpen(false);
     if (isNativeApp()) {
       const code = await scanBarcodeNative();
       if (code) {
@@ -52,12 +56,13 @@ export default function MobileApp() {
 
   // Android geri tuşu: özet sekmesinde değilsek önce özete dön
   useEffect(() => {
-    if (tab === 'summary') return;
+    if (tab === 'summary' && !operationsOpen) return;
     return registerBackButtonHandler(() => {
+      if (operationsOpen) { setOperationsOpen(false); return true; }
       setTab('summary');
       return true;
     });
-  }, [tab]);
+  }, [tab, operationsOpen]);
 
   // Durum çubuğunu (StatusBar) aktif tema ile eşle
   useEffect(() => {
@@ -83,7 +88,7 @@ export default function MobileApp() {
       <MobileShell
         title={TITLES[tab]}
         active={tab}
-        onTab={setTab}
+        onTab={next => { setOperationsOpen(false); setTab(next); }}
         right={
           <div className="flex items-center gap-1">
             <button
@@ -107,11 +112,14 @@ export default function MobileApp() {
           </div>
         }
       >
-        {tab === 'summary' && <MobileDashboard />}
-        {tab === 'contacts' && <MobileContacts />}
-        {tab === 'inventory' && <MobileInventory />}
-        {tab === 'orders' && <MobileOrders />}
-        {tab === 'production' && <MobileProduction />}
+        {(['inventory', 'orders', 'production'] as string[]).includes(tab) && hasPermission(tab as 'inventory' | 'orders' | 'production', 'view') && <Button className="w-full" onClick={() => setOperationsOpen(value => !value)}>{operationsOpen ? 'Modüle geri dön' : tab === 'inventory' ? 'Stok rezervasyonları' : tab === 'orders' ? 'Satın alma talepleri' : 'Kalite kontrolleri'}</Button>}
+        {operationsOpen ? <Suspense fallback={<p role="status">Operasyonlar yükleniyor…</p>}><OperationsHub key={tab} initialTab={tab === 'production' ? 'quality' : tab === 'orders' ? 'purchasing' : 'reservations'} /></Suspense> : <>
+          {tab === 'summary' && <MobileDashboard />}
+          {tab === 'contacts' && <MobileContacts />}
+          {tab === 'inventory' && <MobileInventory />}
+          {tab === 'orders' && <MobileOrders />}
+          {tab === 'production' && <MobileProduction />}
+        </>}
       </MobileShell>
 
       {scannerOpen && (

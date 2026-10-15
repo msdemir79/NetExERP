@@ -1,3 +1,4 @@
+import { withOperation } from './idempotency.js';
 /**
  * Sunucu tarafı işlem (business operation) uçları.
  *
@@ -17,10 +18,16 @@ import { allocateDocumentNumber, journalPrefixFor, allocateBarcodeSequences, for
 import { HttpError as OpError } from './errors.js';
 import type { DeleteEffects } from './deletePolicy.js';
 import { resolveColorIdByName } from './colorService.js';
-import { calculateWeightedAverageCost, ingredientPerUnit, requiredIngredientQuantity, roundUpQuantity } from '../src/lib/inventoryCalculator.js';
+import { calculateWeightedAverageCost, ingredientPerUnit, requiredIngredientQuantity, roundUpQuantity, distributeWithLargestRemainder } from '../src/lib/inventoryCalculator.js';
 import { assertBalancedJournalEntry } from '../src/lib/accountingValidator.js';
 import { buildMizanRows, type MizanLevelFilter } from '../src/lib/accountCodes.js';
 import type { AppModule, PermissionAction } from '../src/types.js';
+import { assertOpenPeriod } from './periods.js';
+import { assertReceiptInput, assertInvoicePayment } from '../src/lib/financeRules.js';
+import { quantityDecimals } from '../src/lib/inventoryCalculator.js';
+import { selectProductionRecipe } from '../src/lib/productionRules.js';
+import { registerDocumentOps } from './documentOps.js';
+import { assertUnreservedStock, assertReservedVariants } from './reservations.js';
 
 /**
  * Ürün renkleri merkezi renk kartına taşındı (productColors ⋈ colors).
@@ -134,6 +141,7 @@ async function insertInventoryLog(
   },
 ): Promise<number> {
   // `color` metni tarihsel kayıt olarak korunur; merkezi kart bağı (colorId) da
+  await assertOpenPeriod(conn, 'accounting', input.date ?? new Date());
   // aynı satıra yazılır ki stok ekstresi/raporlar renk kartına bağlanabilsin.
   const colorId = input.colorId ?? (input.color ? await resolveColorIdByName(conn, input.color) : null);
   const [result] = await conn.query(
@@ -423,6 +431,7 @@ async function insertJournalEntry(
   conn: PoolConnection,
   entry: { entryType: string; date: Date; description: string; documentType: string; documentId: number | null; documentNumber: string | null; lines: JournalLine[]; totalDebit: number; totalCredit: number },
 ): Promise<number> {
+  await assertOpenPeriod(conn, 'accounting', entry.date);
   const entryNumber = await nextEntryNumber(conn, entry.entryType === 'tahsil' ? 'THS' : entry.entryType === 'tediye' ? 'TDY' : 'YEV', entry.date.getFullYear());
   const [result] = await conn.query(
     'INSERT INTO `journalEntries` (`entryNumber`, `entryType`, `date`, `description`, `documentType`, `documentId`, `documentNumber`, `lines`, `totalDebit`, `totalCredit`, `isBalanced`, `status`, `createdAt`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())',
@@ -449,7 +458,7 @@ async function postInvoiceJournalInTx(
 
   const lines = await buildInvoiceJournalLines(conn, invoice, items);
   if (lines.length < 2) return null;
-  const { totalDebit, totalCredit } = assertBalancedJournalEntry(lines, 0.05);
+  const { totalDebit, totalCredit } = assertBalancedJournalEntry(lines);
   return insertJournalEntry(conn, {
     entryType: 'mahsup',
     date: invoice.date instanceof Date ? invoice.date : new Date(invoice.date),
@@ -829,85 +838,25 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
 
       const withVersion = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
+        await assertOpenPeriod(conn, 'accounting', new Date());
         const product = await lockProduct(conn, productId);
-
-        const currentStock = Number(product.stock) || 0;
-        let newStock = currentStock + delta;
-        let shortfall = 0;
-        if (!allowNegative && newStock < 0) {
-          shortfall = Number((0 - newStock).toFixed(4));
-          newStock = 0;
-        }
-        newStock = Number(newStock.toFixed(4));
-
-        // Varyant (renk × beden) stoğu
-        let variants = parseVariants(product.variantBarcodes);
-        let variantStock: number | null = null;
-        let detail = '';
-
-        if (variant && variants.length) {
-          const color = variant.color ? String(variant.color) : null;
-          const size = variant.size ? String(variant.size) : null;
-          let index = -1;
-          if (color && size) index = variants.findIndex((v) => v.color === color && v.size === size);
-          if (index === -1 && size) index = variants.findIndex((v) => v.size === size);
-          if (index === -1 && color) index = variants.findIndex((v) => v.color === color);
-
-          if (index >= 0) {
-            const v = variants[index];
-            const vCurrent = Number(v.stock) || 0;
-            const vNext = allowNegative ? vCurrent + delta : Math.max(0, vCurrent + delta);
-            variants[index] = { ...v, stock: Number(vNext.toFixed(4)) };
-            variantStock = variants[index].stock;
-            detail = ` [${[color, size].filter(Boolean).join(' / ')}: ${delta > 0 ? '+' : ''}${delta}]`;
-          }
-        }
-
-        // Ağırlıklı ortalama maliyet: yalnızca maliyet bilgisi verilen girişlerde.
-        let newBuyingPrice: number | null = null;
+        const previousStock = Number(product.stock) || 0;
+        await applySignedStockTx(conn, { productId, signedQuantity: delta, color: variant?.color || null, size: variant?.size || null, type, description: String(body.description).trim(), date: new Date(), writeLog: false, withVersion });
+        const updated = await lockProduct(conn, productId);
+        let cost = Number(product.buyingPrice) || 0;
         if (incoming && Number.isFinite(unitCost) && unitCost > 0) {
-          newBuyingPrice = calculateWeightedAverageCost(
-            currentStock,
-            Number(product.buyingPrice) || 0,
-            quantity,
-            unitCost,
-          );
+          cost = calculateWeightedAverageCost(previousStock, cost, quantity, unitCost);
+          await writeProductStock(conn, productId, Number(updated.stock), null, cost, withVersion);
         }
-
-        await writeProductStock(
-          conn,
-          productId,
-          newStock,
-          variant && variants.length ? variants : null,
-          newBuyingPrice,
-          withVersion,
-        );
-
-        const logId = await insertInventoryLog(conn, {
-          productId,
-          type,
-          quantity,
-          description: `${String(body.description).trim()}${detail}${shortfall > 0 ? ` | UYARI: ${shortfall} birim stok yetersizliği (0'a sabitlendi)` : ''}`,
-          color: variant?.color ?? null,
-          size: variant?.size ?? null,
-        });
-
-        return {
-          productId,
-          productName: product.name,
-          type,
-          quantity,
-          stock: newStock,
-          previousStock: currentStock,
-          variantStock,
-          unitCost: newBuyingPrice ?? (Number(product.buyingPrice) || null),
-          shortfall,
-          clamped: shortfall > 0,
-          logId,
-        };
+        const logId = await insertInventoryLog(conn, { productId, type, quantity, description: String(body.description).trim(), color: variant?.color || null, size: variant?.size || null });
+        await writeAuditInTx(conn, { action: 'update', module: 'inventory', entityId: productId, description: `Stok hareketi: ${product.name}, ${delta} ${product.unit}` }, { auth: req.auth, ip: clientIp(req) });
+        const match = variant ? parseVariants(updated.variantBarcodes).find(item => (!variant.color || item.color === variant.color) && (!variant.size || item.size === variant.size)) : undefined;
+        return { productId, productName: product.name, type, quantity, stock: Number(updated.stock), previousStock, variantStock: match ? Number(match.stock) : null, unitCost: cost || null, shortfall: 0, clamped: false, logId };
       });
 
+      broadcast('products', 'update', [String(productId)]);
+      broadcast('inventoryLogs', 'update', []);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -942,7 +891,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const orderBarcode = body.orderBarcode ? String(body.orderBarcode) : undefined;
       const withVersion = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         // 1) Reçeteyi seç: renk eşleşmesi → genel reçete → ilk reçete
         const recipeRows = await conn.query<any[]>(
           'SELECT `id`, `targetColor`, `ingredients` FROM `recipes` WHERE `productId` = ? ORDER BY `id` ASC',
@@ -963,10 +912,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
           return [];
         };
 
-        const recipe =
-          (color && recipes.find((r) => r.targetColor === color && parseIngredients(r).length)) ||
-          recipes.find((r) => !r.targetColor || r.targetColor === 'all' || r.targetColor === 'Genel') ||
-          recipes[0];
+        const recipe = selectProductionRecipe(recipes.map(recipe => ({ ...recipe, productId })), productId, color);
 
         const ingredients = parseIngredients(recipe);
         if (!recipe || !ingredients.length) {
@@ -977,128 +923,17 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         const now = new Date();
         const consumedList: any[] = [];
 
-        // 2) Hammadde / yarı mamul sarfiyatı (satır kilidi altında)
-        for (const ing of ingredients) {
-          const ingProductId = Number(ing.productId);
-          if (!Number.isFinite(ingProductId)) continue;
-
-          const raw = await lockProduct(conn, ingProductId);
-          const totalNeeded = requiredIngredientQuantity(ing, quantity, raw.unit || ing.unit);
-          if (!Number.isFinite(totalNeeded) || totalNeeded <= 0) continue;
-
-          const variants = parseVariants(raw.variantBarcodes);
-          const isMatrixItem =
-            Boolean(ing.isMatrixMatched) ||
-            raw.categoryType === 'semi_finished' ||
-            Boolean(raw.isFootwear) ||
-            variants.some((v) => v.size && v.size !== 'Standart');
-
-          let newStock: number;
-          let nextVariants: any[] | null = null;
-          let logDetail = '';
-          let logColor: string | null = null;
-          let logSize: string | null = null;
-          const unit = raw.unit || 'Birim';
-
-          if (isMatrixItem && variants.length > 0) {
-            const rawColors = parseColorNames(raw.colors);
-            const targetColor =
-              ing.color || color || (rawColors.length ? rawColors[0] : undefined) || variants[0]?.color || 'Genel';
-            const normalizedSize = size && !['Asorti', 'Tüm Bedenler', 'Standart'].includes(size) ? size : null;
-            logColor = targetColor || null;
-            logSize = normalizedSize || size || null;
-
-            if (normalizedSize) {
-              let index = variants.findIndex((v) => v.size === normalizedSize && v.color === targetColor);
-              if (index === -1) index = variants.findIndex((v) => v.size === normalizedSize);
-              if (index >= 0) {
-                const v = variants[index];
-                variants[index] = { ...v, stock: Number(Math.max(0, (Number(v.stock) || 0) - totalNeeded).toFixed(4)) };
-              }
-              logDetail = ` [${targetColor ? targetColor + ' ' : ''}Beden ${normalizedSize}: -${totalNeeded} ${unit}]`;
-            } else {
-              // Asorti/genel düşüm: bedenlere eşit dağıt, kalanı son bedene ekle.
-              const count = variants.length;
-              let allocated = 0;
-              variants.forEach((v, idx) => {
-                const isLast = idx === count - 1;
-                const sizeQty = isLast ? Math.max(0, Number((totalNeeded - allocated).toFixed(4))) : Math.round(totalNeeded / count);
-                allocated += sizeQty;
-                variants[idx] = { ...v, stock: Number(Math.max(0, (Number(v.stock) || 0) - sizeQty).toFixed(4)) };
-              });
-              logDetail = ` [${targetColor ? targetColor + ' ' : ''}-${totalNeeded} ${unit}]`;
-            }
-
-            nextVariants = variants;
-            newStock = Number(variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0).toFixed(4));
-          } else {
-            newStock = Math.max(0, roundUpQuantity((Number(raw.stock) || 0) - totalNeeded, 2));
-            logDetail = ` [${ing.partName || raw.categoryType || ''}: -${totalNeeded} ${unit}]`;
-            logColor = color || null;
-            logSize = size || null;
-          }
-
-          await writeProductStock(conn, ingProductId, newStock, nextVariants, null, withVersion);
-          await insertInventoryLog(conn, {
-            productId: ingProductId,
-            type: 'production_out',
-            quantity: totalNeeded,
-            description: `Otomatik BOM Sarfiyatı: ${finished.name} (${quantity} ${finished.unit || 'Çift'})${orderBarcode ? ' #' + orderBarcode : ''}${logDetail}${operator ? ' | Operatör: ' + operator : ''}`,
-            color: logColor,
-            size: logSize,
-          });
-
-          consumedList.push({
-            productId: ingProductId,
-            name: raw.name,
-            code: raw.code,
-            unit,
-            quantityPerPair: ingredientPerUnit(ing),
-            totalConsumed: totalNeeded,
-            remainingStock: newStock,
-            details: logDetail,
-          });
+        for (const ingredient of ingredients.sort((a, b) => Number(a.productId) - Number(b.productId))) {
+          const raw = await lockProduct(conn, Number(ingredient.productId));
+          const needed = requiredIngredientQuantity(ingredient, quantity, raw.unit);
+          if (!(needed > 0)) throw new OpError(400, 'Reçete sarfiyat miktarı geçersiz.');
+          await applySignedStockTx(conn, { productId: raw.id, signedQuantity: -needed, color: ingredient.color || null, size: size || null, type: 'production_out', description: `Reçete sarfiyatı: ${finished.name}${orderBarcode ? ' | ' + orderBarcode : ''}`, date: now, writeLog: true, withVersion });
+          const after = await lockProduct(conn, raw.id);
+          consumedList.push({ productId: raw.id, name: raw.name, code: raw.code, unit: raw.unit, quantityPerPair: ingredientPerUnit(ingredient), totalConsumed: needed, remainingStock: Number(after.stock) });
         }
-
-        // 3) Mamul girişi (production_in) — mamul satırı zaten kilitli
-        const finishedVariants = parseVariants(finished.variantBarcodes);
-        let finishedNewStock = Number((Number(finished.stock) || 0).toFixed(4)) + quantity;
-        let nextFinishedVariants: any[] | null = null;
-
-        if (finishedVariants.length > 0) {
-          const normalizedSize = size && !['Asorti', 'Tüm Bedenler', 'Standart'].includes(size) ? size : null;
-          if (normalizedSize) {
-            const index = finishedVariants.findIndex((v) => v.size === normalizedSize);
-            if (index >= 0) {
-              finishedVariants[index] = {
-                ...finishedVariants[index],
-                stock: Number(((Number(finishedVariants[index].stock) || 0) + quantity).toFixed(4)),
-              };
-            }
-          } else {
-            const count = finishedVariants.length;
-            let allocated = 0;
-            finishedVariants.forEach((v, idx) => {
-              const isLast = idx === count - 1;
-              const q = isLast ? Math.max(0, Number((quantity - allocated).toFixed(4))) : Math.round(quantity / count);
-              allocated += q;
-              finishedVariants[idx] = { ...v, stock: Number(((Number(v.stock) || 0) + q).toFixed(4)) };
-            });
-          }
-          nextFinishedVariants = finishedVariants;
-        }
-
-        finishedNewStock = Number(finishedNewStock.toFixed(4));
-        await writeProductStock(conn, productId, finishedNewStock, nextFinishedVariants, null, withVersion);
-        await insertInventoryLog(conn, {
-          productId,
-          type: 'production_in',
-          quantity,
-          description: `Üretim Tamamlandı & Mamul Stoğa Giriş: ${finished.name} (+${quantity} ${finished.unit || 'Çift'})${orderBarcode ? ' | Takip No: ' + orderBarcode : ''}${operator ? ' | Usta: ' + operator : ''}`,
-          color: color || null,
-          size: size || null,
-        });
-
+        await applySignedStockTx(conn, { productId, signedQuantity: quantity, color: color || null, size: size || null, type: 'production_in', description: `Reçeteli üretim: ${finished.name}${orderBarcode ? ' | ' + orderBarcode : ''}`, date: now, writeLog: true, withVersion });
+        const finishedNewStock = Number((await lockProduct(conn, productId)).stock);
+        await writeAuditInTx(conn, { action: 'create', module: 'production', entityId: productId, description: `Reçeteli üretim: ${quantity} ${finished.unit}; ${ingredients.length} malzeme` }, { auth: req.auth, ip: clientIp(req) });
         return {
           success: true,
           finishedProduct: {
@@ -1114,6 +949,8 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         };
       });
 
+      broadcast('products', 'update', []);
+      broadcast('inventoryLogs', 'update', []);
       res.json({ data: result });
     } catch (err) {
       next(err);
@@ -1235,6 +1072,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       lines: JournalLineInput[];
     },
   ): Promise<number> {
+    await assertOpenPeriod(conn, 'accounting', input.date);
     const { totalDebit, totalCredit } = assertBalancedJournalEntry(input.lines as any);
     const prefix = journalPrefixFor(input.entryType);
     const entryNumber = await nextDocumentNumber(conn, 'journalEntries', prefix, 6);
@@ -1280,7 +1118,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
 
   async function lockCashBox(conn: PoolConnection, id: number) {
     const rows = await conn.query<any[]>(
-      'SELECT `id`, `name`, `accountCode`, `balance` FROM `cashBoxes` WHERE `id` = ? FOR UPDATE',
+      'SELECT `id`, `name`, `currency`, `accountCode`, `balance` FROM `cashBoxes` WHERE `id` = ? FOR UPDATE',
       [id],
     );
     const row = (rows[0] as any[])[0];
@@ -1290,7 +1128,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
 
   async function lockBankAccount(conn: PoolConnection, id: number) {
     const rows = await conn.query<any[]>(
-      'SELECT `id`, `bankName`, `branchName`, `iban`, `accountCode`, `balance` FROM `bankAccounts` WHERE `id` = ? FOR UPDATE',
+      'SELECT `id`, `bankName`, `branchName`, `iban`, `currency`, `accountCode`, `balance` FROM `bankAccounts` WHERE `id` = ? FOR UPDATE',
       [id],
     );
     const row = (rows[0] as any[])[0];
@@ -1339,12 +1177,15 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const cashBoxId = body.cashBoxId ? Number(body.cashBoxId) : null;
       const bankAccountId = body.bankAccountId ? Number(body.bankAccountId) : null;
       const invoiceId = body.invoiceId ? Number(body.invoiceId) : null;
+      try { assertReceiptInput({ type, instrument, amount, cashBoxId, bankAccountId, currency }); }
+      catch (error) { throw new OpError(400, (error as Error).message, 'INVALID_RECEIPT'); }
 
       const withVersionCash = await versionSupported('cashBoxes');
       const withVersionBank = await versionSupported('bankAccounts');
       const withVersionContact = await versionSupported('contacts');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
+        await assertOpenPeriod(conn, 'accounting', receiptDate);
         const contact = await lockContact(conn, contactId);
         const isCollection = type === 'collection';
 
@@ -1388,9 +1229,11 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         const signedDelta = isCollection ? amount : -amount;
         if (instrument === 'cash' && cashBoxId) {
           cashRow = await lockCashBox(conn, cashBoxId);
+          if ((cashRow.currency || 'TRY') !== currency) throw new OpError(400, 'Kasa para birimi işlemle uyuşmuyor.', 'CURRENCY_MISMATCH');
           await adjustBalance(conn, 'cashBoxes', cashBoxId, signedDelta, withVersionCash);
         } else if (instrument === 'bank' && bankAccountId) {
           bankRow = await lockBankAccount(conn, bankAccountId);
+          if ((bankRow.currency || 'TRY') !== currency) throw new OpError(400, 'Banka para birimi işlemle uyuşmuyor.', 'CURRENCY_MISMATCH');
           await adjustBalance(conn, 'bankAccounts', bankAccountId, signedDelta, withVersionBank);
         }
 
@@ -1400,10 +1243,13 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         // 4) Fatura ödeme durumu
         if (invoiceId) {
           const invRows = await conn.query<any[]>(
-            'SELECT `id`, `grandTotal`, `paidAmount` FROM `invoices` WHERE `id` = ? FOR UPDATE',
+            'SELECT `id`, `contactId`, `type`, `status`, `currency`, `grandTotal`, `paidAmount` FROM `invoices` WHERE `id` = ? FOR UPDATE',
             [invoiceId],
           );
           const inv = (invRows[0] as any[])[0];
+          if (!inv) throw new OpError(404, 'Ödenecek fatura bulunamadı.', 'INVOICE_NOT_FOUND');
+          try { assertInvoicePayment(inv, { contactId, type, amount, currency }); }
+          catch (error) { throw new OpError(400, (error as Error).message, 'INVALID_INVOICE_PAYMENT'); }
           if (inv) {
             const newPaid = Number(((Number(inv.paidAmount) || 0) + amount).toFixed(2));
             const grandTotal = Number(inv.grandTotal) || 0;
@@ -1560,8 +1406,10 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersionCash = await versionSupported('cashBoxes');
       const withVersionBank = await versionSupported('bankAccounts');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         // Kilitler sabit sırada alınır: eşzamanlı ters yönlü virmanlarda deadlock olmaz.
+        await assertOpenPeriod(conn, 'accounting', transferDate);
+        if (fromType === toType && fromId === toId) throw new OpError(400, 'Kaynak ve hedef hesap aynı olamaz.');
         const targets = [
           { kind: fromType, id: fromId },
           { kind: toType, id: toId },
@@ -1575,6 +1423,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         }
         const fromRow = locked.get(`${fromType}:${fromId}`);
         const toRow = locked.get(`${toType}:${toId}`);
+        if ((fromRow.currency || 'TRY') !== 'TRY' || (toRow.currency || 'TRY') !== 'TRY') throw new OpError(400, 'Dövizli virman etkin değil. TRY hesaplar seçilmelidir.', 'CURRENCY_MISMATCH');
 
         if ((Number(fromRow.balance) || 0) < amount) {
           throw new OpError(
@@ -1651,7 +1500,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersionContact = await versionSupported('contacts');
       const withVersionCheck = await versionSupported('checks');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const checkRows = await conn.query<any[]>(
           'SELECT `id`, `type`, `amount`, `portfolioNumber`, `serialNumber`, `drawer`, `statusNotes`, `endorsedToContactId`, `endorsedToContactName` FROM `checks` WHERE `id` = ? FOR UPDATE',
           [checkId],
@@ -1808,6 +1657,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     const signedQuantity = Number(input.signedQuantity) || 0;
     const quantity = Math.abs(signedQuantity);
     if (!Number.isFinite(productId) || quantity <= 0) return;
+    await assertOpenPeriod(conn, 'accounting', input.date ?? new Date());
     const deltaSign = signedQuantity < 0 ? -1 : 1;
 
     const rows = await conn.query<any[]>(
@@ -1817,6 +1667,10 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     );
     const product = (rows[0] as any[])[0];
     if (!product) throw new OpError(404, 'Ürün bulunamadı.', 'PRODUCT_NOT_FOUND');
+
+    if (quantityDecimals(product.unit) === 0 && !Number.isInteger(quantity)) throw new OpError(400, 'Adet/çift miktarı tam sayı olmalıdır.', 'INVALID_QUANTITY');
+    if (signedQuantity < 0 && Number(product.stock) + signedQuantity < -0.00001) throw new OpError(409, `${product.name}: yetersiz stok.`, 'INSUFFICIENT_STOCK');
+    if (signedQuantity < 0) await assertUnreservedStock(conn, product as any, quantity);
 
     const moveType: StockMovementType = input.type;
     const baseDescription = input.description;
@@ -1833,7 +1687,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     const hasVariants = product.isFootwear || product.hasSizeVariants || parseList(product.variantBarcodes).length > 0;
 
     if (!hasVariants) {
-      const newStock = Math.max(0, roundUpQuantity((Number(product.stock) || 0) + deltaSign * quantity, 2));
+      const newStock = Math.max(0, Math.round(((Number(product.stock) || 0) + deltaSign * quantity) * 10000) / 10000);
       await writeProductStock(conn, productId, newStock, null, null, input.withVersion);
       if (input.writeLog) {
         await insertInventoryLog(conn, {
@@ -1850,6 +1704,10 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     }
 
     const variants = parseList(product.variantBarcodes);
+
+    if (Math.abs(variants.reduce((sum: number, variant: any) => sum + Number(variant.stock || 0), 0) - Number(product.stock || 0)) > 0.0001) {
+      throw new OpError(409, `${product.name}: ürün toplamı ile varyant stokları farklı. Önce varyant stoklarını uzlaştırın.`, 'VARIANT_RECONCILIATION_REQUIRED');
+    }
 
     let assortment = parseList(product.assortment);
     if ((!assortment || assortment.length === 0) && product.assortmentTemplateId) {
@@ -1883,7 +1741,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     if (isSpecificSize) {
       const targetSize = sizeTrim;
       let targetVar = variants.find((v) => v.size === targetSize && v.color === effectiveColor);
-      if (!targetVar) targetVar = variants.find((v) => v.size === targetSize);
+      if (!targetVar && !input.color) targetVar = variants.find((v) => v.size === targetSize);
       if (targetVar) {
         targetVar.stock = (Number(targetVar.stock) || 0) + deltaSign * quantity;
       } else {
@@ -1892,23 +1750,22 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       logDetailText = `${effectiveColor ? effectiveColor + ' ' : ''}Beden ${targetSize}: ${deltaSign > 0 ? '+' : ''}${deltaSign * quantity} ${product.unit || 'Çift'}`;
     } else {
       let colorVariants = variants.filter((v) => v.color === effectiveColor);
-      if (colorVariants.length === 0) colorVariants = variants;
+      if (colorVariants.length === 0 && !input.color) colorVariants = variants;
+      if (colorVariants.length === 0 && signedQuantity < 0) throw new OpError(409, 'Seçilen renkte yeterli varyant stoğu bulunamadı.', 'INSUFFICIENT_VARIANT_STOCK');
 
       if (assortment && assortment.length > 0) {
         const totalRatio = assortment.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 0), 0);
         if (totalRatio > 0) {
-          let allocated = 0;
-          const distributions: { size: string; qty: number }[] = [];
-          assortment.forEach((it: any, idx: number) => {
-            if (idx === assortment.length - 1) {
-              const rem = Math.max(0, quantity - allocated);
-              distributions.push({ size: it.size, qty: rem });
-            } else {
-              const sizeQty = Math.round((quantity * (Number(it.quantity) || 1)) / totalRatio);
-              allocated += sizeQty;
-              distributions.push({ size: it.size, qty: sizeQty });
-            }
-          });
+          // Ağırlıklı (asorti oranlı) dağıtım; toplam her zaman `quantity`e tam eşit.
+          const shares = distributeWithLargestRemainder(
+            quantity,
+            assortment.map((it: any) => Number(it.quantity) || 0),
+            quantityDecimals(product.unit),
+          );
+          const distributions: { size: string; qty: number }[] = assortment.map((it: any, idx: number) => ({
+            size: it.size,
+            qty: Number((shares[idx] || 0).toFixed(4)),
+          }));
           distributions.forEach((d) => {
             const matchVar = colorVariants.find((v) => v.size === d.size);
             if (matchVar) {
@@ -1920,13 +1777,11 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
           logDetailText = `${effectiveColor ? effectiveColor + ' ' : ''}Asorti Dağılımı [${distributions.map((d) => `${d.size}: ${deltaSign > 0 ? '+' : '-'}${d.qty}`).join(', ')}]`;
         }
       } else if (colorVariants.length > 0) {
-        const count = colorVariants.length;
-        let allocated = 0;
+        // Bedenlere eşit dağıtım; toplam her zaman `quantity`e tam eşit.
+        const shares = distributeWithLargestRemainder(quantity, colorVariants.map(() => 1), quantityDecimals(product.unit));
         const distSummary: string[] = [];
         colorVariants.forEach((v, idx) => {
-          const isLast = idx === count - 1;
-          const sizeQty = isLast ? Math.max(0, quantity - allocated) : Math.round(quantity / count);
-          allocated += sizeQty;
+          const sizeQty = Number((shares[idx] || 0).toFixed(4));
           v.stock = (Number(v.stock) || 0) + deltaSign * sizeQty;
           distSummary.push(`${v.size}: ${deltaSign > 0 ? '+' : '-'}${sizeQty}`);
         });
@@ -1934,6 +1789,8 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       }
     }
 
+    if (variants.some((variant: any) => Number(variant.stock) < -0.00001)) throw new OpError(409, 'Beden/renk stoğu yetersiz.', 'INSUFFICIENT_VARIANT_STOCK');
+    await assertReservedVariants(conn, productId, variants);
     let calculatedTotalStock = variants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
     if (variants.length === 0 || (!isSpecificSize && (!assortment || assortment.length === 0) && variants.filter((v) => v.color === effectiveColor).length === 0)) {
       calculatedTotalStock = Math.max(0, roundUpQuantity((Number(product.stock) || 0) + deltaSign * quantity, 2));
@@ -1982,7 +1839,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       if (documentDate && Number.isNaN(documentDate.getTime())) throw new OpError(400, 'Geçersiz belge tarihi.');
       const withVersion = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const touched: number[] = [];
         const deltaSign = isSales ? (reverse ? 1 : -1) : (reverse ? -1 : 1);
         const moveType: StockMovementType = deltaSign < 0 ? 'out' : 'in';
@@ -2054,7 +1911,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       );
 
       const withVersion = await versionSupported('products');
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const touched: number[] = [];
         for (const m of movements) {
           const pid = Number(m?.productId);
@@ -2111,7 +1968,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       );
       const withVersion = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const pRows = await conn.query<any[]>(
           `SELECT \`id\`, \`stock\`, \`variantBarcodes\`, ${PRODUCT_COLORS_SQL} AS \`colors\`, \`assortment\`, \`assortmentTemplateId\`, \`isFootwear\` FROM \`products\` FOR UPDATE`,
         );
@@ -2159,33 +2016,15 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
             const targetVariants = variants.filter((v) => v.color === targetColor);
             const effectiveVariants = targetVariants.length > 0 ? targetVariants : variants;
 
-            if (assortment && assortment.length > 0) {
-              const totalRatio = assortment.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
-              if (totalRatio > 0) {
-                let allocated = 0;
-                assortment.forEach((it: any, idx: number) => {
-                  const isLast = idx === assortment.length - 1;
-                  const sizeQty = isLast ? totalStock - allocated : Math.round((totalStock * (Number(it.quantity) || 1)) / totalRatio);
-                  allocated += sizeQty;
-                  const matchVar = effectiveVariants.find((v) => v.size === it.size);
-                  if (matchVar) matchVar.stock = (Number(matchVar.stock) || 0) + sizeQty;
-                });
-              }
-            } else {
-              const count = effectiveVariants.length;
-              let allocated = 0;
-              effectiveVariants.forEach((v, idx) => {
-                const isLast = idx === count - 1;
-                const sizeQty = isLast ? totalStock - allocated : Math.round(totalStock / count);
-                allocated += sizeQty;
-                v.stock = (Number(v.stock) || 0) + sizeQty;
-              });
-            }
-            const updatedSum = variants.reduce((s: number, v: any) => s + (Number(v.stock) || 0), 0);
+            const weights = effectiveVariants.map(variant => Number(assortment.find((item: any) => String(item.size) === String(variant.size))?.quantity ?? 1));
+            const shares = distributeWithLargestRemainder(totalStock, weights, quantityDecimals(product.unit));
+            effectiveVariants.forEach((variant, index) => { variant.stock = shares[index]; });            const updatedSum = variants.reduce((s: number, v: any) => s + (Number(v.stock) || 0), 0);
             await writeProductStock(conn, product.id, updatedSum, variants, null, withVersion);
             changed.push(product.id);
           } else if (totalStock !== sumVariantStock) {
-            await writeProductStock(conn, product.id, sumVariantStock, null, null, withVersion);
+            const shares = distributeWithLargestRemainder(totalStock, variants.map(variant => Math.max(0, Number(variant.stock) || 0)), quantityDecimals(product.unit));
+            variants.forEach((variant, index) => { variant.stock = shares[index]; });
+            await writeProductStock(conn, product.id, totalStock, variants, null, withVersion);
             changed.push(product.id);
           }
         }
@@ -2229,11 +2068,19 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersion = await versionSupported('products');
       const description = body.description ? String(body.description) : 'Varyant/stok düzenlemesi';
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const product = await lockProduct(conn, productId);
         const prevStock = Number(product.stock) || 0;
-        const nextStock = hasStock ? Number(body.stock) || 0 : prevStock;
+        const nextStock = hasStock ? Number(body.stock) : prevStock;
         const nextVariants = hasVariants ? (Array.isArray(body.variantBarcodes) ? body.variantBarcodes : parseVariants(body.variantBarcodes)) : null;
+
+        await assertOpenPeriod(conn, 'accounting', new Date());
+        const effectiveVariants = nextVariants ?? parseVariants(product.variantBarcodes);
+        if (!Number.isFinite(nextStock) || nextStock < 0 || (quantityDecimals(product.unit) === 0 && !Number.isInteger(nextStock))) throw new OpError(400, 'Geçersiz stok miktarı.');
+        if (effectiveVariants.some((v: any) => !Number.isFinite(Number(v.stock)) || Number(v.stock) < 0 || (quantityDecimals(product.unit) === 0 && !Number.isInteger(Number(v.stock))))) throw new OpError(400, 'Geçersiz varyant stok miktarı.');
+        if (effectiveVariants.length && Math.abs(effectiveVariants.reduce((sum: number, v: any) => sum + Number(v.stock), 0) - nextStock) > 0.0001) throw new OpError(400, 'Varyant toplamı ürün stoğuyla eşleşmelidir.');
+        if (nextStock < prevStock) await assertUnreservedStock(conn, product as any, prevStock - nextStock);
+        await assertReservedVariants(conn, productId, effectiveVariants);
 
         await writeProductStock(conn, productId, nextStock, nextVariants, null, withVersion);
 
@@ -2294,7 +2141,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       if (Number.isNaN(actionDate.getTime())) throw new OpError(400, 'Geçersiz tarih.');
       const withVersion = await versionSupported(resource);
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         let label = '';
         let delta = 0;
         if (resource === 'contacts') {
@@ -2358,7 +2205,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       );
 
       const withVersion = await versionSupported('payrollRecords');
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const jeRows = await conn.query<any[]>('SELECT `id` FROM `journalEntries` WHERE `id` = ? LIMIT 1', [journalEntryId]);
         if (!((jeRows[0] as any[]) || []).length) throw new OpError(404, 'Yevmiye fişi bulunamadı.', 'JOURNAL_NOT_FOUND');
 
@@ -2406,7 +2253,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       // income → alacak tahsilatı (bakiye düşer), expense → ödeme (bakiye artar)
       const impact = (type: string, amount: number): number => (type === 'income' ? -amount : amount);
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         if (mode === 'create') {
           const contactId = Number(body.contactId);
           if (!Number.isFinite(contactId)) throw new OpError(400, 'Geçerli bir cari hesap seçilmelidir.');
@@ -2414,6 +2261,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
           const amount = Number(body.amount) || 0;
           const contact = await lockContact(conn, contactId);
           const txDate = body.date ? new Date(body.date) : new Date();
+          await assertOpenPeriod(conn, 'accounting', txDate);
           const [ins] = await conn.query(
             `INSERT INTO \`transactions\` (\`contactId\`, \`type\`, \`amount\`, \`description\`, \`category\`, \`paymentMethod\`, \`documentNo\`, \`date\`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -2436,11 +2284,13 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         const id = Number(body.id);
         if (!Number.isFinite(id)) throw new OpError(400, 'Geçerli bir hareket seçilmelidir.');
         const txRows = await conn.query<any[]>(
-          'SELECT `id`, `contactId`, `type`, `amount`, `category`, `paymentMethod`, `documentNo`, `description` FROM `transactions` WHERE `id` = ? FOR UPDATE',
+          'SELECT `id`, `contactId`, `type`, `amount`, `category`, `paymentMethod`, `documentNo`, `description`, `date` FROM `transactions` WHERE `id` = ? FOR UPDATE',
           [id],
         );
         const oldTx = (txRows[0] as any[])[0];
         if (!oldTx) throw new OpError(404, 'Finansal hareket bulunamadı.', 'TX_NOT_FOUND');
+        await assertOpenPeriod(conn, 'accounting', oldTx.date);
+        if (body.date) await assertOpenPeriod(conn, 'accounting', body.date);
 
         // update: eski etkiyi geri al, yeni etkiyi uygula
         const nextContactId = body.contactId !== undefined ? Number(body.contactId) : oldTx.contactId;
@@ -2492,9 +2342,12 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const doCash = body.cashBoxes !== false;
       const doBank = body.bankAccounts !== false;
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const summary: Record<string, number> = {};
         if (doProducts) {
+          await assertOpenPeriod(conn, 'accounting', new Date());
+          const [reserved] = await conn.query<any[]>("SELECT id FROM stockReservations WHERE status='active' LIMIT 1 FOR UPDATE");
+          if (reserved.length) throw new OpError(409, 'Aktif rezervasyonlar varken stok sıfırlanamaz.');
           const [r] = await conn.query('UPDATE `products` SET `stock` = 0');
           summary.products = Number((r as any)?.affectedRows || 0);
           const vRows = await conn.query<any[]>("SELECT `id`, `variantBarcodes` FROM `products` WHERE `variantBarcodes` IS NOT NULL AND `variantBarcodes` <> '[]'");
@@ -2787,8 +2640,8 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       if (!['commercial', 'basic', 'return', 'withholding', 'export'].includes(scenario)) throw new OpError(400, 'Geçersiz fatura senaryosu.');
       const contactId = Number(invoice.contactId);
       if (!Number.isFinite(contactId) || contactId <= 0) throw new OpError(400, 'Geçerli bir cari hesap seçilmelidir.');
-      const invoiceNumber = String(invoice.invoiceNumber || '').trim();
-      if (!invoiceNumber) throw new OpError(400, 'Fatura numarası zorunludur.');
+      let invoiceNumber = String(invoice.invoiceNumber || '').trim();
+      if (type === 'purchase' && !invoiceNumber) throw new OpError(400, 'Tedarikçi fatura numarası zorunludur.');
       const status = ['draft', 'issued', 'cancelled'].includes(String(invoice.status)) ? String(invoice.status) : 'issued';
       if (!rawItems.length) throw new OpError(400, 'Fatura en az bir satır içermelidir.');
       const date = invoice.date ? new Date(invoice.date) : new Date();
@@ -2822,11 +2675,20 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const waybillId = invoice.waybillId != null && Number.isFinite(Number(invoice.waybillId)) ? Number(invoice.waybillId) : null;
       const isStockDeducted = invoice.isStockDeducted === true || invoice.isStockDeducted === 1;
       const currency = invoice.currency ? String(invoice.currency) : 'TRY';
+      if (currency !== 'TRY') throw new OpError(400, 'Dövizli muhasebe etkin değil. Fatura TRY olarak düzenlenmelidir.', 'UNSUPPORTED_CURRENCY');
 
       const withVersionContact = await versionSupported('contacts');
       const withVersionProduct = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
+        await assertOpenPeriod(conn, 'accounting', date);
+        if (type === 'sales') {
+          const [configRows] = await conn.query<any[]>("SELECT `order` FROM settings WHERE id='global_settings'");
+          const rawConfig = configRows[0]?.order;
+          const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig || {};
+          const prefix = String(config.invoiceSalesPrefix || 'SAT').replace(/-\d{4}-?$/, '').replace(/-$/, '');
+          invoiceNumber = await allocateDocumentNumber(conn, { table: 'invoices', prefix, year: date.getFullYear(), pad: 6 });
+        }
         const dup = await conn.query<any[]>('SELECT `id` FROM `invoices` WHERE `invoiceNumber` = ? LIMIT 1', [invoiceNumber]);
         if ((dup[0] as any[]).length) throw new OpError(409, `"${invoiceNumber}" fatura numarası zaten kullanılıyor.`, 'DUPLICATE_INVOICE_NUMBER');
 
@@ -2919,7 +2781,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersionContact = await versionSupported('contacts');
       const withVersionProduct = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const invRows = await conn.query<any[]>(
           'SELECT `id`, `invoiceNumber`, `type`, `contactId`, `orderId`, `waybillId`, `grandTotal`, `status`, `isStockDeducted`, `date`, `subtotal`, `discountTotal`, `taxTotal` FROM `invoices` WHERE `id` = ? FOR UPDATE',
           [invoiceId],
@@ -2988,7 +2850,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const reason = body.reason ? String(body.reason) : '';
       assertAnyPermission(req.auth, [['accounting', 'edit'], ['accounting', 'delete']], 'Yevmiye fişi iptali için "Muhasebe" modülünde düzenleme/silme yetkisi gerekir.');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const rows = await conn.query<any[]>(
           'SELECT `id`, `entryNumber`, `status`, `documentType` FROM `journalEntries` WHERE `id` = ? FOR UPDATE',
           [journalEntryId],
@@ -3045,7 +2907,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersionContact = await versionSupported('contacts');
       const withVersionProduct = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const invRows = await conn.query<any[]>(
           'SELECT `id`, `invoiceNumber`, `type`, `contactId`, `orderId`, `waybillId`, `grandTotal`, `status`, `isStockDeducted`, `date`, `notes` FROM `invoices` WHERE `id` = ? FOR UPDATE',
           [invoiceId],
@@ -3110,7 +2972,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const withVersionProduct = await versionSupported('products');
       const withVersionWaybill = await versionSupported('waybills');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const wbRows = await conn.query<any[]>(
           'SELECT `id`, `waybillNumber`, `type`, `status`, `orderId`, `invoicedStatus`, `invoiceId`, `invoiceNumber`, `isStockDeducted`, `notes` FROM `waybills` WHERE `id` = ? FOR UPDATE',
           [waybillId],
@@ -3266,7 +3128,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
         const [c, oi, recent] = await Promise.all([
           queryOne<any>("SELECT COALESCE(SUM(CASE WHEN `type`='sales' THEN 1 END),0) AS n FROM `orders`"),
           queryOne<any>("SELECT COALESCE(SUM(`quantity`),0) AS q, COALESCE(SUM(COALESCE(NULLIF(`shippedQuantity`,0), NULLIF(`invoicedQuantity`,0), 0)),0) AS s FROM `orderItems`"),
-          query<any>("SELECT `id`, `orderNumber`, `date`, `grandTotal` FROM `orders` ORDER BY `id` ASC LIMIT 5"),
+          query<any>("SELECT `id`, `orderNumber`, `date`, `grandTotal` FROM `orders` ORDER BY `date` DESC, `id` DESC LIMIT 5"),
         ]);
         const totalOrderQty = Number(oi?.q) || 0;
         const totalShippedQty = Number(oi?.s) || 0;
@@ -3516,7 +3378,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
 
       const withVersion = await versionSupported('products');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         // 1) Barkod ayarları: tip, önek ve mevcut sayaç (istemci üreteciyle süreklilik için seed).
         const sRows = await conn.query<any[]>(
           `SELECT \`barcodeType\`, \`barcodePrefix\`, \`nextBarcodeSequence\` FROM \`settings\`
@@ -3713,7 +3575,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const description = String(body.description || '').trim();
       if (!description) throw new OpError(400, 'Hareket açıklaması zorunludur.', 'DESCRIPTION_REQUIRED');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const mold = await lockMold(conn, moldId);
 
         if (endpoints.from) {
@@ -3823,7 +3685,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       const moveDate = body.date ? new Date(body.date) : new Date();
       if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz tarih.');
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const mold = await lockMold(conn, moldId);
         const diffs: { size: string; before: number; after: number; delta: number; looseLeft: number; looseRight: number }[] = [];
         for (const it of raw) {
@@ -3910,7 +3772,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz hareket tarihi.');
       const description = String(body.description || '').trim();
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const mold = await lockMold(conn, moldId);
         const [woRows] = await conn.query<any[]>('SELECT `id` FROM `workOrders` WHERE `id` = ? LIMIT 1', [workOrderId]);
         if (!(woRows as any[]).length) throw new OpError(404, 'İş emri bulunamadı.', 'WORKORDER_NOT_FOUND');
@@ -4005,7 +3867,7 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
       if (Number.isNaN(moveDate.getTime())) throw new OpError(400, 'Geçersiz hareket tarihi.');
       const description = String(body.description || '').trim();
 
-      const result = await withTransaction(async (conn) => {
+      const result = await withOperation(req, async (conn) => {
         const mold = await lockMold(conn, moldId);
         const allocLoc = { locationType: 'allocated' as const, subcontractId: 0 };
         for (const it of items) {
@@ -4079,5 +3941,6 @@ export function createBusinessOpsRouter(): { router: Router; deleteEffects: Dele
     }
   });
 
+  registerDocumentOps(router, applySignedStockTx);
   return { router, deleteEffects };
 }

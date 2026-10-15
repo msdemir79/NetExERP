@@ -25,6 +25,9 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { getCartonSize, resolveAssortment } from '../lib/carton';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import DataGrid, { StatusPill, type GridColumn, type PillTone } from './Common/DataGrid';
 import ExcelGrid, { type ExcelColumn } from './Common/ExcelGrid';
 import Modal from './Modal';
@@ -57,8 +60,10 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = React.useState(false);
   const [editingOrderId, setEditingOrderId] = React.useState<number | null>(null);
+  const [editingOrderVersion, setEditingOrderVersion] = React.useState<number>();
   const [isDetailModalOpen, setIsDetailModalOpen] = React.useState(false);
   const [selectedOrder, setSelectedOrder] = React.useState<any>(null);
+  const [detailOrder, setDetailOrder] = React.useState<Order | null>(null);
   const [isTransferringToProduction, setIsTransferringToProduction] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   
@@ -268,6 +273,7 @@ export default function Orders() {
       }
 
       setEditingOrderId(orderId);
+      setEditingOrderVersion(orderData.version);
       setSelectedContactId(orderData.contactId);
       setOrderNumber(orderData.orderNumber);
       setOrderDate(orderData.date ? new Date(orderData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
@@ -355,11 +361,12 @@ export default function Orders() {
     try {
       setIsProcessing(true);
       if (editingOrderId) {
-        await orderService.updateOrder(editingOrderId, orderData, items);
+        await orderService.updateOrder(editingOrderId, orderData, items, editingOrderVersion);
         setFeedbackAlert({ type: 'success', message: `"${orderData.orderNumber}" numaralı sipariş başarıyla güncellendi!` });
       } else {
-        await orderService.createOrder(orderData, items);
-        setFeedbackAlert({ type: 'success', message: `"${orderData.orderNumber}" numaralı sipariş başarıyla oluşturuldu!` });
+        const id = await orderService.createOrder(orderData, items);
+        const saved = await api.orders.get(id);
+        setFeedbackAlert({ type: 'success', message: `"${saved?.orderNumber || id}" numaralı sipariş başarıyla oluşturuldu!` });
       }
       setTimeout(() => setFeedbackAlert(null), 4000);
       setIsAddModalOpen(false);
@@ -407,27 +414,34 @@ export default function Orders() {
     moldCode: undefined,
   });
 
+  /**
+   * Koli/asorti kuralları `src/lib/carton.ts` içindeki TEK doğru kaynaktan gelir.
+   * Burada daha önce kopyalanmış bir sürüm vardı ve öncelik sırası farklıydı
+   * (önce şablon, sonra kart) — kartta kendi asortisi olan bir ürün şablondan
+   * farklı genişlikte koli üretiyordu. Sipariş, fatura ve etiket ekranları artık
+   * aynı kuralı kullanır.
+   */
+  const productOf = (item: any): any =>
+    item?.productId ? (products || []).find(p => p.id === item.productId) : undefined;
+
+  /**
+   * Kalemin asortisi: ürün kartı varsa kart/template çözümlemesi kanonik
+   * `resolveAssortment` ile yapılır; yalnızca şablon bağı olan (ürünsüz) kalemlerde
+   * şablona doğrudan düşülür.
+   */
   const assortmentOf = (item: any): { size: string; quantity: number }[] => {
+    const prod = productOf(item);
+    const resolved = resolveAssortment(prod, templates);
+    if (resolved.length) return resolved;
     if (item?.assortmentTemplateId) {
-      const tpl = (templates || []).find(t => t.id === item.assortmentTemplateId);
-      if (tpl) return tpl.items || [];
-    }
-    if (item?.productId) {
-      const prod = (products || []).find(p => p.id === item.productId) as any;
-      if (prod?.assortment?.length) return prod.assortment;
+      const tpl = (templates || []).find(t => Number(t.id) === Number(item.assortmentTemplateId));
+      if (tpl?.items?.length) return tpl.items;
     }
     return [];
   };
 
-  const pairsPerBoxOf = (item: any): number => {
-    const items = assortmentOf(item);
-    if (items.length) return items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-    if (item?.productId) {
-      const prod = (products || []).find(p => p.id === item.productId) as any;
-      if (prod?.multiplier > 1) return prod.multiplier;
-    }
-    return 0;
-  };
+  const pairsPerBoxOf = (item: any): number => getCartonSize(productOf(item), templates) ||
+    assortmentOf(item).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
 
   const computeOrderItemRow = (item: any, changedKey?: string) => {
     const next: any = { ...item };
@@ -858,12 +872,8 @@ export default function Orders() {
           <Printer className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={async () => {
-            const detail = await orderService.getOrder(order.id!);
-            setSelectedOrder(detail);
-            setIsDetailModalOpen(true);
-          }}
-          title="Detay & İlerleme Takibi"
+          onClick={() => setDetailOrder(order)}
+          title="Detay Paneli"
           className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-brand hover:bg-brand-soft rounded-lg transition-colors cursor-pointer"
         >
           <Eye className="w-3.5 h-3.5" />
@@ -1104,6 +1114,7 @@ export default function Orders() {
           </div>
         }
         rowActions={orderRowActions}
+        onRowClick={(order) => setDetailOrder(order)}
         emptyMessage="Kriterlere uygun sipariş bulunamadı"
       />
 
@@ -1126,6 +1137,130 @@ export default function Orders() {
         onRequestDelete={handleRequestDelete}
         onCreateWorkOrders={handleCreateWorkOrders}
       />
+
+      {/* ORDER SUMMARY DETAIL PANEL */}
+      {detailOrder && (() => {
+        const contact = contacts?.find(c => c.id === detailOrder.contactId);
+        const stats = detailOrder.id ? getOrderProgressStats(detailOrder.id) : null;
+        const linkedInvoices = invoices?.filter(inv => inv.orderId === detailOrder.id && inv.status !== 'cancelled') || [];
+        const linkedWaybills = waybills?.filter(wb => wb.orderId === detailOrder.id && wb.status !== 'cancelled') || [];
+        const statusTone = detailOrder.status === 'cancelled' ? 'danger'
+          : detailOrder.status === 'partially_shipped' ? 'warning'
+          : (detailOrder.status === 'confirmed' || detailOrder.status === 'completed') ? 'success'
+          : 'neutral';
+        const openFullDetail = async () => {
+          const detail = await orderService.getOrder(detailOrder.id!);
+          setSelectedOrder(detail);
+          setIsDetailModalOpen(true);
+          setDetailOrder(null);
+        };
+        return (
+          <DetailPanel
+            isOpen={!!detailOrder}
+            onClose={() => setDetailOrder(null)}
+            title={detailOrder.orderNumber}
+            widthClass="max-w-[460px]"
+            badge={(
+              <StatusBadge tone={statusTone}>{orderStatusMeta[detailOrder.status]?.label ?? detailOrder.status}</StatusBadge>
+            )}
+            footer={(
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={openFullDetail}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  İlerleme
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDetailOrder(null); handleOpenEditModal(detailOrder.id!); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDetailOrder(null); setPrintOrderId(detailOrder.id!); setIsPrintModalOpen(true); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-xs font-black text-fg-strong transition-colors hover:bg-surface-hover cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Yazdır
+                </button>
+              </div>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailSummary
+                label="Hedef Sipariş"
+                value={(stats?.totalOrdered || 0).toLocaleString('tr-TR')}
+                unit="Çift / Adet"
+                tone={detailOrder.type === 'sales' ? 'brand' : 'success'}
+                badge={detailOrder.type === 'sales' ? 'Satış Siparişi' : 'Alış Siparişi'}
+              >
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <div className="mb-0.5 flex items-center justify-between text-label font-bold">
+                      <span className="text-brand-fg">Üretim</span>
+                      <span className="font-mono text-fg-strong">%{stats?.producePercent || 0}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-pill bg-surface-hover">
+                      <div className="h-full rounded-pill bg-brand" style={{ width: `${stats?.producePercent || 0}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 flex items-center justify-between text-label font-bold">
+                      <span className="text-success">Sevkiyat</span>
+                      <span className="font-mono text-fg-strong">%{stats?.shipPercent || 0}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-pill bg-surface-hover">
+                      <div className="h-full rounded-pill bg-success" style={{ width: `${stats?.shipPercent || 0}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </DetailSummary>
+
+              <DetailTiles
+                items={[
+                  { label: 'Üretilen', value: `${stats?.totalProduced || 0}` },
+                  { label: 'Sevk Edilen', value: `${stats?.totalShipped || 0}` },
+                  { label: 'Kalan Üretim', value: `${stats?.remainingToProduce || 0}` },
+                  { label: 'Kalan Sevkiyat', value: `${stats?.remainingToShip || 0}`, valueClass: (stats?.remainingToShip || 0) > 0 ? 'text-warning' : undefined },
+                ]}
+              />
+
+              <DetailSection
+                title="Cari & Tarih"
+                rows={[
+                  { label: 'Cari', value: contact?.name || '—' },
+                  { label: 'Toplam Tutar', value: `₺${(detailOrder.grandTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` },
+                  { label: 'Sipariş Tarihi', value: detailOrder.date ? new Date(detailOrder.date).toLocaleDateString('tr-TR') : '—' },
+                  { label: 'Teslim Tarihi', value: detailOrder.deliveryDate ? new Date(detailOrder.deliveryDate).toLocaleDateString('tr-TR') : '—' },
+                ]}
+              />
+
+              <DetailSection
+                title="Bağlı Belgeler"
+                rows={[
+                  { label: 'İş Emri', value: `${stats?.workOrdersCount || 0}` },
+                  { label: 'İrsaliye', value: `${linkedWaybills.length}` },
+                  { label: 'Fatura', value: `${linkedInvoices.length}` },
+                ]}
+              />
+
+              {detailOrder.notes && (
+                <DetailSection title="Not">
+                  <p className="rounded-card border border-line bg-surface-hover/40 p-3 text-xs font-semibold text-fg">
+                    {detailOrder.notes}
+                  </p>
+                </DetailSection>
+              )}
+            </div>
+          </DetailPanel>
+        );
+      })()}
 
       {/* Add / Edit Order Modal (Size 2XL) */}
       <Modal 
@@ -1185,8 +1320,9 @@ export default function Orders() {
                 <input 
                   type="text" 
                   value={orderNumber}
+                  readOnly
+                  placeholder="Kaydedildiğinde otomatik oluşturulur"
                   onChange={(e) => setOrderNumber(e.target.value)}
-                  placeholder="Otomatik..."
                   className="w-full border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 outline-none"
                 />
               </div>

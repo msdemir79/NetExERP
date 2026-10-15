@@ -38,7 +38,7 @@ export default function MobileOrderDetail({ order, onClose }: { order: Order; on
   async function confirm() {
     setBusy(true);
     try {
-      await orderService.updateOrder(oid, { status: 'confirmed' });
+      await orderService.updateOrder(oid, { status: 'confirmed' }, undefined, order.version);
       showToast(`${order.orderNumber} onaylandı.`, 'success');
       onClose();
     } catch (err) {

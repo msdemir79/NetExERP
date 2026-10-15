@@ -19,6 +19,7 @@ import {
 import type { Employee } from '../../types';
 import { hrService } from '../../services/hrService';
 import PageHeader from '../PageHeader';
+import KpiCard from '../Common/KpiCard';
 import EmployeeListTab from './EmployeeListTab';
 import AttendanceTab from './AttendanceTab';
 import LeaveTab from './LeaveTab';
@@ -85,6 +86,41 @@ export default function HRManagement() {
           </div>
         }
       />
+
+      {/* KPI Özeti */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          label="Aktif Personel"
+          value={activeEmployees.length.toLocaleString('tr-TR')}
+          sub={`${employees.length} toplam kayıttan`}
+          icon={Users}
+          tone="brand"
+        />
+        <KpiCard
+          label="SGK'lı"
+          value={sgkLiCount.toLocaleString('tr-TR')}
+          sub="Kayıtlı çalışan"
+          icon={ShieldCheck}
+          tone="success"
+          onClick={() => setActiveTab('employees')}
+        />
+        <KpiCard
+          label="Yevmiyeli"
+          value={sgkSizCount.toLocaleString('tr-TR')}
+          sub="SGK'siz çalışan"
+          icon={ShieldAlert}
+          tone="warning"
+          onClick={() => setActiveTab('employees')}
+        />
+        <KpiCard
+          label="Pasif Personel"
+          value={(employees.length - activeEmployees.length).toLocaleString('tr-TR')}
+          sub="İşten ayrılan / durdurulan"
+          icon={Briefcase}
+          tone="danger"
+          onClick={() => setActiveTab('employees')}
+        />
+      </div>
 
       {/* Main Tab Navigation */}
       <div className="flex border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-t-xl px-4 shadow-xs">

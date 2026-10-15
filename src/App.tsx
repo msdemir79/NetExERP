@@ -1,37 +1,39 @@
+import { lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
-import Inventory from './components/Inventory';
-import Templates from './components/Inventory/Templates';
-import BarcodeCenter from './components/Inventory/BarcodeCenter';
-import BulkStockScreen from './components/Inventory/BulkStockScreen';
-import Production from './components/Production';
-import Molds from './components/Molds';
-import MoldMovementsScreen from './components/Molds/MoldMovementsScreen';
-import MoldSubcontractScreen from './components/Molds/MoldSubcontractScreen';
-import MoldReportsScreen from './components/Molds/MoldReportsScreen';
-import Orders from './components/Orders';
-import Invoices from './components/Invoices';
-import Waybills from './components/Waybills';
-import Accounting from './components/Accounting';
-import Finance from './components/Finance';
-import Contacts from './components/Contacts';
-import HRManagement from './components/HR';
-import UsersManagement from './components/Users';
-import ReportsHub from './components/Reports';
-import StockSummaryReport from './components/Reports/StockSummaryReport';
-import StockDetailReport from './components/Reports/StockDetailReport';
-import StockMovementReport from './components/Reports/StockMovementReport';
-import BrokenSizeReport from './components/Reports/BrokenSizeReport';
-import SettingsHub from './components/Settings';
+const OperationsHub = lazy(() => import('./components/OperationsHub'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Inventory = lazy(() => import('./components/Inventory'));
+const Templates = lazy(() => import('./components/Inventory/Templates'));
+const BarcodeCenter = lazy(() => import('./components/Inventory/BarcodeCenter'));
+const BulkStockScreen = lazy(() => import('./components/Inventory/BulkStockScreen'));
+const Production = lazy(() => import('./components/Production'));
+const Molds = lazy(() => import('./components/Molds'));
+const MoldMovementsScreen = lazy(() => import('./components/Molds/MoldMovementsScreen'));
+const MoldSubcontractScreen = lazy(() => import('./components/Molds/MoldSubcontractScreen'));
+const MoldReportsScreen = lazy(() => import('./components/Molds/MoldReportsScreen'));
+const Orders = lazy(() => import('./components/Orders'));
+const Invoices = lazy(() => import('./components/Invoices'));
+const Waybills = lazy(() => import('./components/Waybills'));
+const Accounting = lazy(() => import('./components/Accounting'));
+const Finance = lazy(() => import('./components/Finance'));
+const Contacts = lazy(() => import('./components/Contacts'));
+const HRManagement = lazy(() => import('./components/HR'));
+const UsersManagement = lazy(() => import('./components/Users'));
+const ReportsHub = lazy(() => import('./components/Reports'));
+const StockSummaryReport = lazy(() => import('./components/Reports/StockSummaryReport'));
+const StockDetailReport = lazy(() => import('./components/Reports/StockDetailReport'));
+const StockMovementReport = lazy(() => import('./components/Reports/StockMovementReport'));
+const BrokenSizeReport = lazy(() => import('./components/Reports/BrokenSizeReport'));
+const SettingsHub = lazy(() => import('./components/Settings'));
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { FeedbackHost } from './lib/feedback';
 import LoginScreen from './components/Common/LoginScreen';
 import { useIsMobile } from './hooks/useIsMobile';
-import MobileApp from './mobile/MobileApp';
+const MobileApp = lazy(() => import('./mobile/MobileApp'));
 
 /**
  * Oturum yoksa giriş ekranını gösterir. Yetkilendirme sunucuda yapıldığı için
@@ -62,7 +64,7 @@ export default function App() {
       <AuthProvider>
         <FeedbackHost />
         <AuthGate>
-        <RootSwitch />
+        <Suspense fallback={<div role="status" className="p-10 text-center text-fg-muted">Sayfa yükleniyor…</div>}><RootSwitch /></Suspense>
         </AuthGate>
     </AuthProvider>
     </ThemeProvider>
@@ -72,7 +74,7 @@ export default function App() {
 /** Dar ekranda mobil kabuk, aksi halde masaüstü yönlendirme tablosu. */
 function RootSwitch() {
   const isMobile = useIsMobile();
-  if (isMobile) return <MobileApp />;
+  if (isMobile) return <BrowserRouter><MobileApp /></BrowserRouter>;
   return <DesktopRoutes />;
 }
 
@@ -94,6 +96,9 @@ function DesktopRoutes() {
             <Route path="reports/broken" element={<BrokenSizeReport />} />
             
             <Route path="production" element={<Production />} />
+            <Route path="production/workflows" element={<OperationsHub />} />
+            <Route path="inventory/workflows" element={<OperationsHub />} />
+            <Route path="orders/workflows" element={<OperationsHub />} />
             <Route path="molds" element={<Molds />} />
             <Route path="molds/movements" element={<MoldMovementsScreen />} />
             <Route path="molds/subcontract" element={<MoldSubcontractScreen />} />

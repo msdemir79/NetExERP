@@ -70,6 +70,7 @@ export default function DetailedWorkOrderCardModal({
   const [orderDateStr, setOrderDateStr] = React.useState('');
   const [colorName, setColorName] = React.useState('');
   const [colorId, setColorId] = React.useState<number | null>(null);
+  const [line, setLine] = React.useState('');
   const [customSizes, setCustomSizes] = React.useState<{ size: string; quantity: number }[]>([]);
 
   // Sync state whenever workOrder or product changes
@@ -78,6 +79,7 @@ export default function DetailedWorkOrderCardModal({
       setMoldCode(workOrder.moldCode || product?.moldCode || '018');
       setMoldGroup(workOrder.moldGroup || product?.moldGroup || 'PTK _ PATİK (26-30)');
       setDocumentNo(workOrder.documentNo || product?.documentNo || 'KİŞ 74');
+      setLine(workOrder.line || '');
       setCustomerName(workOrder.customerName || customer?.name || 'BESTOF AYAKKABI');
       setCustomerCode(workOrder.customerCode || customer?.code || 'MUS-0021');
       setOrderNumber(workOrder.orderNumber || '2423');
@@ -470,6 +472,7 @@ export default function DetailedWorkOrderCardModal({
         moldCode,
         moldGroup,
         documentNo,
+        line,
         customerName,
         customerCode,
         orderNumber,
@@ -668,6 +671,17 @@ export default function DetailedWorkOrderCardModal({
                   onChange={e => setOrderNumber(e.target.value)}
                   className="w-full bg-white dark:bg-slate-900 border border-amber-300 rounded-lg p-2 font-mono text-slate-900 dark:text-slate-100"
                   placeholder="örn: 2423"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-amber-800 uppercase block mb-1">Üretim Hattı</label>
+                <input
+                  type="text"
+                  value={line}
+                  onChange={e => setLine(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-amber-300 rounded-lg p-2 text-slate-900 dark:text-slate-100 uppercase"
+                  placeholder="örn: HAT-1"
                 />
               </div>
 

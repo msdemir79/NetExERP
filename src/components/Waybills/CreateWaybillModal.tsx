@@ -364,6 +364,8 @@ export default function CreateWaybillModal({
                 type="text"
                 value={waybillNumber}
                 onChange={(e) => setWaybillNumber(e.target.value)}
+                readOnly
+                placeholder="Kaydedildiğinde otomatik oluşturulur"
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl font-mono font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>

@@ -19,7 +19,8 @@ while ((m = tableRe.exec(sql))) {
     const cm = line.match(/^\s+`?(\w+)`?\s+([A-Z]+)/);
     if (cm && !skip.has(cm[1])) cols.push({ name: cm[1], type: cm[2].toLowerCase() });
   }
-  if (cols.length) tables.push({ table: m[1], cols });
+  const primaryKey = m[2].match(/PRIMARY KEY\s*\(\s*`?(\w+)`?\s*\)/)?.[1];
+  if (cols.length) tables.push({ table: m[1], cols, primaryKey: primaryKey || cols[0].name });
 }
 
 const jsonColumns = {
@@ -46,13 +47,13 @@ ts += 'export const RESOURCES: Record<string, ResourceDef> = {\n';
 for (const t of tables) {
   ts += `  ${t.table}: {\n`;
   ts += `    table: ${JSON.stringify(t.table)},\n`;
-  ts += `    primaryKey: ${JSON.stringify(t.cols[0].name)},\n`;
+  ts += `    primaryKey: ${JSON.stringify(t.primaryKey)},\n`;
   ts += '    columns: [\n';
   for (const c of t.cols) {
     ts += `      { name: ${JSON.stringify(c.name)}, type: ${JSON.stringify(c.type)} },\n`;
   }
   ts += '    ],\n';
-  ts += `    jsonColumns: ${JSON.stringify(jsonColumns[t.table] || [])},\n`;
+  ts += `    jsonColumns: ${JSON.stringify([...new Set([...t.cols.filter(column => column.type === 'json').map(column => column.name), ...(jsonColumns[t.table] || [])])])},\n`;
   const names = t.cols.map((c) => c.name);
   const stamps = ['createdAt', 'updatedAt'].filter((n) => names.includes(n));
   ts += `    timestamps: ${JSON.stringify(stamps)},\n`;

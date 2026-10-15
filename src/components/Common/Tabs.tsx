@@ -53,6 +53,9 @@ export default function Tabs({
     if (!next) return;
     event.preventDefault();
     onChange(next);
+    const nextId = tabId(next);
+    const nextTab = event.currentTarget.querySelector(`[id="${CSS.escape(nextId)}"]`) as HTMLButtonElement | null;
+    nextTab?.focus();
   };
 
   return (

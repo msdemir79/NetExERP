@@ -20,6 +20,73 @@ export function roundUpQuantity(val: number, decimals: number = 2): number {
   return isNegative ? -rounded : rounded;
 }
 
+/**
+ * Bir toplam miktarı `weights` ağırlıklarına göre paylaştırır ve **toplamı tam
+ * olarak korur** (en-büyük-kalan / largest remainder yöntemi).
+ *
+ * NEDEN GEREKLİ: Dağıtım daha önce satır başına `Math.round(toplam / adet)`
+ * kullanıyordu. Bu yöntem yukarı yuvarlandığında toplamı AŞABİLİYORDU:
+ * 5 çift, 8 beden → satır başına round(0.625) = 1 → ilk 7 satır 7 çift, son
+ * satır `max(0, 5-7) = 0` ⇒ varyant toplamı 7, istenen 5. Beden kırılımı
+ * sessizce kayıyordu (stok kartı toplamı doğru kalsa da varyant dağılımı yanlış).
+ *
+ * Bu fonksiyon taban değeri (`floor`) dağıtır, artan kalanı en büyük kesirli
+ * paya sahip satırlara birer birer ekler; sonuç toplamı her zaman `total` olur.
+ *
+ * @param total   Dağıtılacak toplam miktar (negatif olabilir; işaret korunur)
+ * @param weights Satır ağırlıkları (ör. asorti adetleri). Boş/0 toplamlı ise eşit dağıtılır.
+ * @returns Her satıra düşen miktar; uzunluk `weights.length`
+ */
+export function quantityDecimals(unit?: string): number {
+  const key = (unit || 'adet').toLocaleLowerCase('tr-TR').trim();
+  return ['adet', 'çift', 'cift', 'tek', 'koli', 'kutu', 'paket', 'pcs', 'pair'].includes(key) ? 0 : 4;
+}
+
+export function distributeWithLargestRemainder(total: number, weights: number[], decimals = Number.isInteger(total) ? 0 : 4): number[] {
+  const count = weights.length;
+  if (count === 0) return [];
+
+  const safeTotal = Number.isFinite(total) ? total : 0;
+  const negative = safeTotal < 0;
+  const magnitude = Math.abs(safeTotal);
+
+  // Ağırlıklar geçersizse (hepsi 0/negatif) eşit dağıtıma düş.
+  const rawWeights = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+  const weightSum = rawWeights.reduce((sum, w) => sum + w, 0);
+  const effective = weightSum > 0 ? rawWeights : new Array(count).fill(1);
+  const effectiveSum = weightSum > 0 ? weightSum : count;
+
+  // Tamsayı çalış: yarım birimleri kaybetmemek için ölçeği büyüt.
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 4) throw new Error('Miktar hassasiyeti 0–4 arasında olmalıdır.');
+  const SCALE = 10 ** decimals;
+  if (Math.abs(magnitude * SCALE - Math.round(magnitude * SCALE)) > 0.00001) {
+    throw new Error('Miktar, birimin izin verdiği hassasiyete uygun olmalıdır.');
+  }
+  const scaledTotal = Math.round(magnitude * SCALE);
+
+  const base: number[] = new Array(count).fill(0);
+  const remainders: { index: number; rest: number }[] = [];
+  let allocated = 0;
+
+  for (let i = 0; i < count; i++) {
+    const exact = (scaledTotal * effective[i]) / effectiveSum;
+    const floorVal = Math.floor(exact);
+    base[i] = floorVal;
+    allocated += floorVal;
+    remainders.push({ index: i, rest: exact - floorVal });
+  }
+
+  // Artan birimleri en büyük kalanlı satırlara dağıt (deterministik: eşitlikte küçük index).
+  let leftover = scaledTotal - allocated;
+  remainders.sort((a, b) => (b.rest - a.rest) || (a.index - b.index));
+  for (let k = 0; k < remainders.length && leftover > 0; k++, leftover--) {
+    base[remainders[k].index] += 1;
+  }
+
+  const result = base.map((v) => v / SCALE);
+  return negative ? result.map((v) => -v) : result;
+}
+
 /** Miktarı Türkçe biçimde (binlik ayraçlı) gösterir. */
 export function formatQuantity(val: number): string {
   if (val === undefined || val === null || isNaN(val)) return '0';

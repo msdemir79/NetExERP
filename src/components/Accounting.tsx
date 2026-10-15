@@ -24,6 +24,9 @@ import { Calculator } from 'lucide-react';
 import PageHeader from './PageHeader';
 import DataGrid, { StatusPill } from './Common/DataGrid';
 import KpiCard from './Common/KpiCard';
+import DetailPanel from './Common/DetailPanel';
+import { DetailSection, DetailSummary, DetailTiles } from './Common/DetailPanelContent';
+import StatusBadge from './Common/StatusBadge';
 import Button from './Common/Button';
 import { showToast, confirmDialog } from '../lib/feedback';
 import JournalEntryModal from './Accounting/JournalEntryModal';
@@ -35,9 +38,10 @@ import ChartOfAccounts from './Accounting/ChartOfAccounts';
 import MizanPrintModal from './Accounting/MizanPrintModal';
 import KebirPrintModal from './Accounting/KebirPrintModal';
 import AccountingReport from './Reports/AccountingReport';
+import PeriodClosing from './Accounting/PeriodClosing';
 
 export default function Accounting() {
-  const [activeTab, setActiveTab] = useState<'entries' | 'chart' | 'mizan' | 'kebir' | 'financial' | 'integration' | 'reports'>('entries');
+  const [activeTab, setActiveTab] = useState<'entries' | 'chart' | 'mizan' | 'kebir' | 'financial' | 'integration' | 'reports' | 'periods'>('entries');
 
   // Live queries
   const rawAccounts = useApiQuery(() => api.accounts.list(), [], ['accounts']) || [];
@@ -65,6 +69,7 @@ export default function Accounting() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
   const [selectedEntryForPrint, setSelectedEntryForPrint] = useState<JournalEntry | null>(null);
+  const [detailEntry, setDetailEntry] = useState<JournalEntry | null>(null);
   const [isMizanPrintModalOpen, setIsMizanPrintModalOpen] = useState(false);
   const [isKebirPrintModalOpen, setIsKebirPrintModalOpen] = useState(false);
 
@@ -94,6 +99,12 @@ export default function Accounting() {
       }).then(res => {
         setMizanRows(res);
         setMizanLoading(false);
+      }).catch((err: unknown) => {
+        // `.catch()` olmadan hata yutulur: `setMizanLoading(false)` hiç çalışmaz,
+        // ekran sonsuz spinner'da kalır ve promise reddi yakalanmaz.
+        console.error('Mizan raporu alınamadı:', err);
+        showToast(err instanceof Error ? err.message : 'Mizan raporu alınamadı.', 'error');
+        setMizanLoading(false);
       });
     }
   }, [activeTab, mizanOnlyBalance, mizanLevelFilter, journalEntries]);
@@ -104,6 +115,10 @@ export default function Accounting() {
       setKebirLoading(true);
       accountingService.getGeneralLedger(selectedKebirCode).then(lines => {
         setKebirLines(lines);
+        setKebirLoading(false);
+      }).catch((err: unknown) => {
+        console.error('Defter-i kebir alınamadı:', err);
+        showToast(err instanceof Error ? err.message : 'Defter-i kebir alınamadı.', 'error');
         setKebirLoading(false);
       });
     }
@@ -337,6 +352,7 @@ export default function Accounting() {
           Muhasebe Analiz & Raporlar
         </button>
 
+        <button onClick={() => setActiveTab('periods')} className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${activeTab === 'periods' ? 'border-brand text-brand' : 'border-transparent text-fg-muted'}`}>Dönem Kontrolü ve Kapama</button>
         <div className="ml-auto flex items-center pr-2">
           <Link
             to="/reports?tab=accounting"
@@ -348,6 +364,7 @@ export default function Accounting() {
         </div>
       </div>
 
+      {activeTab === 'periods' && <PeriodClosing />}
       {/* TAB 1: Yevmiye Defteri (Journal Entries) */}
       {activeTab === 'entries' && (
         <DataGrid<JournalEntry>
@@ -396,6 +413,7 @@ export default function Accounting() {
               </select>
             </div>
           }
+          onRowClick={(entry) => setDetailEntry(entry)}
           rowActions={(entry) => (
             <div className="inline-flex items-center gap-1">
               <button
@@ -822,6 +840,102 @@ export default function Accounting() {
         initialParentCode={selectedParentCodeForAdd}
         onSuccess={() => showToast('Yeni alt hesap başarıyla açıldı.', 'success')}
       />
+
+      {/* JOURNAL ENTRY SUMMARY DETAIL PANEL */}
+      {detailEntry && (() => {
+        const typeMeta = entryTypeMeta[detailEntry.entryType];
+        const toneMap: Record<string, 'success' | 'danger' | 'warning' | 'info' | 'brand' | 'neutral'> = {
+          green: 'success', red: 'danger', violet: 'brand', blue: 'info', slate: 'neutral',
+        };
+        return (
+          <DetailPanel
+            isOpen={!!detailEntry}
+            onClose={() => setDetailEntry(null)}
+            title={detailEntry.entryNumber}
+            widthClass="max-w-[480px]"
+            badge={(
+              <StatusBadge tone={typeMeta ? toneMap[typeMeta.tone] : 'neutral'}>
+                {typeMeta?.label ?? detailEntry.entryType}
+              </StatusBadge>
+            )}
+            footer={(
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { const e = detailEntry; setDetailEntry(null); setSelectedEntryForPrint(e); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control bg-brand px-3 py-2 text-xs font-black text-white transition-colors hover:bg-brand-hover cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Fişi Yazdır
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { const id = detailEntry.id; setDetailEntry(null); if (id) handleDeleteEntry(id); }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-control border border-danger/30 bg-danger-soft px-3 py-2 text-xs font-black text-danger transition-colors hover:bg-danger-soft cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Fişi Sil
+                </button>
+              </div>
+            )}
+          >
+            <div className="space-y-4">
+              <DetailSummary
+                label="Fiş Tutarı"
+                value={detailEntry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                unit="₺"
+                tone={detailEntry.isBalanced ? 'success' : 'danger'}
+                badge={detailEntry.isBalanced ? 'Borç = Alacak' : 'Dengesiz'}
+              >
+                <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+                  <div>
+                    <div className="text-label font-bold uppercase text-fg-muted">Borç</div>
+                    <div className="font-mono text-xs font-black text-fg-strong">₺{detailEntry.totalDebit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</div>
+                  </div>
+                  <div>
+                    <div className="text-label font-bold uppercase text-fg-muted">Alacak</div>
+                    <div className="font-mono text-xs font-black text-fg-strong">₺{detailEntry.totalCredit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</div>
+                  </div>
+                </div>
+              </DetailSummary>
+
+              <DetailSection
+                title="Fiş Bilgileri"
+                rows={[
+                  { label: 'Tarih', value: new Date(detailEntry.date).toLocaleDateString('tr-TR') },
+                  { label: 'Belge No', value: detailEntry.documentNumber || '—' },
+                  { label: 'Durum', value: detailEntry.status === 'approved' ? 'Onaylı' : 'Taslak' },
+                  { label: 'Açıklama', value: detailEntry.description || '—' },
+                ]}
+              />
+
+              <DetailSection title={`Mizan Kayıtları (${detailEntry.lines.length})`}>
+                <div className="divide-y divide-line overflow-hidden rounded-card border border-line">
+                  {detailEntry.lines.map((line) => (
+                    <div key={line.id} className="px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-label font-black text-brand-fg">{line.accountCode}</span>
+                        <span className="truncate text-xs font-bold text-fg-strong">{line.accountName}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2 font-mono text-2xs">
+                        <span className={line.debit > 0 ? 'font-black text-fg-strong' : 'text-fg-muted'}>
+                          B {line.debit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className={line.credit > 0 ? 'font-black text-fg-strong' : 'text-fg-muted'}>
+                          A {line.credit.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      {line.description && (
+                        <div className="mt-0.5 truncate text-label font-semibold text-fg-muted">{line.description}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </DetailSection>
+            </div>
+          </DetailPanel>
+        );
+      })()}
 
       {/* MODAL: Fiş Yazdırma */}
       <JournalEntryPrintModal
