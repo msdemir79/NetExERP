@@ -1,4 +1,4 @@
-# ProERP — Muhasebe ve Üretim
+# DMR Nexus — Muhasebe ve Üretim
 
 Ayakkabı ve imalat fabrikalarına özel; canlı kamera barkod/karekod okuyucu, üretim refakat kartı (rota fişi), reçeteli BOM hammadde sarfiyat düşümü, muhasebe, stok ve iş emri ERP yönetim sistemi.
 

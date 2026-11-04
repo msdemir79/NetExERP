@@ -1,4 +1,4 @@
-name: ProERP checks
+name: DMR Nexus checks
 on: [push, pull_request]
 jobs:
   verify:

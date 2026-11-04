@@ -1,4 +1,4 @@
-# ProERP sürüm yayın akışı.
+# DMR Nexus sürüm yayın akışı.
 #
 # Tetikleme:
 #   1) v* etiketi (ör. v1.0.1) push'u — `npm run release -- patch --push`
@@ -95,7 +95,7 @@ jobs:
             echo "::warning::Sürüm notu dosyası yok ($NOTES_FILE); release notu boş olacak."
           fi
           npx electron-builder --win --x64 --publish never $ARGS
-          for f in "release/ProERP-Setup-$VERSION.exe" "release/ProERP-Setup-$VERSION.exe.blockmap" "release/latest.yml"; do
+          for f in "release/DMR-Nexus-Setup-$VERSION.exe" "release/DMR-Nexus-Setup-$VERSION.exe.blockmap" "release/latest.yml"; do
             if [ ! -f "$f" ]; then
               echo "::error::Beklenen dosya üretilmedi: $f"
               exit 1
@@ -119,14 +119,14 @@ jobs:
           if [ -f "release-notes/$TAG.md" ]; then
             NOTES_ARG=(--notes-file "release-notes/$TAG.md")
           else
-            NOTES_ARG=(--notes "ProERP $VERSION")
+            NOTES_ARG=(--notes "DMR Nexus $VERSION")
           fi
 
           gh release create "$TAG" \
-            "release/ProERP-Setup-$VERSION.exe" \
-            "release/ProERP-Setup-$VERSION.exe.blockmap" \
+            "release/DMR-Nexus-Setup-$VERSION.exe" \
+            "release/DMR-Nexus-Setup-$VERSION.exe.blockmap" \
             "release/latest.yml" \
             --verify-tag \
-            --title "ProERP $VERSION" \
+            --title "DMR Nexus $VERSION" \
             "${NOTES_ARG[@]}"
           echo "Release yayınlandı: $TAG"

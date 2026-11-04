@@ -112,7 +112,7 @@ export default function MizanPrintModal({ isOpen, onClose, mizanRows, options }:
     try {
       const html = printContentRef.current.innerHTML;
       await printHtml(html, {
-        title: `ProERP_Mizan_Raporu_${new Date().toISOString().slice(0, 10)}`,
+        title: `DMR Nexus_Mizan_Raporu_${new Date().toISOString().slice(0, 10)}`,
         css: getPrintCss(),
         landscape: orientation === 'landscape'
       });
@@ -124,7 +124,7 @@ export default function MizanPrintModal({ isOpen, onClose, mizanRows, options }:
   const handleOpenNewTab = () => {
     if (!printContentRef.current) return;
     const html = printContentRef.current.innerHTML;
-    openPrintWindow(html, `ProERP Mizan Raporu`, {
+    openPrintWindow(html, `DMR Nexus Mizan Raporu`, {
       css: getPrintCss(),
       landscape: orientation === 'landscape'
     });
@@ -429,7 +429,7 @@ export default function MizanPrintModal({ isOpen, onClose, mizanRows, options }:
 
             {/* 5. DİPNOT */}
             <div className="mt-4 text-[9px] text-slate-500 dark:text-slate-400 flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-2">
-              <span>ProERP Entegre Muhasebe ve Üretim Sistemi &bull; Tek Düzen Hesap Planı Resmi Mizan Çıktısı</span>
+              <span>DMR Nexus Entegre Muhasebe ve Üretim Sistemi &bull; Tek Düzen Hesap Planı Resmi Mizan Çıktısı</span>
               <span>213 Sayılı V.U.K. Standartlarına Uygundur</span>
             </div>
           </div>

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * ProERP Electron ana süreci (main process).
+ * DMR Nexus Electron ana süreci (main process).
  *
  * Mimari:
  *   Electron (bu dosya)
@@ -23,6 +23,10 @@ const net = require('net');
 const { fork, spawnSync } = require('child_process');
 
 const APP_ID = 'com.dmrayakabi.proerp';
+// Yeni görünen ad mevcut Windows kurulumunun veri dizinini değiştirmesin.
+const legacyUserData = path.join(app.getPath('appData'), 'ProERP');
+fs.mkdirSync(legacyUserData, { recursive: true });
+app.setPath('userData', legacyUserData);
 const DEFAULT_PORT = 3000;
 const HEALTH_TIMEOUT_MS = 45_000;
 const HEALTH_INTERVAL_MS = 400;
@@ -304,8 +308,8 @@ function handleUpdateAvailable(info) {
   dialog
     .showMessageBox(mainWindow, {
       type: 'info',
-      title: 'ProERP Güncellemesi',
-      message: 'Yeni ProERP sürümü bulundu.',
+      title: 'DMR Nexus Güncellemesi',
+      message: 'Yeni DMR Nexus sürümü bulundu.',
       detail,
       buttons: ['Güncellemeyi İndir', 'Daha Sonra'],
       defaultId: 0,
@@ -378,9 +382,9 @@ function initAutoUpdater() {
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
-        title: 'ProERP Güncellemesi',
+        title: 'DMR Nexus Güncellemesi',
         message: 'Yeni sürüm hazır.',
-        detail: `ProERP ${info?.version || ''} indirildi.\n"Şimdi Yeniden Başlat" derseniz güncelleme otomatik uygulanır; manuel kurulum dosyası çalıştırmanız gerekmez.`,
+        detail: `DMR Nexus ${info?.version || ''} indirildi.\n"Şimdi Yeniden Başlat" derseniz güncelleme otomatik uygulanır; manuel kurulum dosyası çalıştırmanız gerekmez.`,
         buttons: ['Şimdi Yeniden Başlat', 'Daha Sonra'],
         defaultId: 0,
         cancelId: 1,
@@ -646,7 +650,7 @@ function createMainWindow(url) {
     minWidth: 1100,
     minHeight: 700,
     show: false,
-    title: 'ProERP',
+    title: 'DMR Nexus',
     icon: iconPath(),
     backgroundColor: '#0f172a',
     webPreferences: { ...BASE_WEB_PREFS, preload: PRELOAD_APP },
@@ -718,7 +722,7 @@ function showFatalError(message, detail, canOpenSettings = true) {
   } else {
     dialog.showMessageBox(mainWindow, {
       type: 'error',
-      title: 'ProERP',
+      title: 'DMR Nexus',
       message,
       detail,
       buttons: ['Tamam'],
@@ -788,7 +792,7 @@ async function launchApp(cfg) {
       if (token !== bootToken) return;
       if (!health.ok) {
         createErrorWindow(
-          'ProERP sunucusuna ulaşılamadı.',
+          'DMR Nexus sunucusuna ulaşılamadı.',
           `${cfg.remoteUrl} adresindeki sunucu yanıt vermiyor.\n\n${health.error || health.dbError || ''}\n\nAğ bağlantısını ve sunucunun çalıştığını kontrol edin.`,
           true,
         );
@@ -1184,7 +1188,7 @@ async function runStartupMigrations(cfg) {
             ? `Güncelleme öncesi veritabanı yedeği alındı: ${backup.dir}`
             : 'Güncelleme öncesi yedek alınamadı (mysqldump bulunamadı olabilir).',
           '',
-          'Sorunu çözdükten sonra ProERP\'yi yeniden açın; kalan güncellemeler kaldığı yerden uygulanır.',
+          'Sorunu çözdükten sonra DMR Nexus\'yi yeniden açın; kalan güncellemeler kaldığı yerden uygulanır.',
         ].join('\n'),
       };
     }
@@ -1284,7 +1288,7 @@ function registerIpc() {
     configured: Boolean(currentConfig),
     config: currentConfig,
     version: app.getVersion(),
-    productName: 'ProERP',
+    productName: 'DMR Nexus',
     dev: isDev,
   })));
 
@@ -1364,7 +1368,7 @@ function registerIpc() {
 
   ipcMain.handle('app:getVersion', localGuard(() => ({
     version: app.getVersion(),
-    productName: 'ProERP',
+    productName: 'DMR Nexus',
     electron: process.versions.electron,
     node: process.versions.node,
     platform: process.platform,
@@ -1431,7 +1435,7 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId(APP_ID);
 
   app.whenReady().then(() => {
-    log(`ProERP ${app.getVersion()} başlatıldı (electron ${process.versions.electron}, node ${process.versions.node}, paketli=${app.isPackaged}).`);
+    log(`DMR Nexus ${app.getVersion()} başlatıldı (electron ${process.versions.electron}, node ${process.versions.node}, paketli=${app.isPackaged}).`);
     fs.mkdirSync(logsDir(), { recursive: true });
     fs.mkdirSync(uploadDir(), { recursive: true });
     registerIpc();
@@ -1478,7 +1482,7 @@ if (!app.requestSingleInstanceLock()) {
   process.on('uncaughtException', (err) => {
     log(`Yakalanmamış hata (main): ${err?.stack || err}`);
     try {
-      dialog.showErrorBox('ProERP — Beklenmeyen Hata', `${err?.message || err}\n\nGünlükler: ${logsDir()}`);
+      dialog.showErrorBox('DMR Nexus — Beklenmeyen Hata', `${err?.message || err}\n\nGünlükler: ${logsDir()}`);
     } catch { /* diyalog gösterilemiyor */ }
   });
 }

@@ -13,15 +13,15 @@ export function GibOfficialTemplate({
   companySettings
 }: any) {
   const compLogo = companySettings?.logo;
-  const compName = companySettings?.companyName || 'PROERP';
-  const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'PROERP AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
+  const compName = companySettings?.companyName || 'DMR NEXUS';
+  const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'DMR NEXUS AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
   const compAddress = companySettings?.address || 'İkitelli OSB Aykosan San. Sit. 4. Ada A Blok No:12-14 Başakşehir / İSTANBUL';
   const compTaxOffice = companySettings?.taxOffice || 'İkitelli V.D.';
   const compTaxNumber = companySettings?.taxNumber || '7320491820';
   const compTradeReg = companySettings?.tradeRegistryNo || '948210';
   const compPhone = companySettings?.phone || '0 (212) 671 20 20';
-  const compEmail = companySettings?.email || 'info@proerp.com.tr';
-  const compWebsite = companySettings?.website || 'www.proerp.com.tr';
+  const compEmail = companySettings?.email || 'info@example.com';
+  const compWebsite = companySettings?.website || 'www.example.com';
   const compBank = companySettings?.bankName || 'Ziraat Bankası';
   const compIban = companySettings?.iban || 'TR12 0001 0002 0003 0004 0005 06';
 
@@ -413,7 +413,7 @@ export function GibOfficialTemplate({
         <div className="space-y-1">
           <div className="font-bold text-slate-800 dark:text-slate-200 uppercase">Düzenleyen / Teslim Eden</div>
           <div className="h-14 flex flex-col items-center justify-center font-serif italic text-slate-500 dark:text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded p-1 bg-slate-50 dark:bg-slate-800/50/50">
-            <span className="font-sans font-bold text-[9px] text-indigo-800">ProERP Muhasebe Departmanı</span>
+            <span className="font-sans font-bold text-[9px] text-indigo-800">DMR Nexus Muhasebe Departmanı</span>
             <span className="text-[8px] text-slate-400">5070 Sayılı Kanun Uyarınca e-İmzalıdır</span>
           </div>
           <div className="text-[9px] text-slate-400">İmza / Kaşe</div>

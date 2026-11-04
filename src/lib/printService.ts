@@ -1,5 +1,5 @@
 /**
- * Universal Print Service for ProERP
+ * Universal Print Service for DMR Nexus
  * Handles printing inside iframes, standalone tabs, and thermal/laser printers.
  */
 
@@ -30,7 +30,7 @@ export function printHtml(htmlContent: string, options: PrintOptions = {}): Prom
   const sanitizedContent = sanitizePrintHtml(htmlContent);
   return new Promise((resolve) => {
     try {
-      const title = options.title || 'ProERP Baskı';
+      const title = options.title || 'DMR Nexus Baskı';
       
       // Check if we have an existing print frame and remove it
       const oldFrame = document.getElementById('proerp-print-frame');
@@ -244,7 +244,7 @@ export async function printElement(elementOrId: string | HTMLElement, options: P
  */
 export function openPrintWindow(
   htmlContent: string, 
-  title: string = 'ProERP Baskı Önizleme',
+  title: string = 'DMR Nexus Baskı Önizleme',
   options: PrintOptions = {}
 ): string | null {
   const sanitizedContent = sanitizePrintHtml(htmlContent);

@@ -108,7 +108,7 @@ export default function KebirPrintModal({
     try {
       const html = printContentRef.current.innerHTML;
       await printHtml(html, {
-        title: `ProERP_Defteri_Kebir_${accountCode}_${new Date().toISOString().slice(0, 10)}`,
+        title: `DMR Nexus_Defteri_Kebir_${accountCode}_${new Date().toISOString().slice(0, 10)}`,
         css: getPrintCss(),
         landscape: orientation === 'landscape'
       });
@@ -120,7 +120,7 @@ export default function KebirPrintModal({
   const handleOpenNewTab = () => {
     if (!printContentRef.current) return;
     const html = printContentRef.current.innerHTML;
-    openPrintWindow(html, `ProERP Defter-i Kebir (${accountCode})`, {
+    openPrintWindow(html, `DMR Nexus Defter-i Kebir (${accountCode})`, {
       css: getPrintCss(),
       landscape: orientation === 'landscape'
     });
@@ -393,7 +393,7 @@ export default function KebirPrintModal({
 
             {/* 6. DİPNOT */}
             <div className="mt-4 text-[9px] text-slate-500 dark:text-slate-400 flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-2">
-              <span>ProERP Büyük Defter (Defter-i Kebir) Sistemi &bull; Belge No: DK-{accountCode}</span>
+              <span>DMR Nexus Büyük Defter (Defter-i Kebir) Sistemi &bull; Belge No: DK-{accountCode}</span>
               <span>213 Sayılı V.U.K. ve TTK Hükümlerine Uygundur</span>
             </div>
           </div>

@@ -97,7 +97,7 @@ export const BarcodeTemplatesManager: React.FC = () => {
     setPrintingTemplateId(template.id);
     try {
       await barcodeTemplateService.printDirect(template, {
-        companyName: template.config?.companyHeaderText || 'PROERP AYAKKABI SANAYİ',
+        companyName: template.config?.companyHeaderText || 'DMR NEXUS AYAKKABI SANAYİ',
         productCode: 'AYK-OXF-2026',
         productName: 'Hakiki Deri Erkek Klasik Oxford',
         color: 'SİYAH / BLACK',

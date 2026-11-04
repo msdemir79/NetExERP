@@ -18,16 +18,16 @@ export function CompactDeliveryTemplate({
     ? 'İPTAL EDİLMİŞ FATURA' 
     : (isSales ? 'İRSALİYELİ e-ARŞİV FATURA' : 'İRSALİYELİ ALIŞ FATURASI');
 
-  const compName = companySettings?.companyName || 'ProERP Ayakkabı';
-  const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'PROERP AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
+  const compName = companySettings?.companyName || 'DMR Nexus Ayakkabı';
+  const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'DMR NEXUS AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
   const compLogo = companySettings?.logo;
   const compAddress = companySettings?.address || 'Organize Sanayi Bölgesi 12. Cadde No: 45 / Başakşehir / İSTANBUL';
   const compTaxOffice = companySettings?.taxOffice || 'İkitelli V.D.';
   const compTaxNumber = companySettings?.taxNumber || '7340592811';
   const compTradeReg = companySettings?.tradeRegistryNo || '948123-5';
   const compPhone = companySettings?.phone || '(0212) 555 01 99';
-  const compEmail = companySettings?.email || 'muhasebe@proerp.com';
-  const compWebsite = companySettings?.website || 'www.proerp.com.tr';
+  const compEmail = companySettings?.email || 'muhasebe@example.com';
+  const compWebsite = companySettings?.website || 'www.example.com';
   const compBank = companySettings?.bankName || 'T.C. Ziraat Bankası - İkitelli Şubesi';
   const compIban = companySettings?.iban || 'TR33 0001 0002 0003 0004 0005 01';
 
@@ -412,7 +412,7 @@ export function CompactDeliveryTemplate({
         <div className="space-y-1">
           <div className="font-bold text-slate-800 dark:text-slate-200 uppercase">1. Düzenleyen / Muhasebe</div>
           <div className="h-12 flex flex-col items-center justify-center font-serif italic text-slate-500 dark:text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded p-1 bg-slate-50 dark:bg-slate-800/50/50">
-            <span className="font-sans font-bold text-[9px] text-slate-800 dark:text-slate-200">ProERP Muhasebe</span>
+            <span className="font-sans font-bold text-[9px] text-slate-800 dark:text-slate-200">DMR Nexus Muhasebe</span>
             <span className="text-[8px] text-slate-400">e-İmza ile Onaylıdır</span>
           </div>
           <div className="text-[8px] text-slate-400">İmza / Kaşe</div>

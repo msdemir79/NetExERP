@@ -1,5 +1,5 @@
 /**
- * ProERP #48 — Yetki (RBAC) doğrulama testleri.
+ * DMR Nexus #48 — Yetki (RBAC) doğrulama testleri.
  *
  * Gerçek HTTP + gerçek MySQL + gerçek oturum/RBAC yolu üzerinde koşar. Harness
  * aynı süreç içinde ephemeral bir sunucu başlatır; `mintToken` ile farklı
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   for (const role of required) tokens[role] = mintToken(ids[role]);
 
   console.log('\n======================================================');
-  console.log(' PROERP #48 — YETKİ (RBAC) DOĞRULAMA TESTLERİ');
+  console.log(' DMR NEXUS #48 — YETKİ (RBAC) DOĞRULAMA TESTLERİ');
   console.log(` Hedef: ${srv.baseUrl} (canlı DB, in-process oturumlar)`);
   console.log('======================================================\n');
 
