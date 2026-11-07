@@ -434,7 +434,7 @@ async function doSeed(conn: PoolConnection | null): Promise<{ created: boolean }
         userRole: 'Süper Admin / Sistem Yöneticisi',
         action: 'system',
         module: 'system',
-        description: 'DMR Nexus fabrika yönetim sistemi ve rol tabanlı yetkilendirme (RBAC) başarıyla kuruldu.',
+        description: 'DMR Nexus ERP fabrika yönetim sistemi ve rol tabanlı yetkilendirme (RBAC) başarıyla kuruldu.',
         details: '7 adet temel sistem rolü ve departman kullanıcıları tanımlandı.',
         ipAddress: '192.168.1.100',
         timestamp: new Date('2026-09-01T08:00:00'),

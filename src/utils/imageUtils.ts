@@ -1,5 +1,5 @@
 /**
- * Image processing utilities for DMR Nexus
+ * Image processing utilities for DMR Nexus ERP
  * Automatically resizes, optimizes, and standardizes product and label images.
  */
 

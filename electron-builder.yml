@@ -1,4 +1,4 @@
-# Electron Builder yapılandırması — DMR Nexus Windows masaüstü paketi.
+# Electron Builder yapılandırması — DMR Nexus ERP Windows masaüstü paketi.
 #
 # Mimari notları:
 #   - Uygulama kodu (electron/) asar içine girer; main.cjs yalnız Electron
@@ -7,7 +7,7 @@
 #     resources/backend/ altına konur: fork ile ELECTRON_RUN_AS_NODE=1 altında
 #     çalıştırılan Node süreci asar arşivini okuyamaz.
 appId: com.dmrayakabi.proerp
-productName: DMR Nexus
+productName: DMR Nexus ERP
 copyright: Copyright © 2026
 
 # Otomatik güncelleme: electron-updater bu repodaki Releases'ten
@@ -65,7 +65,7 @@ nsis:
   multiLanguageInstaller: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: DMR Nexus
+  shortcutName: DMR Nexus ERP
   runAfterFinish: true
   deleteAppDataOnUninstall: false
-  artifactName: DMR-Nexus-Setup-${version}.exe
+  artifactName: DMR-Nexus-ERP-Setup-${version}.exe

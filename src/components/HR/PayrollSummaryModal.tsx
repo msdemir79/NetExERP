@@ -78,7 +78,7 @@ export default function PayrollSummaryModal({
 
   if (!isOpen) return null;
 
-  const compName = companySettings?.companyName || 'DMR Nexus Ayakkabı';
+  const compName = companySettings?.companyName || 'DMR Nexus ERP Ayakkabı';
   const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'PRO ERP AYAKKABI SAN. TİC. LTD. ŞTİ.';
   const compLogo = companySettings?.logo;
   const compAddress = companySettings?.address || 'İkitelli OSB Aykosan Sanayi Sitesi 4. Ada B Blok No:12 Başakşehir / İstanbul';

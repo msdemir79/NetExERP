@@ -1,5 +1,5 @@
 /**
- * DMR Nexus Faz 6 — Kalıp (last) takip modülü testleri.
+ * DMR Nexus ERP Faz 6 — Kalıp (last) takip modülü testleri.
  *
  * Gerçek HTTP + gerçek MySQL + gerçek RBAC/op yolu üzerinde, harness'ın mint
  * ettiği super_admin oturumuyla koşar. Kalıp modülünün uçtan uca garantilerini

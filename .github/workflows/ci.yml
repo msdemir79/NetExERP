@@ -1,4 +1,4 @@
-name: DMR Nexus checks
+name: DMR Nexus ERP checks
 on: [push, pull_request]
 jobs:
   verify:

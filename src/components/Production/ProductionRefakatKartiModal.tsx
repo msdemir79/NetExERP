@@ -739,7 +739,7 @@ export default function ProductionRefakatKartiModal({
 
             {/* Footer Notice */}
             <div className="border-t border-slate-300 pt-2 flex items-center justify-between text-[9px] text-slate-500 font-medium">
-              <span>DMR Nexus Ayakkabı İmalat Takip Modülü • Belge No: REF-{workOrder.barcode}</span>
+              <span>DMR Nexus ERP Ayakkabı İmalat Takip Modülü • Belge No: REF-{workOrder.barcode}</span>
               <span>Baskı Tarihi: {new Date().toLocaleString('tr-TR')}</span>
             </div>
           </div>

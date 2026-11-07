@@ -20,7 +20,7 @@ import {
 } from './nativeBridge';
 
 const TITLES: Record<MobileTab, string> = {
-  summary: 'DMR Nexus Özet',
+  summary: 'DMR Nexus ERP Özet',
   contacts: 'Cari Hesaplar',
   inventory: 'Stok Durumu',
   orders: 'Siparişler',

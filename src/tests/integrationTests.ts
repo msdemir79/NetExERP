@@ -1,5 +1,5 @@
 /**
- * DMR Nexus Faz 3 — Integration + Concurrency Testleri (item 5, 6).
+ * DMR Nexus ERP Faz 3 — Integration + Concurrency Testleri (item 5, 6).
  *
  * Gerçek HTTP + gerçek MySQL + gerçek RBAC/op yolu üzerinde, harness'ın mint
  * ettiği super_admin oturumuyla koşar. Sertleştirme garantilerini uçtan uca

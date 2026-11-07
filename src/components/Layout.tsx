@@ -27,7 +27,7 @@ import GlobalSearch from './Common/GlobalSearch';
 import NotificationBell from './Common/NotificationBell';
 import UserMenu from './Common/UserMenu';
 
-const BRAND_NAME = 'DMR Nexus';
+const BRAND_NAME = 'DMR Nexus ERP';
 
 export default function Layout() {
   const { actualTheme, setTheme } = useTheme();

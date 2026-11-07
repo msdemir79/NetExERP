@@ -530,14 +530,14 @@ export default function StockDetailReport() {
 
         <!-- Footer -->
         <div style="margin-top: 14px; border-top: 1px solid #cbd5e1; padding-top: 6px; font-size: 8px; color: #94a3b8; display: flex; justify-content: space-between;">
-          <span>DMR Nexus Ayakkabı & Envanter Yönetimi</span>
+          <span>DMR Nexus ERP Ayakkabı & Envanter Yönetimi</span>
           <span>Yazdırıldı: ${new Date().toLocaleString('tr-TR')}</span>
         </div>
 
       </div>
     `;
 
-    printHtml(html, { title: 'DMR Nexus Stok Detay Raporu' });
+    printHtml(html, { title: 'DMR Nexus ERP Stok Detay Raporu' });
   };
 
   const handleExportExcel = () => {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:">
-<title>DMR Nexus — İlk Kurulum</title>
+<title>DMR Nexus ERP — İlk Kurulum</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -21,10 +21,10 @@
     background: #111c30;
   }
   .logo {
-    width: 40px; height: 40px; border-radius: 11px;
+    height: 40px; width: auto; border-radius: 9px;
     object-fit: contain;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px; font-weight: 900; color: #ffffff; letter-spacing: -1px;
+    background: #ffffff;
+    padding: 4px 10px;
   }
   .brand { font-size: 17px; font-weight: 800; }
   .brand span { color: #60a5fa; }
@@ -116,8 +116,8 @@
 </head>
 <body>
   <header>
-    <img class="logo" src="dmr-nexus-icon.png" alt="DMR Nexus">
-    <div class="brand">DMR Nexus — İlk Kurulum</div>
+    <img class="logo" src="dmr-nexus-icon.png" alt="DMR Nexus ERP">
+    <div class="brand">DMR Nexus ERP — İlk Kurulum</div>
     <div class="version" id="version"></div>
   </header>
 
@@ -141,7 +141,7 @@
         <button class="choice" id="modeRemote">
           <div class="ci">&#127760;</div>
           <h3>Fabrika sunucusuna bağlan</h3>
-          <p>Bu makine, ağ üzerindeki merkezi DMR Nexus sunucusuna istemci olarak bağlanır (LAN kurulumu).</p>
+          <p>Bu makine, ağ üzerindeki merkezi DMR Nexus ERP sunucusuna istemci olarak bağlanır (LAN kurulumu).</p>
         </button>
       </div>
     </section>
@@ -201,8 +201,8 @@
     <section class="pane" id="pane2remote">
       <h2>Sunucu adresi</h2>
       <div class="sub">
-        Fabrikadaki merkezi DMR Nexus sunucusunun adresini girin (örn. <b>http://192.168.1.50:3000</b>).
-        Sunucuda DMR Nexus zaten çalışıyor olmalıdır; bu makinede ek kurulum yapılmaz.
+        Fabrikadaki merkezi DMR Nexus ERP sunucusunun adresini girin (örn. <b>http://192.168.1.50:3000</b>).
+        Sunucuda DMR Nexus ERP zaten çalışıyor olmalıdır; bu makinede ek kurulum yapılmaz.
       </div>
       <div class="form">
         <div class="field wide">

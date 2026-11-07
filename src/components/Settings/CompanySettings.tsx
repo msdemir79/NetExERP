@@ -35,8 +35,8 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
   // Yedekleme/geri yükleme ve sıfırlama işlemleri yıkıcıdır: yalnızca Süper Admin.
   const { isSuperAdmin } = useAuth();
   const [comp, setComp] = useState<CompanySettingsType>(settings.company || {
-    companyName: 'DMR Nexus Ayakkabı San. ve Tic. Ltd. Şti.',
-    companyTitle: 'DMR Nexus Ayakkabı İmalat Sanayi ve Ticaret Limited Şirketi',
+    companyName: 'DMR Nexus ERP Ayakkabı San. ve Tic. Ltd. Şti.',
+    companyTitle: 'DMR Nexus ERP Ayakkabı İmalat Sanayi ve Ticaret Limited Şirketi',
     taxOffice: 'Güngören Vergi Dairesi',
     taxNumber: '7340981245',
     tradeRegistryNo: '458921-5',
@@ -179,7 +179,7 @@ export default function CompanySettings({ settings, onSave }: CompanySettingsPro
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `DMR Nexus_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `DMR Nexus ERP_Backup_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {

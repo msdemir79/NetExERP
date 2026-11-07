@@ -146,7 +146,7 @@ export default function AuditLogTab() {
     ]);
 
     const dateStr = new Date().toISOString().slice(0, 10);
-    exportToCsv(`DMR Nexus_Denetim_Izi_${dateStr}.csv`, headers, rows);
+    exportToCsv(`DMR Nexus ERP_Denetim_Izi_${dateStr}.csv`, headers, rows);
   };
 
   return (

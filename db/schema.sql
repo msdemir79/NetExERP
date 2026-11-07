@@ -1,4 +1,4 @@
--- ProERP veritabanı şeması
+-- DMR Nexus ERP veritabanı şeması
 -- MySQL 8.4+ / InnoDB / utf8mb4 (Türkçe sıralama: utf8mb4_turkish_ci)
 --
 -- Tasarım: Skaler ve indekslenen alanlar normal kolon; iç içe diziler

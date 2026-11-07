@@ -1,6 +1,6 @@
 /**
  * Electron masaüstü köprüsü (electron/preload.cjs) tip tanımları.
- * Bu API yalnız DMR Nexus masaüstü paketinde bulunur; tarayıcıda
+ * Bu API yalnız DMR Nexus ERP masaüstü paketinde bulunur; tarayıcıda
  * window.proerpApp tanımlı değildir (opsiyonel erişim).
  */
 

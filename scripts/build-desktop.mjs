@@ -75,7 +75,7 @@ const backendPkg = {
   name: 'proerp-backend',
   version: pkg.version,
   private: true,
-  description: 'DMR Nexus masaüstü paketi yerel sunucusu',
+  description: 'DMR Nexus ERP masaüstü paketi yerel sunucusu',
   main: 'server.cjs',
   dependencies: {
     express: pkg.dependencies.express,

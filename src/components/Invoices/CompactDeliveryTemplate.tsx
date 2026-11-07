@@ -18,7 +18,7 @@ export function CompactDeliveryTemplate({
     ? 'İPTAL EDİLMİŞ FATURA' 
     : (isSales ? 'İRSALİYELİ e-ARŞİV FATURA' : 'İRSALİYELİ ALIŞ FATURASI');
 
-  const compName = companySettings?.companyName || 'DMR Nexus Ayakkabı';
+  const compName = companySettings?.companyName || 'DMR Nexus ERP Ayakkabı';
   const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'DMR NEXUS AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
   const compLogo = companySettings?.logo;
   const compAddress = companySettings?.address || 'Organize Sanayi Bölgesi 12. Cadde No: 45 / Başakşehir / İSTANBUL';
@@ -412,7 +412,7 @@ export function CompactDeliveryTemplate({
         <div className="space-y-1">
           <div className="font-bold text-slate-800 dark:text-slate-200 uppercase">1. Düzenleyen / Muhasebe</div>
           <div className="h-12 flex flex-col items-center justify-center font-serif italic text-slate-500 dark:text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded p-1 bg-slate-50 dark:bg-slate-800/50/50">
-            <span className="font-sans font-bold text-[9px] text-slate-800 dark:text-slate-200">DMR Nexus Muhasebe</span>
+            <span className="font-sans font-bold text-[9px] text-slate-800 dark:text-slate-200">DMR Nexus ERP Muhasebe</span>
             <span className="text-[8px] text-slate-400">e-İmza ile Onaylıdır</span>
           </div>
           <div className="text-[8px] text-slate-400">İmza / Kaşe</div>

@@ -1,5 +1,5 @@
 /**
- * DMR Nexus #48 — Yetki (RBAC) doğrulama testleri.
+ * DMR Nexus ERP #48 — Yetki (RBAC) doğrulama testleri.
  *
  * Gerçek HTTP + gerçek MySQL + gerçek oturum/RBAC yolu üzerinde koşar. Harness
  * aynı süreç içinde ephemeral bir sunucu başlatır; `mintToken` ile farklı

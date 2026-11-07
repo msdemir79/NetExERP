@@ -1,5 +1,5 @@
 /**
- * Official GİB (Gelir İdaresi Başkanlığı) UBL-TR 1.2 XML Generator for DMR Nexus
+ * Official GİB (Gelir İdaresi Başkanlığı) UBL-TR 1.2 XML Generator for DMR Nexus ERP
  * Complies with OASIS Universal Business Language (UBL) 2.1 & GİB UBL-TR 1.2 Standards.
  * Generates valid e-Fatura (Invoice) and e-İrsaliye (DespatchAdvice) XML structures
  * ready for direct import into GİB Portal or official private integrators (Logo, Uyumsoft, Foriba, Digital Planet, etc.)
@@ -120,7 +120,7 @@ export function generateUblTrInvoiceXml(
   // Supplier identification
   const supplierTaxNumber = (supplier.taxNumber || '7340592811').trim();
   const supplierSchemeId = supplierTaxNumber.length === 11 ? 'TCKN' : 'VKN';
-  const supplierTitle = supplier.companyTitle || supplier.companyName || 'DMR Nexus İmalat ve Tic. A.Ş.';
+  const supplierTitle = supplier.companyTitle || supplier.companyName || 'DMR Nexus ERP İmalat ve Tic. A.Ş.';
   const supplierTaxOffice = supplier.taxOffice || 'İkitelli V.D.';
   const supplierCity = supplier.city || 'İstanbul';
   const supplierDistrict = supplier.district || 'Başakşehir';
@@ -246,7 +246,7 @@ export function generateUblTrInvoiceXml(
   <cbc:IssueDate>${invoiceDate}</cbc:IssueDate>
   <cbc:IssueTime>${invoiceTime}</cbc:IssueTime>
   <cbc:InvoiceTypeCode>${invoiceTypeCode}</cbc:InvoiceTypeCode>
-  <cbc:Note>DMR Nexus e-Fatura Sistemi ile UBL-TR 1.2 Formatında Üretilmiştir.</cbc:Note>
+  <cbc:Note>DMR Nexus ERP e-Fatura Sistemi ile UBL-TR 1.2 Formatında Üretilmiştir.</cbc:Note>
   ${invoice.notes ? `<cbc:Note>${escapeXml(invoice.notes)}</cbc:Note>` : ''}
   <cbc:DocumentCurrencyCode>${currency}</cbc:DocumentCurrencyCode>
   <cbc:LineCountNumeric>${items.length}</cbc:LineCountNumeric>
@@ -426,7 +426,7 @@ export function generateUblTrWaybillXml(
   <cbc:IssueDate>${issueDate}</cbc:IssueDate>
   <cbc:IssueTime>${dispatchTime}</cbc:IssueTime>
   <cbc:DespatchAdviceTypeCode>SEVK</cbc:DespatchAdviceTypeCode>
-  <cbc:Note>DMR Nexus e-İrsaliye Sistemi ile UBL-TR 1.2 standardında düzenlenmiştir.</cbc:Note>
+  <cbc:Note>DMR Nexus ERP e-İrsaliye Sistemi ile UBL-TR 1.2 standardında düzenlenmiştir.</cbc:Note>
   ${waybill.notes ? `<cbc:Note>${escapeXml(waybill.notes)}</cbc:Note>` : ''}
   <cbc:LineCountNumeric>${items.length}</cbc:LineCountNumeric>
 

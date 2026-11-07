@@ -103,7 +103,7 @@ export default function UpdateSettings() {
           <div>
             <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">Masaüstü uygulaması gerekiyor</h4>
             <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1 leading-relaxed">
-              Otomatik güncelleme denetimi yalnız DMR Nexus masaüstü (Windows) uygulamasında kullanılabilir.
+              Otomatik güncelleme denetimi yalnız DMR Nexus ERP masaüstü (Windows) uygulamasında kullanılabilir.
               Tarayıcıdan eriştiğiniz bu sunucunun sürümünü sistem yöneticiniz güncelleyebilir.
             </p>
           </div>
@@ -119,7 +119,7 @@ export default function UpdateSettings() {
           <div>
             <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider">Geliştirme modunda güncelleme denetimi yapılmaz</h4>
             <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mt-1">
-              Bu oturum paketlenmiş bir DMR Nexus sürümü değil; otomatik güncelleme yalnız kurulu üretim sürümünde etkindir.
+              Bu oturum paketlenmiş bir DMR Nexus ERP sürümü değil; otomatik güncelleme yalnız kurulu üretim sürümünde etkindir.
             </p>
           </div>
         </div>
@@ -220,7 +220,7 @@ export default function UpdateSettings() {
           <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4 flex items-start gap-3">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
             <div>
-              <h4 className="text-xs font-black text-emerald-900 dark:text-emerald-200 uppercase tracking-wider">DMR Nexus güncel.</h4>
+              <h4 className="text-xs font-black text-emerald-900 dark:text-emerald-200 uppercase tracking-wider">DMR Nexus ERP güncel.</h4>
               <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium mt-0.5">
                 Yüklü sürümünüz (v{versionInfo?.version || update.version || '—'}) en son yayınlanan sürümdür.
               </p>
@@ -264,7 +264,7 @@ export default function UpdateSettings() {
               <div>
                 <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">Güncellemeleri kontrol et</h4>
                 <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-0.5">
-                  Yüklü sürümünüzden yeni bir DMR Nexus sürümü yayınlanıp yayınlanmadığını şimdi denetleyin.
+                  Yüklü sürümünüzden yeni bir DMR Nexus ERP sürümü yayınlanıp yayınlanmadığını şimdi denetleyin.
                 </p>
               </div>
             </div>
@@ -302,16 +302,16 @@ export default function UpdateSettings() {
             </div>
             <div>
               <h3 className="text-base font-bold uppercase tracking-wider">Sistem Bilgileri</h3>
-              <p className="text-slate-400 text-xs font-medium">Yüklü DMR Nexus sürümü ve çalışma ortamı</p>
+              <p className="text-slate-400 text-xs font-medium">Yüklü DMR Nexus ERP sürümü ve çalışma ortamı</p>
             </div>
           </div>
           <span className="text-sm font-black tracking-tight bg-white/10 border border-white/20 rounded-lg px-3 py-1.5">
-            DMR Nexus v{versionInfo?.version || (desktop ? '—' : 'web')}
+            DMR Nexus ERP v{versionInfo?.version || (desktop ? '—' : 'web')}
           </span>
         </div>
         <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: 'DMR Nexus Sürümü', value: versionInfo?.version || (desktop ? '—' : 'Tarayıcı') },
+            { label: 'DMR Nexus ERP Sürümü', value: versionInfo?.version || (desktop ? '—' : 'Tarayıcı') },
             { label: 'Electron', value: versionInfo?.electron || '—' },
             { label: 'Node.js', value: versionInfo?.node || '—' },
             { label: 'Platform', value: versionInfo ? (versionInfo.platform === 'win32' ? 'Windows (x64)' : versionInfo.platform) : 'web' },
@@ -343,7 +343,7 @@ export default function UpdateSettings() {
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-px" />
             <p>
               Güncellemeler GitHub üzerinden SHA-512 bütünlük doğrulamasıyla indirilir ve kurulumdan önce denetlenir.
-              Uygulama açılışında arka planda da denetim yapılır; çevrimdışıysanız DMR Nexus normal çalışmaya devam eder.
+              Uygulama açılışında arka planda da denetim yapılır; çevrimdışıysanız DMR Nexus ERP normal çalışmaya devam eder.
             </p>
           </div>
         </div>

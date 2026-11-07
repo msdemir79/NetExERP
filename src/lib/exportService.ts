@@ -1,5 +1,5 @@
 /**
- * Universal Export Service for DMR Nexus
+ * Universal Export Service for DMR Nexus ERP
  * Supports CSV and rich styled Microsoft Excel (.xls) spreadsheets with UTF-8 BOM.
  */
 

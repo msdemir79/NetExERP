@@ -1,5 +1,5 @@
 /**
- * DMR Nexus — Merkezi Renk Tanımlama Modülü testleri (şartname §20: Test 1–14).
+ * DMR Nexus ERP — Merkezi Renk Tanımlama Modülü testleri (şartname §20: Test 1–14).
  *
  * İki katman vardır:
  *   A) Birim — saf doğrulama/türetme fonksiyonları (DB gerektirmez):

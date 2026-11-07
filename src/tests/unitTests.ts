@@ -1,5 +1,5 @@
 /**
- * DMR Nexus Çekirdek İş Mantığı Birim Testleri
+ * DMR Nexus ERP Çekirdek İş Mantığı Birim Testleri
  * 
  * 1. Bordro & Vergi Matrahı Testleri (2026 Standartları, Kuruş Duyarlılığı)
  * 2. Yevmiye & TDHP Denge Testleri

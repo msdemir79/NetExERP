@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * DMR Nexus Electron ana süreci (main process).
+ * DMR Nexus ERP Electron ana süreci (main process).
  *
  * Mimari:
  *   Electron (bu dosya)
@@ -308,8 +308,8 @@ function handleUpdateAvailable(info) {
   dialog
     .showMessageBox(mainWindow, {
       type: 'info',
-      title: 'DMR Nexus Güncellemesi',
-      message: 'Yeni DMR Nexus sürümü bulundu.',
+      title: 'DMR Nexus ERP Güncellemesi',
+      message: 'Yeni DMR Nexus ERP sürümü bulundu.',
       detail,
       buttons: ['Güncellemeyi İndir', 'Daha Sonra'],
       defaultId: 0,
@@ -382,9 +382,9 @@ function initAutoUpdater() {
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
-        title: 'DMR Nexus Güncellemesi',
+        title: 'DMR Nexus ERP Güncellemesi',
         message: 'Yeni sürüm hazır.',
-        detail: `DMR Nexus ${info?.version || ''} indirildi.\n"Şimdi Yeniden Başlat" derseniz güncelleme otomatik uygulanır; manuel kurulum dosyası çalıştırmanız gerekmez.`,
+        detail: `DMR Nexus ERP ${info?.version || ''} indirildi.\n"Şimdi Yeniden Başlat" derseniz güncelleme otomatik uygulanır; manuel kurulum dosyası çalıştırmanız gerekmez.`,
         buttons: ['Şimdi Yeniden Başlat', 'Daha Sonra'],
         defaultId: 0,
         cancelId: 1,
@@ -650,7 +650,7 @@ function createMainWindow(url) {
     minWidth: 1100,
     minHeight: 700,
     show: false,
-    title: 'DMR Nexus',
+    title: 'DMR Nexus ERP',
     icon: iconPath(),
     backgroundColor: '#0f172a',
     webPreferences: { ...BASE_WEB_PREFS, preload: PRELOAD_APP },
@@ -722,7 +722,7 @@ function showFatalError(message, detail, canOpenSettings = true) {
   } else {
     dialog.showMessageBox(mainWindow, {
       type: 'error',
-      title: 'DMR Nexus',
+      title: 'DMR Nexus ERP',
       message,
       detail,
       buttons: ['Tamam'],
@@ -792,7 +792,7 @@ async function launchApp(cfg) {
       if (token !== bootToken) return;
       if (!health.ok) {
         createErrorWindow(
-          'DMR Nexus sunucusuna ulaşılamadı.',
+          'DMR Nexus ERP sunucusuna ulaşılamadı.',
           `${cfg.remoteUrl} adresindeki sunucu yanıt vermiyor.\n\n${health.error || health.dbError || ''}\n\nAğ bağlantısını ve sunucunun çalıştığını kontrol edin.`,
           true,
         );
@@ -1188,7 +1188,7 @@ async function runStartupMigrations(cfg) {
             ? `Güncelleme öncesi veritabanı yedeği alındı: ${backup.dir}`
             : 'Güncelleme öncesi yedek alınamadı (mysqldump bulunamadı olabilir).',
           '',
-          'Sorunu çözdükten sonra DMR Nexus\'yi yeniden açın; kalan güncellemeler kaldığı yerden uygulanır.',
+          'Sorunu çözdükten sonra DMR Nexus ERP\'yi yeniden açın; kalan güncellemeler kaldığı yerden uygulanır.',
         ].join('\n'),
       };
     }
@@ -1288,7 +1288,7 @@ function registerIpc() {
     configured: Boolean(currentConfig),
     config: currentConfig,
     version: app.getVersion(),
-    productName: 'DMR Nexus',
+    productName: 'DMR Nexus ERP',
     dev: isDev,
   })));
 
@@ -1368,7 +1368,7 @@ function registerIpc() {
 
   ipcMain.handle('app:getVersion', localGuard(() => ({
     version: app.getVersion(),
-    productName: 'DMR Nexus',
+    productName: 'DMR Nexus ERP',
     electron: process.versions.electron,
     node: process.versions.node,
     platform: process.platform,
@@ -1435,7 +1435,7 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId(APP_ID);
 
   app.whenReady().then(() => {
-    log(`DMR Nexus ${app.getVersion()} başlatıldı (electron ${process.versions.electron}, node ${process.versions.node}, paketli=${app.isPackaged}).`);
+    log(`DMR Nexus ERP ${app.getVersion()} başlatıldı (electron ${process.versions.electron}, node ${process.versions.node}, paketli=${app.isPackaged}).`);
     fs.mkdirSync(logsDir(), { recursive: true });
     fs.mkdirSync(uploadDir(), { recursive: true });
     registerIpc();
@@ -1482,7 +1482,7 @@ if (!app.requestSingleInstanceLock()) {
   process.on('uncaughtException', (err) => {
     log(`Yakalanmamış hata (main): ${err?.stack || err}`);
     try {
-      dialog.showErrorBox('DMR Nexus — Beklenmeyen Hata', `${err?.message || err}\n\nGünlükler: ${logsDir()}`);
+      dialog.showErrorBox('DMR Nexus ERP — Beklenmeyen Hata', `${err?.message || err}\n\nGünlükler: ${logsDir()}`);
     } catch { /* diyalog gösterilemiyor */ }
   });
 }

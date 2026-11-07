@@ -46,7 +46,7 @@ export default function LoginScreen() {
           <div className="w-full max-w-[280px] rounded-2xl bg-white p-2 shadow-lg shadow-slate-900/10">
             <img src="/brand/dmr-nexus-wordmark.png" alt="DMR Nexus ERP" className="w-full h-auto object-contain" />
           </div>
-          <h1 className="sr-only">DMR Nexus</h1>
+          <h1 className="sr-only">DMR Nexus ERP</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Muhasebe, üretim ve stok yönetim sistemi
           </p>

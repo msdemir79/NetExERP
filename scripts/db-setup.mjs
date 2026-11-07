@@ -1,4 +1,4 @@
-// DMR Nexus veritabanı kurulumu.
+// DMR Nexus ERP veritabanı kurulumu.
 //
 // Kullanım:
 //   npm run db:setup                              (root şifresini sorar)

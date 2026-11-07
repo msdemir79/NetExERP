@@ -22,8 +22,8 @@ export const settingsService = {
       barcodePrefix: '869',
       nextBarcodeSequence: 1000000,
       company: {
-        companyName: 'DMR Nexus Ayakkabı San. ve Tic. Ltd. Şti.',
-        companyTitle: 'DMR Nexus Ayakkabı İmalat Sanayi ve Ticaret Limited Şirketi',
+        companyName: 'DMR Nexus ERP Ayakkabı San. ve Tic. Ltd. Şti.',
+        companyTitle: 'DMR Nexus ERP Ayakkabı İmalat Sanayi ve Ticaret Limited Şirketi',
         taxOffice: 'Güngören Vergi Dairesi',
         taxNumber: '7340981245',
         tradeRegistryNo: '458921-5',

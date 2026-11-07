@@ -161,7 +161,7 @@ export function InvoicePrintModal({
   const amountInWords = invoiceDetail ? numberToTurkishWords(invoiceDetail.grandTotal || 0) : '';
 
   // Firma Bilgileri (Dinamik Ayarlardan)
-  const compName = companySettings?.companyName || 'DMR Nexus Ayakkabı';
+  const compName = companySettings?.companyName || 'DMR Nexus ERP Ayakkabı';
   const compTitle = companySettings?.companyTitle || companySettings?.companyName || 'DMR NEXUS AYAKKABI SAN. VE TİC. LTD. ŞTİ.';
   const compLogo = companySettings?.logo;
   const compAddress = companySettings?.address || 'Organize Sanayi Bölgesi 12. Cadde No: 45 / Başakşehir / İSTANBUL';

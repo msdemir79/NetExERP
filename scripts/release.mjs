@@ -1,5 +1,5 @@
 /**
- * DMR Nexus sürüm çıkarma yardımcısı.
+ * DMR Nexus ERP sürüm çıkarma yardımcısı.
  *
  * Kullanım:
  *   npm run release -- patch   → 1.0.0 → 1.0.1 (hata düzeltmesi)
@@ -99,7 +99,7 @@ const notesFile = path.join(notesDir, `${tagName}.md`);
 if (!fs.existsSync(notesFile)) {
   fs.writeFileSync(
     notesFile,
-    `# DMR Nexus ${newVersion}
+    `# DMR Nexus ERP ${newVersion}
 
 ## YENİ
 - (bu sürümde eklenen özellikler)
@@ -117,7 +117,7 @@ if (!fs.existsSync(notesFile)) {
 // 4. Commit + etiket. Sürüm notu dosyası da aynı commit'te gider.
 mustRun('git', ['add', 'package.json', 'package-lock.json', `release-notes/${tagName}.md`]);
 mustRun('git', ['commit', '-m', `chore(release): ${tagName}`]);
-mustRun('git', ['tag', '-a', tagName, '-m', `DMR Nexus ${newVersion}`]);
+mustRun('git', ['tag', '-a', tagName, '-m', `DMR Nexus ERP ${newVersion}`]);
 
 console.log(`\nSürüm ${newVersion} hazır (commit + ${tagName} etiketi).`);
 
